@@ -1,11 +1,4 @@
-"""
-Xfind-Mini 量化导出
-
-将 FP32 模型导出为 FP16，减小模型体积，加速推理。
-
-用法:
-    python xfind_quantize.py --input checkpoints/best_model.pt --output checkpoints/model_fp16.pt
-"""
+"""Xfind-Mini 量化导出。FP32 → FP16 减半体积"""
 
 import torch
 import os

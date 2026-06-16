@@ -1,8 +1,4 @@
-"""
-生成样例评估
-
-使用训练好的模型生成文本样例，用于人工评估生成质量。
-"""
+"""使用训练好的模型生成文本样例，用于人工评估"""
 
 import torch
 import os
@@ -26,9 +22,7 @@ from inference.streamer import TextStreamer
 def generate_samples(model, tokenizer, prompts, max_new_tokens=128,
                      temperature=0.8, top_k=50, top_p=0.9,
                      repetition_penalty=1.0, device='cuda'):
-    """
-    对多个 prompt 生成文本样例
-    """
+    """对多个 prompt 生成文本样例"""
     streamer = TextStreamer(tokenizer)
     results = []
 

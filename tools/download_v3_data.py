@@ -63,20 +63,8 @@ def try_gdown(file_id, output_path, desc):
     return False
 
 
-# ============================================================
-# 1. news2016zh - 中文新闻
-# ============================================================
-
 def download_news(output_txt):
-    """
-    下载 news2016zh 新闻数据集。
-
-    来源: nlp_chinese_corpus
-    GitHub: https://github.com/brightmart/nlp_chinese_corpus
-
-    250万篇中文新闻（2014-2016），压缩包 3.6G
-    字段: news_id, keywords, title, desc, source, time, content
-    """
+    """下载 news2016zh 新闻数据集，提取 title+desc+content"""
     print("\n" + "=" * 60)
     print("1/3  中文新闻 (news2016zh)")
     print("=" * 60)
@@ -131,8 +119,7 @@ def download_news(output_txt):
 
 def _extract_news(archive_file, output_txt):
     """从 news2016zh.json.gz 提取纯文本"""
-    print("  提取新闻文本（title + desc + content）...")
-
+    print("  提取新闻文本...")
     count = 0
     with gzip.open(archive_file, 'rt', encoding='utf-8') as fin, \
          open(output_txt, 'w', encoding='utf-8') as fout:
@@ -155,20 +142,8 @@ def _extract_news(archive_file, output_txt):
     return True
 
 
-# ============================================================
-# 2. Baidu Baike - 百度百科
-# ============================================================
-
 def download_baike(output_txt):
-    """
-    下载百度百科数据集。
-
-    来源: baby-llama2-chinese
-    GitHub: https://github.com/DLLXW/baby-llama2-chinese
-
-    563万条百度百科词条，压缩包 4.35G (.7z)
-    字段: title, summary, text 等
-    """
+    """下载百度百科数据集，563万词条，提取 title+summary+text"""
     print("\n" + "=" * 60)
     print("2/3  百度百科 (baby-llama2-chinese)")
     print("=" * 60)
@@ -249,20 +224,8 @@ def _extract_baike(json_file, output_txt):
     return True
 
 
-# ============================================================
-# 3. webtext2019zh - 社区问答
-# ============================================================
-
 def download_qa(output_txt):
-    """
-    下载 webtext2019zh 社区问答数据集。
-
-    来源: nlp_chinese_corpus / Kaggle
-    Kaggle: https://www.kaggle.com/datasets/terrychanorg/webtext2019zhjsonwebtext2019zh
-
-    410万条高质量社区问答（2015-2016），压缩包 1.7G
-    字段: qid, title, desc, topic, star, content, answer_id, answerer_tags
-    """
+    """下载 webtext2019zh 社区问答，410万条，提取 title+content"""
     print("\n" + "=" * 60)
     print("3/3  社区问答 (webtext2019zh)")
     print("=" * 60)
@@ -368,9 +331,6 @@ def download_qa(output_txt):
 
 def download_qa_alt(output_txt):
     """备选：baike2018qa 百科问答"""
-    print("\n" + "=" * 60)
-    print("3/3  百科问答 (baike2018qa) [备选]")
-    print("=" * 60)
 
     if os.path.exists(output_txt):
         print(f"  问答文本已存在: {output_txt}")
@@ -467,10 +427,6 @@ def _extract_qa_alt(archive_file, output_txt):
     print(f"  百科问答文本提取完成: {count} 条, 保存到 {output_txt}")
     return True
 
-
-# ============================================================
-# Main
-# ============================================================
 
 def main():
     parser = argparse.ArgumentParser(description='V3 多源数据下载与提取')

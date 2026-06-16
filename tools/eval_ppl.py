@@ -1,7 +1,4 @@
-"""
-快速 PPL 评估脚本 - 评估模型在验证集/测试集上的困惑度
-用法: python tools/eval_ppl.py [--max_batches 100]
-"""
+"""快速 PPL 评估。用法: python tools/eval_ppl.py [--max_batches 100]"""
 import torch, sys, os, argparse
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 

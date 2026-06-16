@@ -3,22 +3,8 @@ from .xfind_config import XfindConfig, get_args
 
 
 def load_model_for_inference(model_path, device='cuda', checkpoint=None):
-    """
-    从 checkpoint 加载模型用于推理/评估
-
-    三级回退配置读取:
-        1. checkpoint['args'] — 训练时保存的 argparse.Namespace
-        2. checkpoint['config'] — 量化导出的 config 字典
-        3. Xfind-Mini 默认值 — 最后的回退
-
-    Args:
-        model_path: checkpoint 文件路径
-        device: 设备 (cuda/cpu)
-        checkpoint: 可选，已加载的 checkpoint 字典（避免重复磁盘读取）
-
-    Returns:
-        model: XfindModel 实例（eval 模式）
-        config: 模型配置字典
+    """从 checkpoint 加载模型用于推理/评估
+    三级回退：checkpoint['args'] → checkpoint['config'] → 默认值
     """
     import torch
 

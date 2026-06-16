@@ -1,8 +1,4 @@
-"""
-Xfind-Mini 分词器
-
-基于 SentencePiece BPE，适配纯文本续写任务。
-"""
+"""Xfind-Mini 分词器。基于 SentencePiece BPE，32K 词表"""
 
 import sentencepiece as spm
 import os
@@ -10,11 +6,7 @@ import tempfile
 
 
 class XfindTokenizer:
-    """
-    Xfind BPE 分词器
-
-    32K 词表 BPE 分词器，中英混合，统一 encode/decode 接口。
-    """
+    """BPE 分词器，32K 词表，中英混合"""
 
     def __init__(self, model_prefix=None):
         self.sp = None
@@ -38,14 +30,7 @@ class XfindTokenizer:
             self.sp.Load(model_prefix + ".model")
 
     def train(self, text_files, vocab_size=32000, model_prefix="bpe_32k"):
-        """
-        训练 BPE 分词模型
-
-        Args:
-            text_files: 文本文件列表（已清洗的纯文本）
-            vocab_size: 词表大小（默认 32000）
-            model_prefix: 模型保存路径前缀
-        """
+        """训练 BPE 模型"""
         self.model_prefix = model_prefix
 
         # 已有模型直接加载
@@ -100,17 +85,7 @@ class XfindTokenizer:
             os.unlink(temp_file.name)
 
     def encode(self, text, add_bos=False, add_eos=True):
-        """
-        文本 → Token ID 序列
-
-        Args:
-            text: 输入文本
-            add_bos: 是否添加 <s>
-            add_eos: 是否添加 </s>
-
-        Returns:
-            ID 列表，如 [1234, 5678, 3]
-        """
+        """文本 → token ID 序列"""
         if self.sp is None:
             raise ValueError("BPE model not loaded. Call train() first.")
 
@@ -126,16 +101,7 @@ class XfindTokenizer:
         return ids
 
     def decode(self, ids, skip_special=True):
-        """
-        Token ID 序列 → 文本
-
-        Args:
-            ids: ID 列表
-            skip_special: 是否跳过特殊 token
-
-        Returns:
-            还原后的文本
-        """
+        """token ID 序列 → 文本"""
         if self.sp is None:
             raise ValueError("BPE model not loaded. Call train() first.")
 
@@ -156,27 +122,11 @@ class XfindTokenizer:
 
 
 def build_tokenizer(text_files, vocab_size=32000, model_prefix="./bpe_32k"):
-    """
-    构建 Xfind 分词器
-
-    首次运行会自动训练 BPE 模型，后续复用。
-
-    Args:
-        text_files: 训练文本文件列表
-        vocab_size: 词表大小
-        model_prefix: 模型保存路径
-
-    Returns:
-        XfindTokenizer 实例
-    """
+    """构建分词器，首次运行自动训练 BPE，后续复用"""
     tokenizer = XfindTokenizer(model_prefix)
     tokenizer.train(text_files, vocab_size, model_prefix)
     return tokenizer
 
-
-# ============================================================
-# 快速验证
-# ============================================================
 
 if __name__ == "__main__":
     import tempfile

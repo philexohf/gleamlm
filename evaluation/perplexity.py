@@ -1,6 +1,4 @@
-"""
-评估工具：Perplexity（困惑度）计算
-"""
+"""困惑度评估。PPL = exp(loss)，越低越好"""
 
 import torch
 import math
@@ -12,12 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 @torch.no_grad()
 def compute_perplexity(model, data_loader, device='cuda'):
-    """
-    计算模型在数据集上的困惑度
-
-    PPL = exp(cross_entropy_loss)
-    越低越好，表示模型对数据的预测越准确。
-    """
+    """计算模型在数据集上的 PPL"""
     model.eval()
     total_loss = 0
     total_tokens = 0

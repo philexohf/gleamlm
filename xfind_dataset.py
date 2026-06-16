@@ -1,8 +1,4 @@
-"""
-Xfind-Mini 语言模型数据集
-
-实现纯文本续写数据集，支持滑动窗口切分、BPE 分词、动态 padding 和 numpy memmap。
-"""
+"""Xfind-Mini 数据集。滑动窗口切分 + BPE 分词 + 动态 padding + numpy memmap。"""
 
 import torch
 from torch.utils.data import Dataset
@@ -13,7 +9,7 @@ from functools import partial
 
 
 def _encode_chunk(model_path, chunk):
-    """多线程分词辅助函数（SentencePiece C++ 底层释放 GIL）"""
+    """多线程分词辅助函数，SentencePiece C++ 底层释放 GIL"""
     import sentencepiece as spm
     sp = spm.SentencePieceProcessor()
     sp.Load(model_path)
@@ -21,34 +17,11 @@ def _encode_chunk(model_path, chunk):
 
 
 class LMDataset(Dataset):
-    """
-    语言模型数据集（memmap 版本）
-
-    分词后在磁盘上存为 numpy memmap，
-    __getitem__ 时按索引切片返回，内存占用极小。
-
-    数据格式：
-        data_dir/
-            train.txt       # 元始文本
-            train_ids.npy   # 预分词 token ID（自动生成）
-            valid.txt
-            valid_ids.npy
-            test.txt
-            test_ids.npy
-    """
-
+    """LM 数据集（memmap 版本）。分词后存磁盘，按索引切片"""
     def __init__(self, data_dir, tokenizer, max_seq_len=1024, split="train", stride=None):
-        """
-        Args:
-            data_dir: 数据目录
-            tokenizer: XfindTokenizer 实例
-            max_seq_len: 最大序列长度
-            split: "train" / "valid" / "test"
-            stride: 滑动窗口步长（默认 max_seq_len // 2）
-        """
         self.tokenizer = tokenizer
         self.max_seq_len = max_seq_len
-        self.stride = stride or max_seq_len * 3 // 4  # 75%，即 25% 重叠（减少模板强化）
+        self.stride = stride or max_seq_len * 3 // 4  # 75%即25%重叠
 
         text_file = os.path.join(data_dir, f"{split}.txt")
         ids_file = os.path.join(data_dir, f"{split}_ids.npy")
@@ -116,12 +89,6 @@ class LMDataset(Dataset):
         return self.num_samples
 
     def __getitem__(self, idx):
-        """
-        返回单个样本（内存映射切片）
-
-        Returns:
-            tensor: [max_seq_len + 1]，前 max_seq_len 为输入，后 max_seq_len 为目标
-        """
         start = idx * self.stride
         end = start + self.max_seq_len + 1
         ids = self.all_ids[start:end].astype(np.int64)
@@ -129,19 +96,7 @@ class LMDataset(Dataset):
 
 
 def collate_fn(batch):
-    """
-    批次整理函数
-
-    将变长序列 padding 到批次内最大长度，
-    然后拆分为输入和目标（右移一位）。
-
-    Args:
-        batch: Tensor 列表，每个 [seq_len+1]
-
-    Returns:
-        input_ids: [batch, max_len]  输入 token IDs
-        target_ids: [batch, max_len]  目标 token IDs（= input 右移一位）
-    """
+    """padding 到最大长度，拆分为 input_ids 和 target_ids（右移一位）"""
     max_len = max(len(sample) for sample in batch)
 
     padded = []
@@ -151,10 +106,8 @@ def collate_fn(batch):
             sample = torch.cat([sample, padding])
         padded.append(sample)
 
-    batch_tensor = torch.stack(padded)  # [batch, max_len + padding]
+    batch_tensor = torch.stack(padded)
 
-    # 输入：去掉最后一个 token
-    # 目标：去掉第一个 token（右移一位）
     input_ids = batch_tensor[:, :-1]
     target_ids = batch_tensor[:, 1:]
 

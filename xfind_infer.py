@@ -1,18 +1,4 @@
-"""
-Xfind-Mini 推理脚本
-
-支持交互式文本生成，多种采样策略。
-
-用法:
-    # 交互式对话
-    python xfind_infer.py --model checkpoints/best_model.pt
-
-    # 单次生成
-    python xfind_infer.py --model checkpoints/best_model.pt --prompt "人工智能是"
-
-    # 不同采样策略
-    python xfind_infer.py --model checkpoints/best_model.pt --temperature 0.8 --top_k 50 --top_p 0.9
-"""
+"""Xfind-Mini 推理脚本，支持交互式生成和多种采样策略"""
 
 import torch
 import argparse
@@ -34,16 +20,7 @@ from inference.streamer import TextStreamer
 
 
 def load_model(model_path, device='cuda'):
-    """
-    加载模型和配置（含分词器路径解析）
-
-    Args:
-        model_path: 模型 checkpoint 路径
-        device: 设备
-
-    Returns:
-        model, tokenizer, config
-    """
+    """加载模型和分词器"""
     print(f"Loading model: {model_path}")
     checkpoint = torch.load(model_path, map_location=device, weights_only=False)
 
@@ -71,9 +48,7 @@ def load_model(model_path, device='cuda'):
 
 def generate(model, tokenizer, prompt, max_new_tokens=256,
              temperature=1.0, top_k=50, top_p=0.9, device='cuda'):
-    """
-    生成文本
-    """
+    """生成文本并实时打印"""
     streamer = TextStreamer(tokenizer)
 
     print(f"\n{'='*60}")
@@ -100,9 +75,7 @@ def generate(model, tokenizer, prompt, max_new_tokens=256,
 
 def interactive(model, tokenizer, max_new_tokens=256,
                 temperature=1.0, top_k=50, top_p=0.9, device='cuda'):
-    """
-    交互式对话模式
-    """
+    """交互式对话模式"""
     print("\n" + "=" * 60)
     print("Xfind-Mini 交互式文本生成")
     print("输入 'quit' 或 'exit' 退出")

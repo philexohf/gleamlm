@@ -1,23 +1,4 @@
-"""
-Xfind-Mini 训练脚本
-
-从零实现的 LLM 训练框架，支持续写任务。
-
-特性：AMP 混合精度 + CosineAnnealing + Warmup + AdamW + DDP + 断点续训
-
-用法:
-    # 单卡训练
-    python xfind_train.py
-
-    # 自定义参数
-    python xfind_train.py --batch_size 8 --epochs 20 --lr 1e-3
-
-    # DDP 多卡训练
-    torchrun --nproc_per_node=2 xfind_train.py
-
-    # 断点续训
-    python xfind_train.py --load_checkpoint checkpoints/best_model.pt
-"""
+"""Xfind-Mini 训练脚本。支持 AMP + CosineAnnealing + AdamW + DDP + 断点续训"""
 
 import torch
 import torch.nn as nn
@@ -57,34 +38,19 @@ def set_seed(seed):
 
 
 def get_lr_cosine(step, total_steps, warmup_ratio=0.01, min_lr_ratio=0.1):
-    """
-    Cosine Annealing + Warmup 学习率调度（返回乘数 0~1）
-
-    Warmup 阶段：线性从 0 增长到 1
-    Cosine 阶段：余弦退火从 1 衰减到 min_lr_ratio
-
-    注意：返回值为乘数，实际 LR = optimizer.base_lr × 返回值
-
-    Args:
-        step: 当前步数
-        total_steps: 总训练步数
-        warmup_ratio: warmup 占总步数比例
-        min_lr_ratio: 最小学习率相对于峰值的比例
-    """
+    """Cosine Annealing + Warmup 学习率调度，返回乘数 0~1"""
     warmup_steps = int(total_steps * warmup_ratio)
 
     if step < warmup_steps:
-        # 线性 warmup: 0 → 1
         return step / max(1, warmup_steps)
     else:
-        # 余弦退火: 1 → min_lr_ratio
         progress = (step - warmup_steps) / max(1, total_steps - warmup_steps)
         return min_lr_ratio + (1.0 - min_lr_ratio) * 0.5 * (1 + math.cos(math.pi * progress))
 
 
 def train_one_epoch(model, train_loader, optimizer, scheduler, criterion, device,
                     epoch, args, global_step, writer, scaler):
-    """训练一个 epoch（AMP + 梯度累积）"""
+    """训练一个 epoch，支持 AMP + 梯度累积"""
     model.train()
     total_loss = 0
     num_batches = 0
@@ -96,22 +62,18 @@ def train_one_epoch(model, train_loader, optimizer, scheduler, criterion, device
         input_ids = input_ids.to(device)
         target_ids = target_ids.to(device)
 
-        # AMP 前向传播
+        # AMP 前向
         with torch.amp.autocast('cuda'):
-            logits, _ = model(input_ids)                     # [batch, seq, vocab]
+            logits, _ = model(input_ids)
             loss = criterion(
-                logits.view(-1, logits.size(-1)),            # [batch*seq, vocab]
-                target_ids.view(-1)                          # [batch*seq]
+                logits.view(-1, logits.size(-1)),
+                target_ids.view(-1)
             )
 
         loss = loss / accumulate_grad
-
-        # 反向传播
         scaler.scale(loss).backward()
 
-        # 梯度累积
         if (batch_idx + 1) % accumulate_grad == 0 or (batch_idx + 1) == len(train_loader):
-            # 梯度裁剪
             scaler.unscale_(optimizer)
             torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad)
 
@@ -120,7 +82,6 @@ def train_one_epoch(model, train_loader, optimizer, scheduler, criterion, device
             scheduler.step()
             optimizer.zero_grad()
 
-            # TensorBoard 日志
             if args.local_rank == 0 and writer is not None:
                 current_loss = loss.item() * accumulate_grad
                 current_lr = scheduler.get_last_lr()[0]
@@ -132,7 +93,6 @@ def train_one_epoch(model, train_loader, optimizer, scheduler, criterion, device
         total_loss += loss.item() * accumulate_grad
         num_batches += 1
 
-        # 控制台日志
         if args.local_rank == 0 and batch_idx % args.log_interval == 0:
             lr = scheduler.get_last_lr()[0]
             pbar.set_postfix({
@@ -145,19 +105,12 @@ def train_one_epoch(model, train_loader, optimizer, scheduler, criterion, device
 
 @torch.no_grad()
 def evaluate(model, val_loader, device, pad_token_id=0):
-    """
-    验证集评估
-
-    使用无 label_smoothing 的 CrossEntropyLoss 计算 PPL，
-    与训练 loss 区分开（训练可用 label_smoothing，验证不用）。
-
-    返回 loss 和 Perplexity（PPL = exp(loss)）
-    """
+    """验证集评估，返回 loss 和 PPL"""
     model.eval()
     total_loss = 0
     num_batches = 0
 
-    # 验证使用标准交叉熵（无 label_smoothing），确保 PPL 准确
+    # 验证用标准 CE（无 label_smoothing）确保 PPL 准确
     eval_criterion = nn.CrossEntropyLoss(ignore_index=pad_token_id)
 
     for input_ids, target_ids in val_loader:
@@ -208,10 +161,7 @@ def main():
               f"heads={args.num_heads}(Q)/{args.num_kv_heads}(KV)")
         print(f"Data dir: {args.data_dir}")
 
-    # ============================================================
     # 构建分词器
-    # ============================================================
-    # 查找训练文本文件
     train_txt = os.path.join(args.data_dir, "train.txt")
     valid_txt = os.path.join(args.data_dir, "valid.txt")
 
@@ -235,9 +185,6 @@ def main():
     if args.local_rank == 0:
         print(f"Tokenizer vocab size: {len(tokenizer)}")
 
-    # ============================================================
-    # 加载数据集
-    # ============================================================
     train_dataset = LMDataset(args.data_dir, tokenizer, args.max_seq_len, "train")
     val_dataset = LMDataset(args.data_dir, tokenizer, args.max_seq_len, "valid")
 
@@ -253,9 +200,6 @@ def main():
         val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False,
                                  collate_fn=collate_fn, num_workers=0, pin_memory=True)
 
-    # ============================================================
-    # 构建模型
-    # ============================================================
     model = XfindModel(
         vocab_size=args.vocab_size,
         d_model=args.d_model,
@@ -273,15 +217,12 @@ def main():
         total, trainable = model.get_num_params()
         print(f"Model parameters: {total / 1e6:.2f}M total, {trainable / 1e6:.2f}M trainable")
 
-    # torch.compile: Windows 无 Triton，使用 eager 模式
+    # torch.compile 在 Windows 上暂无 Triton 支持
     # model = torch.compile(model)
 
     if args.world_size > 1:
         model = nn.parallel.DistributedDataParallel(model, device_ids=[args.local_rank])
 
-    # ============================================================
-    # 损失函数 & 优化器 & 学习率调度器
-    # ============================================================
     criterion = nn.CrossEntropyLoss(
         ignore_index=tokenizer.pad_id,
         label_smoothing=args.label_smoothing
@@ -290,7 +231,7 @@ def main():
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=args.lr,
-        betas=(0.9, 0.95),    # Llama 标准 betas
+        betas=(0.9, 0.95),
         eps=1e-8,
         weight_decay=args.weight_decay
     )
@@ -305,9 +246,6 @@ def main():
     # AMP 梯度缩放器
     scaler = torch.amp.GradScaler('cuda')
 
-    # ============================================================
-    # 断点续训
-    # ============================================================
     start_epoch = 0
     global_step = 0
     best_val_loss = float('inf')
@@ -336,9 +274,6 @@ def main():
         if args.local_rank == 0:
             print(f"Resuming from epoch {start_epoch}, step {global_step}")
 
-    # ============================================================
-    # TensorBoard 初始化
-    # ============================================================
     os.makedirs(args.checkpoint_dir, exist_ok=True)
     writer = None
     if args.local_rank == 0:
@@ -350,9 +285,6 @@ def main():
         else:
             print("Warning: tensorboard not available")
 
-    # ============================================================
-    # 训练循环
-    # ============================================================
     for epoch in range(start_epoch, args.epochs):
         if args.world_size > 1:
             train_loader.sampler.set_epoch(epoch)
@@ -409,9 +341,6 @@ def main():
                 'scaler_state_dict': scaler.state_dict(),
             }, os.path.join(args.checkpoint_dir, f"checkpoint_epoch_{epoch}.pt"))
 
-    # ============================================================
-    # 清理
-    # ============================================================
     if args.world_size > 1:
         dist.destroy_process_group()
 
