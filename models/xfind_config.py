@@ -76,8 +76,8 @@ def get_args():
 
 class XfindConfig:
     """
-    默认配置类 - 用于推理时加载模型参数
-    Xfind-Mini: 约 35M 参数
+    默认配置类 - 用于推理时加载模型参数和快速查阅默认值
+    Xfind-Mini: 约 39M 参数
     """
     seed = 42
     epochs = 5

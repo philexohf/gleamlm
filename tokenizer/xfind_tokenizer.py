@@ -4,7 +4,6 @@ Xfind-Mini 分词器
 基于 SentencePiece BPE，适配纯文本续写任务。
 """
 
-import re
 import sentencepiece as spm
 import os
 import tempfile

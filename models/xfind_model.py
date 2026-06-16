@@ -433,7 +433,6 @@ class XfindModel(nn.Module):
             causal_mask = self._create_causal_mask(seq_len, device)
         else:
             # 推理模式：KV Cache 中已有历史，只需看当前位置
-            total_len = past_kv_list[0][0].size(2) + seq_len
             causal_mask = None  # 只需看自己，无需掩码
 
         # 逐层传递

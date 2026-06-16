@@ -1,5 +1,5 @@
 """
-Xfind-Mini 流式文本生成器
+XFIND-LLM 流式文本生成器
 
 封装 KV Cache + 采样策略，提供逐 token 输出的流式生成接口。
 """

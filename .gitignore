@@ -23,22 +23,12 @@ data/splits/*
 # Images (training curves, etc.)
 images/
 
+# Documentation (internal, not for public repo)
+docs/
+
 # Temporary files
 temp_*
 infer_result.txt
-预告.txt
-1781464722066.jpg
-
-# Development plans (internal, not for public repo)
-Xfind-Mini-大模型开发计划-v1.1.md
-XFIND-0.6B-开发计划.md
-
-# Debugging log
-排坑记录.md
-
-# Research notes
-STAG-LR-单参数学习率调度器设计.md
-第6章 大语言模型.md
 
 # Test tokenizer (only the test files, keep production bpe_32k)
 tokenizer/checkpoints/test_bpe.model

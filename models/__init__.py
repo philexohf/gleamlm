@@ -2,7 +2,7 @@ from .xfind_model import XfindModel
 from .xfind_config import XfindConfig, get_args
 
 
-def load_model_for_inference(model_path, device='cuda'):
+def load_model_for_inference(model_path, device='cuda', checkpoint=None):
     """
     从 checkpoint 加载模型用于推理/评估
 
@@ -14,6 +14,7 @@ def load_model_for_inference(model_path, device='cuda'):
     Args:
         model_path: checkpoint 文件路径
         device: 设备 (cuda/cpu)
+        checkpoint: 可选，已加载的 checkpoint 字典（避免重复磁盘读取）
 
     Returns:
         model: XfindModel 实例（eval 模式）
@@ -21,7 +22,8 @@ def load_model_for_inference(model_path, device='cuda'):
     """
     import torch
 
-    checkpoint = torch.load(model_path, map_location=device)
+    if checkpoint is None:
+        checkpoint = torch.load(model_path, map_location=device)
 
     # 从 checkpoint 获取配置
     if 'args' in checkpoint:

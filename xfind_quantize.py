@@ -53,7 +53,9 @@ def quantize_to_fp16(input_path, output_path):
 
     # 构建模型并加载权重
     model = XfindModel(**config)
-    model.load_state_dict(checkpoint['model_state_dict'])
+    state_dict = checkpoint['model_state_dict']
+    state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
+    model.load_state_dict(state_dict)
 
     # 转为 FP16
     model = model.half()

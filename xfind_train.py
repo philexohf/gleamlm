@@ -144,7 +144,7 @@ def train_one_epoch(model, train_loader, optimizer, scheduler, criterion, device
 
 
 @torch.no_grad()
-def evaluate(model, val_loader, criterion, device, pad_token_id=0):
+def evaluate(model, val_loader, device, pad_token_id=0):
     """
     验证集评估
 
@@ -367,7 +367,7 @@ def main():
         if args.local_rank == 0:
             val_loss, val_ppl = evaluate(
                 model.module if args.world_size > 1 else model,
-                val_loader, criterion, device, tokenizer.pad_id
+                val_loader, device, tokenizer.pad_id
             ) if len(val_loader) > 0 else (0.0, 1.0)
 
             print(f"Epoch {epoch}: "

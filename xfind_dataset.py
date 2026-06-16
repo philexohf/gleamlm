@@ -8,6 +8,16 @@ import torch
 from torch.utils.data import Dataset
 import numpy as np
 import os
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
+
+
+def _encode_chunk(model_path, chunk):
+    """多线程分词辅助函数（SentencePiece C++ 底层释放 GIL）"""
+    import sentencepiece as spm
+    sp = spm.SentencePieceProcessor()
+    sp.Load(model_path)
+    return sp.encode(chunk, out_type=int)
 
 
 class LMDataset(Dataset):
@@ -56,21 +66,39 @@ class LMDataset(Dataset):
             self.total_tokens = len(self.all_ids)
             print(f"Loaded {split} data: {self.total_tokens} tokens")
         else:
-            print(f"Tokenizing {split} data (one-time, saved to disk)...")
-            all_ids = []
-            chunk_size = 1024 * 1024  # 每次读取 1MB 字符
+            num_threads = min(os.cpu_count() or 4, 8)
+            model_path = tokenizer.model_prefix + ".model"
 
+            # 读取全部文本
             with open(text_file, 'r', encoding='utf-8') as f:
-                while True:
-                    chunk = f.read(chunk_size)
-                    if not chunk:
-                        break
-                    ids = tokenizer.encode(chunk, add_bos=False, add_eos=False)
-                    all_ids.extend(ids)
-                    if len(all_ids) % 5000000 == 0:
-                        print(f"\r  {len(all_ids)} tokens...", end="", flush=True)
+                text = f.read()
+            total_chars = len(text)
 
-            print(f"\r  {len(all_ids)} tokens")
+            # 按线程数均分文本
+            chunk_len = max(1, total_chars // num_threads)
+            chunks = []
+            for i in range(num_threads):
+                start = i * chunk_len
+                end = start + chunk_len if i < num_threads - 1 else total_chars
+                chunks.append(text[start:end])
+            del text  # 释放原始文本内存
+
+            # 多线程并行编码（SentencePiece C++ 底层释放 GIL）
+            encode_fn = partial(_encode_chunk, model_path)
+            est_min = max(1, total_chars // (20_000_000 * num_threads))
+            print(f"Tokenizing {split} data ({total_chars/1e9:.2f}B chars, "
+                  f"{num_threads} threads, ~{est_min} min)...")
+            print(f"  No console output expected during tokenization."
+                  f"  Progress: ", end="", flush=True)
+
+            all_ids = []
+            with ThreadPoolExecutor(max_workers=num_threads) as executor:
+                futures = [executor.submit(encode_fn, chunk) for chunk in chunks]
+                for i, future in enumerate(futures):
+                    all_ids.extend(future.result())
+                    print(f"#{i+1} ", end="", flush=True)
+
+            print(f"\n  Done: {len(all_ids)} tokens")
 
             # 保存为 numpy memmap 到磁盘
             ids_array = np.array(all_ids, dtype=np.uint32)
@@ -81,7 +109,7 @@ class LMDataset(Dataset):
             print(f"  Saved to {ids_file}")
 
         # 计算样本数
-        self.num_samples = max(0, (self.total_tokens - max_seq_len) // self.stride)
+        self.num_samples = max(0, (self.total_tokens - self.max_seq_len) // self.stride)
         print(f"Created {self.num_samples} samples for {split}")
 
     def __len__(self):

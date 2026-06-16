@@ -10,7 +10,8 @@ import argparse
 import random
 
 
-def build_dataset(input_paths, output_dir, train_ratio=0.9, valid_ratio=0.05):
+def build_dataset(input_paths, output_dir, train_ratio=0.9, valid_ratio=0.05,
+                  ratios=None, total_tokens=None):
     """
     构建训练数据集
 
@@ -22,21 +23,67 @@ def build_dataset(input_paths, output_dir, train_ratio=0.9, valid_ratio=0.05):
         output_dir: 输出目录
         train_ratio: 训练集比例
         valid_ratio: 验证集比例（测试集 = 1 - train - valid）
+        ratios: 每个数据源的目标占比列表（与 input_paths 对应），None 则不限制
+        total_tokens: 目标总 tokens（B），仅 ratios 非 None 时生效
     """
     os.makedirs(output_dir, exist_ok=True)
 
+    # 字符到 token 的估算系数（中文 BPE 约 1 字符 ≈ 1.4 tokens）
+    CHAR_TO_TOKEN = 1.4
+
     all_lines = []
+    source_names = []
+
+    # 计算每个源的目标字符数
+    targets = None
+    if ratios is not None and total_tokens is not None:
+        if len(ratios) != len(input_paths):
+            raise ValueError(f"ratios 数量 ({len(ratios)}) 与输入文件数 ({len(input_paths)}) 不匹配")
+        total_target_chars = total_tokens * 1e9 * CHAR_TO_TOKEN
+        targets = [total_target_chars * r for r in ratios]
+        print(f"配比控制: 总目标 ~{total_tokens:.2f}B tokens ({total_target_chars/1e9:.2f}B 字符)")
+        for p, r, t in zip(input_paths, ratios, targets):
+            print(f"  {os.path.basename(p)}: {r*100:.0f}% → ~{t/1e6:.0f}M 字符")
+        print()
 
     # 读取所有文本
-    for path in input_paths:
+    for idx, path in enumerate(input_paths):
         if not os.path.exists(path):
             print(f"Warning: {path} not found, skipping")
             continue
 
+        source_name = os.path.basename(path).replace('_clean.txt', '').replace('_clean_v3.txt', '')
+        source_names.append(source_name)
+
         print(f"Reading: {path}")
         with open(path, 'r', encoding='utf-8') as f:
             lines = [line.strip() for line in f if line.strip()]
-            all_lines.extend(lines)
+
+        source_chars = sum(len(l) for l in lines)
+
+        # 如果指定了配比，按目标裁剪
+        if targets is not None:
+            target_chars = targets[idx]
+            if source_chars > target_chars:
+                # 按字符累计，取到刚好超出目标的 cut 点
+                random.seed(42)
+                indices = list(range(len(lines)))
+                random.shuffle(indices)
+                cum = 0
+                cut = len(indices)
+                for i, j in enumerate(indices):
+                    cum += len(lines[j])
+                    if cum >= target_chars:
+                        cut = i + 1
+                        break
+                kept_indices = sorted(indices[:cut])
+                lines = [lines[i] for i in kept_indices]
+                kept_chars = sum(len(l) for l in lines)
+                print(f"  {source_name}: {len(indices):,} → {cut:,} 行 ({source_chars/1e6:.0f}M → {kept_chars/1e6:.0f}M 字符)")
+            else:
+                print(f"  {source_name}: {len(lines):,} 行 ({source_chars/1e6:.0f}M 字符, 未达上限, 全部保留)")
+
+        all_lines.extend(lines)
         print(f"  Loaded {len(lines)} lines")
 
     print(f"\nTotal: {len(all_lines)} lines")
@@ -87,9 +134,14 @@ def main():
                         help='训练集比例')
     parser.add_argument('--valid_ratio', type=float, default=0.05,
                         help='验证集比例')
+    parser.add_argument('--ratios', type=float, nargs='+', default=None,
+                        help='数据源配比（与 --input 顺序对应）')
+    parser.add_argument('--total_tokens', type=float, default=None,
+                        help='目标总 tokens（B），配合 --ratios 使用')
     args = parser.parse_args()
 
-    build_dataset(args.input, args.output_dir, args.train_ratio, args.valid_ratio)
+    build_dataset(args.input, args.output_dir, args.train_ratio, args.valid_ratio,
+                  ratios=args.ratios, total_tokens=args.total_tokens)
 
 
 # ============================================================

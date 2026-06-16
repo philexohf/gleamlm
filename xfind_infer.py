@@ -28,7 +28,6 @@ if sys.platform == 'win32':
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from models.xfind_model import XfindModel
 from models import load_model_for_inference
 from tokenizer.xfind_tokenizer import XfindTokenizer
 from inference.streamer import TextStreamer
@@ -48,9 +47,6 @@ def load_model(model_path, device='cuda'):
     print(f"Loading model: {model_path}")
     checkpoint = torch.load(model_path, map_location=device, weights_only=False)
 
-    # 使用共享函数加载模型
-    model, config = load_model_for_inference(model_path, device)
-
     # 从 checkpoint 提取分词器路径
     if 'args' in checkpoint:
         args = checkpoint['args']
@@ -59,6 +55,9 @@ def load_model(model_path, device='cuda'):
         tokenizer_path = './tokenizer/checkpoints/bpe_32k'
     else:
         tokenizer_path = './tokenizer/checkpoints/bpe_32k'
+
+    # 使用共享函数加载模型（传入已加载的 checkpoint 避免重复磁盘读取）
+    model, config = load_model_for_inference(model_path, device, checkpoint=checkpoint)
 
     # 加载分词器
     tokenizer = XfindTokenizer(tokenizer_path)

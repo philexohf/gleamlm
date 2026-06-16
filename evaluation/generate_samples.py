@@ -36,9 +36,6 @@ def generate_samples(model, tokenizer, prompts, max_new_tokens=128,
         print(f"\n[{i+1}/{len(prompts)}] Prompt: {prompt}")
         print("-" * 40)
 
-        prompt_ids = tokenizer.encode(prompt, add_bos=False, add_eos=False)
-        prompt_tensor = torch.tensor([prompt_ids], dtype=torch.long).to(device)
-
         generated = [prompt]
         for chunk in streamer.generate_text(
             model, prompt, max_new_tokens, temperature, top_k, top_p,
