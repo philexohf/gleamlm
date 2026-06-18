@@ -65,17 +65,29 @@ class TextStreamer:
         prompt_tensor = torch.tensor([prompt_ids], dtype=torch.long)
 
         generated_ids = []
+        stopped = False
         for token_id in self.generate(
             model, prompt_tensor, max_new_tokens,
             temperature, top_k, top_p, repetition_penalty
         ):
             generated_ids.append(token_id)
+            if stopped:
+                continue
             # 每生成几个 token 解码一次
             if len(generated_ids) % 4 == 0:
                 text = self.tokenizer.decode(generated_ids, skip_special=True)
+                # 遇到文档分隔符则截断
+                if "<|endoftext|>" in text:
+                    text = text.split("<|endoftext|>")[0]
+                    stopped = True
                 yield text
+
+        if stopped:
+            return
 
         # 最后解码剩余 token（如果上次 yield 后还有新增）
         if generated_ids and len(generated_ids) % 4 != 0:
             text = self.tokenizer.decode(generated_ids, skip_special=True)
+            if "<|endoftext|>" in text:
+                text = text.split("<|endoftext|>")[0]
             yield text
