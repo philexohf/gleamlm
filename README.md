@@ -4,20 +4,7 @@
 
 ## 项目简介
 
-纯 PyTorch 从零实现，零 HuggingFace 依赖，覆盖 **四源中文数据管线**（下载→清洗→去重→字符加权配比）→ **BBPE 分词器训练**（自研BBPE，零外部依赖）→ **40M Decoder-only 模型**（SwiGLU / GQA / RoPE / QK-Norm）→ **AMP + DDP 训练**（断点续训保存 optimizer/scheduler/scaler 全量状态）→ **SFT / DPO 对齐**（ChatML + loss mask）→FP16量化 → **KV Cache 流式推理**全链路。代码全中文注释，最低 12GB 单卡可跑通。
-
-## 核心优势
-
-| #    | 优势                    | 说明                                                |
-| ---- | ----------------------- | --------------------------------------------------- |
-| 1    | **零 HuggingFace 依赖** | 不继承 `PreTrainedModel`，所有组件从零手写          |
-| 2    | **中文优先**            | 代码注释、文档全中文，面向国内教学场景              |
-| 3    | **全链路覆盖**          | Tokenizer → Pretrain → SFT → DPO → Quantize → Infer |
-| 4    | **低门槛**              | 单卡 12GB 显存即可训练，Windows/Linux 双平台兼容    |
-
-## 项目简介
-
----
+纯 PyTorch 从零实现，零 HuggingFace 依赖，覆盖 **四源中文数据管线**（下载→清洗→去重→字符加权配比）→ **BBPE 分词器训练**（自研BBPE，零外部依赖）→ **Decoder-only 模型**（SwiGLU / GQA / RoPE / QK-Norm）→ **AMP + DDP 训练**（断点续训保存 optimizer/scheduler/scaler 全量状态）→ **SFT / DPO 对齐**（ChatML + loss mask）→FP16量化 → **KV Cache 流式推理**全链路。GleamLM-Nano模型单卡 12GB 显存即可训练，Windows/Linux 双平台兼容。
 
 ## 技术架构
 
@@ -33,7 +20,7 @@
 | 分布式 | DDP（`torchrun` 一行启动） | — |
 | 推理加速 | KV Cache + 流式生成 + 多采样策略 | — |
 
-### 模型规格（V4 Deep-Narrow ~40M）
+### 模型规格（GleamLM-Nano ~40M）
 
 | 参数 | 值 |
 |------|-----|
@@ -209,7 +196,7 @@ pytest tests/ -v
 
 最终切分为 `train.txt`（6.48 GB，90%）/ `valid.txt`（0.36 GB，5%）/ `test.txt`（0.36 GB，5%），合计 7.20 GB。
 
-### V4 字符加权配比
+### GleamLM-Nano V4 字符加权配比
 
 各源行均字符差异巨大（新闻 ~752 字/行 vs 维基 ~123 字/行），`prepare_data.py` 自动按字符占比换算行数配比：
 
@@ -224,7 +211,7 @@ pytest tests/ -v
 
 ## 训练结果
 
-### V3（4 源混合 1.2B tokens，label_smoothing=0.1）
+### GleamLM-Nano V3（4 源混合 1.2B tokens，label_smoothing=0.1）
 
 | Epoch | Val Loss | PPL | PPL↓ |
 |-------|----------|-----|------|
@@ -239,7 +226,7 @@ pytest tests/ -v
 
 > V3 三项关键改进：（1）4 源混合替代单源 Wiki；（2）`label_smoothing=0.1`；（3）`stride=768` 降低过拟合。8 epoch 全程无过拟合，PPL 最终 34.93。
 
-### V3 SFT + DPO（39M 对齐验证）
+### GleamLM-Nano V3 SFT + DPO（39M 对齐验证）
 
 - **SFT**：995 条 DeepSeek 蒸馏数据，1 epoch，ChatML 格式 + loss mask，模型学会直接回应问题
 - **DPO**：150 对 chosen/rejected，DPO loss 0.95 → 0.60，流程验证通过
@@ -250,9 +237,10 @@ pytest tests/ -v
 
 | 版本 | 参数量 | 定位 | 状态 |
 |------|--------|------|------|
-| 烁珑-Nano | ~40M | 教学入门 / 快速消融 | 已完成 |
-| 烁珑-Lite | ~126M | 科研进阶 / 对标 SmolLM2-135M | 规划中 |
-| 烁珑-Pro | ~0.6B | 工业级验证 | 寻求合作 |
+| GleamLM-Nano | ~40M | 教学级 / 单卡资源 | 已完成 |
+| GleamLM-Lite | ~80M | 教学级 / 服务器资源 | 规划中 |
+| GleamLM-Pro | ~126M | 科研进阶 / 服务器资源 | 规划中 |
+| GleamLM-0.6B | ~0.6B | 工业级验证 / 算力集群 | 寻求合作 |
 
 ---
 
