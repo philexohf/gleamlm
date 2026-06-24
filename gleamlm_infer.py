@@ -51,7 +51,7 @@ def load_model(model_path, device='cuda'):
 
 
 def generate(model, tokenizer, prompt, max_new_tokens=256,
-             temperature=1.0, top_k=50, top_p=0.9, device='cuda'):
+             temperature=1.0, top_k=50, top_p=0.9, repetition_penalty=1.0, device='cuda'):
     """生成文本并实时打印"""
     streamer = TextStreamer(tokenizer)
 
@@ -64,7 +64,7 @@ def generate(model, tokenizer, prompt, max_new_tokens=256,
     last_chunk = prompt
     for chunk in streamer.generate_text(
         model, prompt, max_new_tokens,
-        temperature, top_k, top_p
+        temperature, top_k, top_p, repetition_penalty
     ):
         new_text = chunk[prev_len:]
         prev_len = len(chunk)
@@ -80,7 +80,7 @@ def generate(model, tokenizer, prompt, max_new_tokens=256,
 
 
 def interactive(model, tokenizer, max_new_tokens=256,
-                temperature=1.0, top_k=50, top_p=0.9, device='cuda'):
+                temperature=1.0, top_k=50, top_p=0.9, repetition_penalty=1.0, device='cuda'):
     """交互式对话模式"""
     print("\n" + "=" * 60)
     print("烁珑GleamLM 交互式文本生成")
@@ -102,7 +102,7 @@ def interactive(model, tokenizer, max_new_tokens=256,
             continue
 
         generate(model, tokenizer, prompt, max_new_tokens,
-                 temperature, top_k, top_p, device)
+                 temperature, top_k, top_p, repetition_penalty, device)
 
 
 def main():
@@ -119,6 +119,8 @@ def main():
                         help='Top-K 采样参数')
     parser.add_argument('--top_p', type=float, default=0.9,
                         help='Top-P 采样参数')
+    parser.add_argument('--repetition_penalty', type=float, default=1.0,
+                        help='重复惩罚（>1.0 抑制重复，如 1.15）')
     parser.add_argument('--device', type=str, default='cuda',
                         help='设备 (cuda/cpu)')
     args = parser.parse_args()
@@ -134,10 +136,10 @@ def main():
 
     if args.prompt:
         generate(model, tokenizer, args.prompt, args.max_new_tokens,
-                 args.temperature, args.top_k, args.top_p, device)
+                 args.temperature, args.top_k, args.top_p, args.repetition_penalty, device)
     else:
         interactive(model, tokenizer, args.max_new_tokens,
-                    args.temperature, args.top_k, args.top_p, device)
+                    args.temperature, args.top_k, args.top_p, args.repetition_penalty, device)
 
 
 if __name__ == "__main__":
