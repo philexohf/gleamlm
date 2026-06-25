@@ -30,6 +30,11 @@ docs/
 temp_*
 infer_result.txt
 
+# IDE
+.vscode/
+.idea/
+.DS_Store
+
 # Test tokenizer (only the test files, keep production bpe_32k)
 tokenizer/checkpoints/test_bpe.model
 tokenizer/checkpoints/test_bpe.vocab
