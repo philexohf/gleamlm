@@ -1,6 +1,10 @@
-# 烁珑 GleamLM —— 面向教育和研究的小型语言模型
+# GleamLM —— 面向教育和研究的小型语言模型
 
-<img src="./assets/GleamLM.png" width="200" alt="烁珑 GleamLM Logo" />
+<img src="./assets/GleamLM.png" width="300" alt="GleamLM Logo" />
+
+
+
+ **项目持续开发中， 点个 Star ⭐ 收藏，更新不错过。**
 
 ## 项目简介
 
@@ -87,6 +91,10 @@ GleamLM/
 ├── data/
 │   ├── raw/                   # 原始语料 + 清洗后文本
 │   └── splits/                # train/valid/test + .npy 预分词缓存
+│
+├── evaluation/
+│   ├── perplexity.py          # PPL 评估
+│   └── generate_samples.py    # 多 prompt 生成评测
 │
 ├── checkpoints/               # 模型检查点 + TensorBoard 日志
 ├── requirements.txt           # Python 依赖（5 个包）
@@ -205,8 +213,8 @@ pytest tests/ -v
 | 数据源 | 原始 | 清洗后 | 保留率 | 来源 |
 |--------|:---:|:---:|:---:|------|
 | 中文维基 | 565万 | 545万 | 96.4% | [modelscope](https://www.modelscope.cn/datasets/caoaolong/zhwiki) |
-| 百度百科 | 214万 | 213万 | 99.8% | 百度网盘（提取码 `bwvb`） |
-| 新闻 2016 | 202万 | 171万 | 84.5% | [百度网盘](https://pan.baidu.com/s/1LJeq1dkA0wmYd9ZGZw72Xg)（提取码 `film`） |
+| 百度百科 | 214万 | 213万 | 99.8% | 由于版权原因，自行搜索 |
+| 新闻 2016 | 202万 | 171万 | 84.5% | 由于版权原因，自行搜索 |
 | 社区问答 | 403万 | 92万 | 22.8% | [Kaggle](https://www.kaggle.com/datasets/terrychanorg/webtext2019zhjsonwebtext2019zh) |
 | **合计** | **1,384万** | **1,021万** | **73.8%** | — |
 
@@ -368,7 +376,7 @@ python gleamlm_dpo.py --data_path ./data/dpo_data.jsonl --model_path ./checkpoin
 | 版本 | 参数量 | 定位 | 状态 |
 |------|--------|------|------|
 | GleamLM-Nano | ~40M | 教学级 / 单卡资源 | 已完成 |
-| GleamLM-Lite | ~80M | 教学级 / 服务器资源 | 规划中 |
+| GleamLM-Lite | ~80M | 教学级 / 服务器资源 | 开发中 |
 | GleamLM-Pro | ~126M | 科研进阶 / 服务器资源 | 规划中 |
 | GleamLM-0.6B | ~0.6B | 工业级验证 / 算力集群 | 寻求合作 |
 
