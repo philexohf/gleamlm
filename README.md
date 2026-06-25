@@ -150,7 +150,7 @@ tensorboard --logdir ./checkpoints/runs
 | `--lr` | 3e-4 | 峰值学习率 |
 | `--label_smoothing` | 0.1 | 标签平滑 |
 
-优化器：AdamW（β=0.9,0.95，wd=0.01），BF16 AMP，Cosine Warmup + Decay。首次运行自动 BBPE 分词（~35 分钟），后续 mmap 加载 ~1MB。
+优化器：AdamW（β=0.9,0.95，wd=0.01），BF16 AMP，Cosine Warmup + Decay。首次运行自动 BBPE 分词，后续 mmap 加载 ~1MB。
 
 ### 3. 推理
 
