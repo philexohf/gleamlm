@@ -60,7 +60,7 @@ dataset = LMDataset(data_dir="data/test_splits", max_seq_len=512,
 loader = torch.utils.data.DataLoader(dataset, batch_size=8, shuffle=True,
                                       collate_fn=lambda b: collate_fn(b, pad_id=tok.pad_id), drop_last=True)
 
-model = GleamLMModel(vocab_size=12003, d_model=512, num_layers=12,
+model = GleamLMModel(vocab_size=12001, d_model=512, num_layers=12,
                       num_heads=8, num_kv_heads=4, max_seq_len=512).to(device)
 optim = torch.optim.AdamW(model.parameters(), lr=3e-4)
 model.train()
@@ -70,7 +70,7 @@ for step, batch in enumerate(loader):
     input_ids, targets = [b.to(device) for b in batch]
     logits, _ = model(input_ids)
     loss = torch.nn.functional.cross_entropy(
-        logits.reshape(-1, 12003), targets.reshape(-1))
+        logits.reshape(-1, 12001), targets.reshape(-1))
     loss.backward(); optim.step(); optim.zero_grad()
     if (step+1) % 50 == 0:
         print(f"  step {step+1:3d}/200 | loss={loss.item():.3f} | ppl={torch.exp(loss).item():.1f}")
@@ -155,7 +155,7 @@ def sft_collate_fn(batch):
         labels_list.append(torch.cat([lab, torch.full((pad_len,), -100, dtype=torch.long)]))
     return torch.stack(inputs), torch.stack(labels_list)
 
-sft_model = GleamLMModel(vocab_size=12003, d_model=512, num_layers=12,
+sft_model = GleamLMModel(vocab_size=12001, d_model=512, num_layers=12,
                           num_heads=8, num_kv_heads=4, max_seq_len=512, tie_weights=True).to(device)
 ckpt = torch.load("checkpoints/best_model.pt", map_location=device)
 sft_model.load_state_dict(ckpt["model_state_dict"])
@@ -171,7 +171,7 @@ for input_ids, labels in sft_loader:
     input_ids, labels = input_ids.to(device), labels.to(device)
     logits, _ = sft_model(input_ids)
     loss = torch.nn.functional.cross_entropy(
-        logits.reshape(-1, 12003), labels.reshape(-1), ignore_index=-100)
+        logits.reshape(-1, 12001), labels.reshape(-1), ignore_index=-100)
     loss.backward(); sft_optim.step(); sft_optim.zero_grad()
     print(f"  SFT loss={loss.item():.4f} | ppl={torch.exp(loss).item():.1f} | {time.time()-t0:.1f}s")
 
@@ -258,13 +258,13 @@ dpo_dataset = DPODataset("data/test_dpo.jsonl", tok, max_seq_len=256)
 dpo_loader = DataLoader(dpo_dataset, batch_size=2, shuffle=True, collate_fn=dpo_collate_fn)
 
 # Policy model (从 SFT 加载)
-policy = GleamLMModel(vocab_size=12003, d_model=512, num_layers=12,
+policy = GleamLMModel(vocab_size=12001, d_model=512, num_layers=12,
                        num_heads=8, num_kv_heads=4, max_seq_len=512).to(device)
 ckpt_sft = torch.load("checkpoints/sft_test/sft_best.pt", map_location=device)
 policy.load_state_dict(ckpt_sft["model_state_dict"])
 
 # Reference model (冻结)
-ref = GleamLMModel(vocab_size=12003, d_model=512, num_layers=12,
+ref = GleamLMModel(vocab_size=12001, d_model=512, num_layers=12,
                     num_heads=8, num_kv_heads=4, max_seq_len=512).to(device)
 ref.load_state_dict(ckpt_sft["model_state_dict"])
 for p in ref.parameters():

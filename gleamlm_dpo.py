@@ -271,7 +271,7 @@ def main():
     parser.add_argument("--data_path", default="./data/dpo_data.jsonl")
     parser.add_argument("--model_path", default=f"{DEFAULT_CHECKPOINT_DIR}/sft/sft_best.pt")
     parser.add_argument("--tokenizer_path", default=DEFAULT_TOKENIZER_PATH)
-    parser.add_argument("--vocab_size", type=int, default=12003)
+    parser.add_argument("--vocab_size", type=int, default=12001)
     parser.add_argument("--d_model", type=int, default=512)
     parser.add_argument("--max_seq_len", type=int, default=512)
     parser.add_argument("--batch_size", type=int, default=2)

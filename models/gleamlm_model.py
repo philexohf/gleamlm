@@ -163,7 +163,7 @@ class DecoderBlock(nn.Module):
 
 class GleamLMModel(nn.Module):
     """V4 Deep-Narrow：12层×512dim + BBPE 12K + QK-Norm（~39M 参数）"""
-    def __init__(self, vocab_size=12003, d_model=512, num_layers=12,
+    def __init__(self, vocab_size=12001, d_model=512, num_layers=12,
                  num_heads=8, num_kv_heads=4, d_ff=1365,
                  dropout=0.1, max_seq_len=1024, pad_token_id=0,
                  tie_weights=True):
@@ -251,7 +251,7 @@ if __name__ == "__main__":
     print("=" * 60)
 
     model = GleamLMModel(
-        vocab_size=12003,
+        vocab_size=12001,
         d_model=512,
         num_layers=12,
         num_heads=8,
@@ -267,15 +267,15 @@ if __name__ == "__main__":
     print(f"可训练参数: {trainable / 1e6:.2f}M")
 
     print("\n[1] forward() — 训练模式")
-    input_ids = torch.randint(0, 12003, (4, 128))
+    input_ids = torch.randint(0, 12001, (4, 128))
     logits, kv_list = model(input_ids)
     print(f"    输入: input_ids {input_ids.shape}")
-    print(f"    输出: logits {logits.shape}  ← 应为 [4, 128, 12003]")
+    print(f"    输出: logits {logits.shape}  ← 应为 [4, 128, 12001]")
     print(f"    KV Cache 层数: {len(kv_list)}")
 
     print("\n[2] backward() — 反向传播验证")
     loss = F.cross_entropy(
-        logits[:, :-1].reshape(-1, 12003),
+        logits[:, :-1].reshape(-1, 12001),
         input_ids[:, 1:].reshape(-1),
         ignore_index=0
     )
@@ -293,7 +293,7 @@ if __name__ == "__main__":
     print("    反向传播: OK (无 NaN)")
 
     print("\n[3] forward() — 推理模式（KV Cache）")
-    prompt = torch.randint(0, 12003, (1, 10))
+    prompt = torch.randint(0, 12001, (1, 10))
     logits, kv_cache = model(prompt)
     print(f"    预填充: prompt {prompt.shape} → logits {logits.shape}")
     print(f"    KV Cache 长度: {kv_cache[0][0].size(2)} (应为 10)")
@@ -307,12 +307,12 @@ if __name__ == "__main__":
     print("    KV Cache 推理: OK")
 
     print("\n[4] 超长序列 - RoPE 外推测试")
-    input_ids_long = torch.randint(0, 12003, (2, 256))
+    input_ids_long = torch.randint(0, 12001, (2, 256))
     logits_long, _ = model(input_ids_long)
     print(f"    输入: {input_ids_long.shape}")
-    print(f"    输出: {logits_long.shape}  ← 应为 [2, 256, 12003]")
+    print(f"    输出: {logits_long.shape}  ← 应为 [2, 256, 12001]")
     loss_long = F.cross_entropy(
-        logits_long[:, :-1].reshape(-1, 12003),
+        logits_long[:, :-1].reshape(-1, 12001),
         input_ids_long[:, 1:].reshape(-1),
         ignore_index=0
     )

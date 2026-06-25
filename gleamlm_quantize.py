@@ -21,7 +21,7 @@ def quantize_to_fp16(input_path, output_path):
     if 'args' in checkpoint:
         args = checkpoint['args']
         config = {
-            'vocab_size': getattr(args, 'vocab_size', 12003),
+            'vocab_size': getattr(args, 'vocab_size', 12001),
             'd_model': getattr(args, 'd_model', 512),
             'num_layers': getattr(args, 'num_layers', 12),
             'num_heads': getattr(args, 'num_heads', 8),
@@ -34,7 +34,7 @@ def quantize_to_fp16(input_path, output_path):
         }
     else:
         config = {
-            'vocab_size': 12003, 'd_model': 512, 'num_layers': 12,
+            'vocab_size': 12001, 'd_model': 512, 'num_layers': 12,
             'num_heads': 8, 'num_kv_heads': 4, 'd_ff': 1365,
             'dropout': 0.0, 'max_seq_len': 1024, 'pad_token_id': 0,
             'tie_weights': False

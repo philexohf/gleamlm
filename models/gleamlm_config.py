@@ -28,7 +28,7 @@ def get_args():
                         help='Warmup 占总步数比例')
 
     # 模型结构（V4 Deep-Narrow：12层×512dim + BBPE 12K）
-    parser.add_argument("--vocab_size", type=int, default=12003,
+    parser.add_argument("--vocab_size", type=int, default=12001,
                         help='词表大小')
     parser.add_argument("--d_model", type=int, default=512,
                         help='模型隐藏层维度')

@@ -339,7 +339,7 @@ def get_sft_args():
     parser.add_argument("--resume", type=str, default=None,
                         help='从指定 checkpoint 续训（如 ./checkpoints/sft/sft_epoch_1.pt）')
 
-    parser.add_argument("--vocab_size", type=int, default=12003)
+    parser.add_argument("--vocab_size", type=int, default=12001)
     parser.add_argument("--d_model", type=int, default=512)
     parser.add_argument("--num_layers", type=int, default=12)
     parser.add_argument("--num_heads", type=int, default=8)
