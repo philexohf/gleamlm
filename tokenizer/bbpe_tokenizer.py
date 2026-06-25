@@ -29,10 +29,7 @@ from collections import defaultdict
 from typing import Optional, Union
 
 
-# ============================================================
 # 快速预分词（C 级字符类正则，无逐字迭代）
-# ============================================================
-
 # 预分词正则：CJK 逐字 + CJK 标点逐字 + 非 CJK 连续段
 # 全部使用字符类 [...] 在 C 层 O(n) 匹配，比 Python 逐字迭代快 10-50x
 _PRE_TOKENIZE_RE = re.compile(
@@ -50,10 +47,7 @@ def _pre_tokenize_re(text):
 # （当前预分词完全由正则 _PRE_TOKENIZE_RE 完成）
 
 
-# ============================================================
 # BBPE Tokenizer
-# ============================================================
-
 class BBPETokenizer:
     """Byte-Level BPE 分词器"""
 
@@ -79,23 +73,13 @@ class BBPETokenizer:
         # 特殊 token 切分正则（_add_special_tokens 或 load 后构建）
         self._special_regex = None
 
-    # ==========================================================
     # 训练
-    # ==========================================================
 
     @classmethod
     def train_from_files(cls, text_files: list[str], vocab_size: int = 12000,
                          save_dir: Optional[str] = None, max_train_chars: int = 500_000_000,
                          ratios: Optional[list[float]] = None) -> 'BBPETokenizer':
-        """从文本文件训练 BBPE tokenizer。
-
-        Args:
-            text_files: 文本文件路径列表
-            vocab_size: 目标词表大小（含 256 字节 + 特殊 token）
-            save_dir: 保存目录
-            max_train_chars: 训练最大字符数（控制内存）
-            ratios: 每个文件的采样比例（与 text_files 一一对应），None 则均匀
-        """
+        """从文本文件训练 BBPE tokenizer"""
         tokenizer = cls()
         if ratios is None:
             ratios = [1.0 / len(text_files)] * len(text_files)
@@ -105,7 +89,6 @@ class BBPETokenizer:
         for fp, r in zip(text_files, ratios):
             print(f"    [{r*100:.0f}%] {os.path.basename(fp)}")
 
-        # Step 1: 读取文本 + 预分词 → 字节序列统计
         print("  Step 1/3: Pre-tokenizing and converting to byte sequences...")
         byte_sequences = tokenizer._pre_tokenize_files(
             text_files, max_chars=max_train_chars, ratios=ratios
@@ -113,7 +96,6 @@ class BBPETokenizer:
         total_pairs = sum(len(seq) - 1 for seq in byte_sequences if len(seq) > 1)
         print(f"  Collected {len(byte_sequences):,} words, {total_pairs:,} initial pairs")
 
-        # Step 2: 统计相邻 pair 频率 → BPE 迭代合并
         n_merges = vocab_size - 256 - 8  # 预留 8 个特殊 token 位置
         print(f"  Step 2/3: Training {n_merges} BPE merges...")
 
@@ -243,25 +225,17 @@ class BBPETokenizer:
         print(f"\n  Trained {len(tokenizer.merges)} merges, "
               f"vocab_size={tokenizer._next_id}")
 
-        # Step 3: 注入特殊 token
         tokenizer._add_special_tokens()
 
         print(f"  Step 3/3: Injected special tokens, final vocab={tokenizer._next_id}")
 
-        # 保存
         if save_dir:
             tokenizer.save(save_dir)
 
         return tokenizer
 
     def _pre_tokenize_files(self, text_files, max_chars=500_000_000, ratios=None):
-        """按配比从多文件中采样读取 → 预分词 → 转字节序列。
-
-        Args:
-            text_files: 文件路径列表
-            max_chars: 总字符上限
-            ratios: 采样比例（与 text_files 一一对应），None 则均匀分配
-        """
+        """按配比从多文件中采样读取 → 预分词 → 转字节序列"""
         byte_sequences = []
         if ratios is None:
             ratios = [1.0 / len(text_files)] * len(text_files)
@@ -350,9 +324,7 @@ class BBPETokenizer:
         # 构建特殊 token 切分正则（按长度降序，确保最长匹配优先）
         self._build_special_regex()
 
-    # ==========================================================
     # 编码 / 解码
-    # ==========================================================
 
     def _build_special_regex(self):
         """构建用于切分特殊 token 的正则（按长度降序，最长匹配优先）"""
@@ -377,13 +349,11 @@ class BBPETokenizer:
         if add_bos:
             ids.append(self.bos_id)
 
-        # Step 1: 按特殊 token 边界切分（保留分隔符）
         if self._special_regex is not None:
             parts = self._special_regex.split(text)
         else:
             parts = [text]
 
-        # Step 2: 逐段编码
         for part in parts:
             if not part:
                 continue
@@ -446,9 +416,7 @@ class BBPETokenizer:
 
         return byte_buffer.decode('utf-8', errors='replace')
 
-    # ==========================================================
     # 便捷方法
-    # ==========================================================
 
     def encode_batch(self, texts, add_bos=False, add_eos=True):
         """批量编码"""
@@ -465,9 +433,7 @@ class BBPETokenizer:
     def __len__(self):
         return self.get_vocab_size()
 
-    # ==========================================================
     # 持久化
-    # ==========================================================
 
     def save(self, save_dir):
         """保存 tokenizer 到目录"""
@@ -541,10 +507,7 @@ class BBPETokenizer:
         return tokenizer
 
 
-# ============================================================
 # 测试
-# ============================================================
-
 if __name__ == "__main__":
     import tempfile
 

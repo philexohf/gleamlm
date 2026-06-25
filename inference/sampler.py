@@ -7,7 +7,6 @@ import torch.nn.functional as F
 def sample_token(logits, temperature=1.0, top_k=0, top_p=0.0,
                  repetition_penalty=1.0, generated_ids=None):
 
-    # 重复惩罚
     if repetition_penalty != 1.0 and generated_ids is not None:
         logits = logits.clone()
         for gid in set(generated_ids):

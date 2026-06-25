@@ -19,15 +19,7 @@ def normalize(text, strip_whitespace=True):
 
 
 def dedup_file(input_path, output_path, mode="exact", prefix_len=100):
-    """
-    逐行去重，流式处理不占内存。
-
-    Args:
-        input_path: 输入文件
-        output_path: 输出文件
-        mode: "exact" 全文精确去重 / "prefix" 按前 N 字符去重
-        prefix_len: prefix 模式下的字符数
-    """
+    """逐行去重，流式处理不占内存。mode=exact 全文MD5 / prefix 前N字符"""
     total = 0
     kept = 0
     deduped = 0

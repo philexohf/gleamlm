@@ -183,7 +183,6 @@ def main():
               f"heads={args.num_heads}(Q)/{args.num_kv_heads}(KV)")
         print(f"Data dir: {args.data_dir}")
 
-    # 构建分词器
     train_txt = os.path.join(args.data_dir, "train.txt")
     valid_txt = os.path.join(args.data_dir, "valid.txt")
 
@@ -193,7 +192,6 @@ def main():
             f"Please prepare data first. For quick test, create a small text file."
         )
 
-    # 加载 BBPE 分词器
     tokenizer = BBPETokenizer.load(args.tokenizer_path)
 
     if args.local_rank == 0:
@@ -203,7 +201,6 @@ def main():
                                max_chars=args.max_train_chars)
     val_dataset = LMDataset(args.data_dir, tokenizer, args.max_seq_len, "valid")
 
-    # DataLoader
     if args.world_size > 1:
         train_sampler = DistributedSampler(train_dataset, num_replicas=args.world_size, rank=args.rank)
         train_loader = DataLoader(train_dataset, batch_size=args.batch_size, sampler=train_sampler,

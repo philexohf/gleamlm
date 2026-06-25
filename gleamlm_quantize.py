@@ -13,10 +13,6 @@ from models.gleamlm_model import GleamLMModel
 def quantize_to_fp16(input_path, output_path):
     """
     将 FP32 模型转换为 FP16 并保存
-
-    Args:
-        input_path: 输入模型路径（FP32 checkpoint）
-        output_path: 输出模型路径（FP16）
     """
     print(f"Loading checkpoint: {input_path}")
     checkpoint = torch.load(input_path, map_location='cpu', weights_only=False)
@@ -44,20 +40,16 @@ def quantize_to_fp16(input_path, output_path):
             'tie_weights': False
         }
 
-    # 构建模型并加载权重
     model = GleamLMModel(**config)
     state_dict = checkpoint['model_state_dict']
     state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
     model.load_state_dict(state_dict, strict=False)
 
-    # 转为 FP16
     model = model.half()
 
-    # 统计压缩比
     fp32_size = sum(p.numel() for p in model.parameters()) * 4 / (1024 ** 2)
     fp16_size = sum(p.numel() for p in model.parameters()) * 2 / (1024 ** 2)
 
-    # 保存
     torch.save({
         'model_state_dict': model.state_dict(),
         'config': config,

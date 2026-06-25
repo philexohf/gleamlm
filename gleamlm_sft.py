@@ -38,10 +38,7 @@ def set_seed(seed):
     torch.cuda.manual_seed_all(seed)
 
 
-# ============================================================
 # SFT 数据集
-# ============================================================
-
 class SFTDataset(Dataset):
     """SFT 数据集：JSONL → ChatML 格式 → loss mask
 
@@ -173,10 +170,6 @@ class SFTDataset(Dataset):
         return input_ids, labels
 
 
-# ============================================================
-# 学习率调度
-# ============================================================
-
 def get_lr_cosine(step, total_steps, warmup_ratio=0.01, min_lr_ratio=0.05):
     """Cosine Annealing + Warmup"""
     warmup_steps = int(total_steps * warmup_ratio)
@@ -187,10 +180,7 @@ def get_lr_cosine(step, total_steps, warmup_ratio=0.01, min_lr_ratio=0.05):
         return min_lr_ratio + (1.0 - min_lr_ratio) * 0.5 * (1 + math.cos(math.pi * progress))
 
 
-# ============================================================
 # 训练循环
-# ============================================================
-
 def train_one_epoch(model, train_loader, optimizer, scheduler, device,
                     epoch, args, global_step, scaler, log_interval=50):
     """训练一个 epoch"""
@@ -238,10 +228,7 @@ def train_one_epoch(model, train_loader, optimizer, scheduler, device,
     return total_loss / num_batches, global_step
 
 
-# ============================================================
 # 生成评估
-# ============================================================
-
 @torch.no_grad()
 def generate_response(model, tokenizer, instruction, max_new_tokens=256,
                       temperature=0.8, top_k=50, top_p=0.9):
@@ -259,7 +246,6 @@ def generate_response(model, tokenizer, instruction, max_new_tokens=256,
     stopped = False
     im_end_id = tokenizer.special_tokens.get("<|im_end|>")
 
-    # 预填充 KV Cache
     with torch.amp.autocast('cuda'):
         logits, past_kv = model(prompt_tensor)
 
@@ -318,10 +304,7 @@ def evaluate_sft(model, tokenizer, test_prompts):
     return results
 
 
-# ============================================================
 # 主函数
-# ============================================================
-
 def get_sft_args():
     parser = argparse.ArgumentParser(description='烁珑GleamLM SFT 指令微调')
 
@@ -353,11 +336,9 @@ def get_sft_args():
     parser.add_argument("--inject_system_ratio", type=float, default=0.2,
                         help='系统消息随机注入比例')
 
-    # 断点续训
     parser.add_argument("--resume", type=str, default=None,
                         help='从指定 checkpoint 续训（如 ./checkpoints/sft/sft_epoch_1.pt）')
 
-    # 模型架构（需与 best_model.pt 一致）
     parser.add_argument("--vocab_size", type=int, default=12001)
     parser.add_argument("--d_model", type=int, default=512)
     parser.add_argument("--num_layers", type=int, default=12)
@@ -382,11 +363,9 @@ def main():
     print(f"Model: {args.model_path}")
     print(f"LR: {args.lr:.1e}, Epochs: {args.epochs}, Batch: {args.batch_size}")
 
-    # 1. 加载 BBPE 分词器
     tokenizer = BBPETokenizer.load(args.tokenizer_path)
     print(f"Tokenizer vocab size: {tokenizer.get_vocab_size()}")
 
-    # 2. 加载预训练模型
     model = GleamLMModel(
         vocab_size=args.vocab_size,
         d_model=args.d_model,
@@ -406,7 +385,6 @@ def main():
     total, trainable = model.get_num_params()
     print(f"Model params: {total / 1e6:.2f}M total, {trainable / 1e6:.2f}M trainable")
 
-    # 3. 构建 SFT 数据集
     train_dataset = SFTDataset(
         data_path=args.data_path,
         tokenizer=tokenizer,
@@ -463,11 +441,9 @@ def main():
         "请解释一下什么是光合作用。",
     ]
 
-    # 6. 训练前生成基线
     print("\n--- SFT 前生成基线 ---")
     evaluate_sft(model, tokenizer, eval_prompts)
 
-    # 7. 训练循环
     os.makedirs(args.save_dir, exist_ok=True)
     if not args.resume:
         global_step = 0
@@ -484,7 +460,6 @@ def main():
 
         print(f"\nEpoch {epoch}: train_loss={train_loss:.4f}, lr={scheduler.get_last_lr()[0]:.2e}")
 
-        # 保存 checkpoint
         ckpt_name = f"sft_epoch_{epoch}.pt"
         torch.save({
             'epoch': epoch,
@@ -508,7 +483,6 @@ def main():
             }, best_path)
             print(f"  Saved best SFT model (loss={train_loss:.4f}) -> {best_path}")
 
-    # 8. 训练后最终评估
     print("\n" + "=" * 60)
     print("SFT 训练完成，最终生成评估")
     print("=" * 60)

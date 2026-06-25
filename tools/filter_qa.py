@@ -57,13 +57,7 @@ def parse_qa(line):
 
 def filter_qa(input_path, output_path, min_answer_len=20, dedup=True):
     """
-    过滤 QA 数据
-
-    Args:
-        input_path: 输入文件路径（每行一条 Q/A）
-        output_path: 输出文件路径
-        min_answer_len: 回答最小字符数（< 此值的丢弃）
-        dedup: 是否去重（基于 Q 的哈希值）
+    过滤 QA 数据。min_answer_len=20 过滤短答，dedup 基于 Q-hash 去重
     """
     total = 0
     kept = 0

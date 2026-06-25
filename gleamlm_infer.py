@@ -40,7 +40,6 @@ def load_model(model_path, device='cuda'):
     # 使用共享函数加载模型（传入已加载的 checkpoint 避免重复磁盘读取）
     model, config = load_model_for_inference(model_path, device, checkpoint=checkpoint)
 
-    # 加载分词器
     tokenizer = BBPETokenizer.load(tokenizer_path)
 
     total, _ = model.get_num_params()

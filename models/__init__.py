@@ -43,10 +43,8 @@ def load_model_for_inference(model_path, device='cuda', checkpoint=None):
     config['dropout'] = 0.0
     config['tie_weights'] = False
 
-    # 构建模型
     model = GleamLMModel(**config).to(device)
 
-    # 加载权重
     if 'model_state_dict' in checkpoint:
         state_dict = checkpoint['model_state_dict']
         state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}

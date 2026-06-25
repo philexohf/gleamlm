@@ -13,16 +13,7 @@ import random
 def stream_build(input_paths, output_dir, train_ratio=0.9, valid_ratio=0.05,
                  ratios=None, total_lines=None, buf_size=50000):
     """
-    流式构建数据集：多文件按配比轮询读取 → 缓存区打乱 → 写输出。
-
-    Args:
-        input_paths: 输入文本文件路径列表
-        output_dir: 输出目录
-        train_ratio: 训练集比例
-        valid_ratio: 验证集比例
-        ratios: 每个数据源的目标占比
-        total_lines: 目标总行数（None=全部）
-        buf_size: 打乱缓冲区大小（行数）
+    流式构建数据集：多文件按配比轮询读取 → 缓存区打乱 → 写输出
     """
     os.makedirs(output_dir, exist_ok=True)
 

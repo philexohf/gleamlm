@@ -51,10 +51,7 @@ def dpad_collate(batch):
     }
 
 
-# ============================================================
 # DPO Dataset
-# ============================================================
-
 class DPODataset(Dataset):
     """DPO 数据集：chosen/rejected 对，prompt 部分 loss mask 为 0"""
 
@@ -107,10 +104,7 @@ class DPODataset(Dataset):
         }
 
 
-# ============================================================
 # DPO Loss
-# ============================================================
-
 def get_lr_cosine(step, total_steps, warmup_ratio=0.01, min_lr_ratio=0.05):
     """Cosine Annealing + Warmup"""
     warmup_steps = int(total_steps * warmup_ratio)
@@ -140,10 +134,7 @@ def dpo_loss(policy_chosen_logp, policy_rejected_logp,
     return -F.logsigmoid(beta * term).mean()
 
 
-# ============================================================
 # Training
-# ============================================================
-
 @torch.no_grad()
 def get_reference_logps(ref_model, chosen_ids, rejected_ids, chosen_mask, rejected_mask):
     """用冻结参考模型计算 chosen 和 rejected 的 log 概率"""
@@ -170,11 +161,9 @@ def train_one_epoch(model, ref_model, dataloader, optimizer, scheduler,
         chosen_mask = batch["chosen_mask"].to(device)
         rejected_mask = batch["rejected_mask"].to(device)
 
-        # 参考模型 log-probs（无梯度）
         ref_cho, ref_rej = get_reference_logps(
             ref_model, chosen_ids, rejected_ids, chosen_mask, rejected_mask)
 
-        # 策略模型前向
         with torch.amp.autocast('cuda'):
             c_logits, _ = model(chosen_ids)
             r_logits, _ = model(rejected_ids)
@@ -184,7 +173,6 @@ def train_one_epoch(model, ref_model, dataloader, optimizer, scheduler,
 
         loss = dpo_loss(policy_cho, policy_rej, ref_cho.detach(), ref_rej.detach(), beta)
 
-        # 梯度累积
         loss = loss / args.accumulate_grad
         scaler.scale(loss).backward()
 
@@ -277,10 +265,7 @@ def evaluate_dpo(model, tokenizer):
     model.train()
 
 
-# ============================================================
 # Main
-# ============================================================
-
 def main():
     parser = argparse.ArgumentParser(description="烁珑GleamLM DPO")
     parser.add_argument("--data_path", default="./data/dpo_data.jsonl")
@@ -311,7 +296,6 @@ def main():
     tokenizer = BBPETokenizer.load(args.tokenizer_path)
     print(f"Tokenizer vocab: {tokenizer.get_vocab_size()}")
 
-    # 2. 加载 SFT 模型作为策略模型 + 参考模型
     sft_ckpt = torch.load(args.model_path, map_location=device)
 
     policy_model = GleamLMModel(
@@ -321,7 +305,6 @@ def main():
     policy_model.load_state_dict(sft_ckpt["model_state_dict" if "model_state_dict" in sft_ckpt else "model"])
     print(f"Policy model: {sum(p.numel() for p in policy_model.parameters())/1e6:.2f}M params")
 
-    # 参考模型：独立加载并冻结
     ref_model = GleamLMModel(
         vocab_size=args.vocab_size, d_model=args.d_model,
         max_seq_len=args.max_seq_len,
@@ -355,14 +338,12 @@ def main():
     print("\n--- DPO 前生成基线 ---")
     evaluate_dpo(policy_model, tokenizer)
 
-    # 6. 训练
     for epoch in range(args.epochs):
         avg_loss = train_one_epoch(
             policy_model, ref_model, dataloader, optimizer, scheduler,
             scaler, args.beta, device, args)
         print(f"\nDPO Epoch {epoch}: loss={avg_loss:.4f}")
 
-    # 7. 保存
     os.makedirs(args.output_dir, exist_ok=True)
     save_path = os.path.join(args.output_dir, "dpo_best.pt")
     torch.save({

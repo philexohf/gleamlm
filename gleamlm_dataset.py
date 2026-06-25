@@ -62,7 +62,6 @@ class LMDataset(Dataset):
 
             print(f"  Done: {len(all_ids)} tokens")
 
-            # 保存为 numpy 文件
             ids_array = np.array(all_ids, dtype=np.uint32)
             np.save(ids_file, ids_array)
             self.all_ids = ids_array
@@ -70,7 +69,6 @@ class LMDataset(Dataset):
             del all_ids, text
             print(f"  Saved to {ids_file}")
 
-        # 计算样本数
         self.num_samples = max(0, (self.total_tokens - self.max_seq_len - 1) // self.stride + 1)
         print(f"Created {self.num_samples} samples for {split}")
 
@@ -93,12 +91,7 @@ class LMDataset(Dataset):
 
 
 def collate_fn(batch, pad_id):
-    """padding 到最大长度，拆分为 input_ids 和 target_ids（右移一位）
-    
-    Args:
-        batch: 样本列表，每个样本为 [seq_len] 的 LongTensor
-        pad_id: 填充 token ID（必须与训练 criterion 的 ignore_index 一致）
-    """
+    """Padding 到 batch 内最大长度，右移一位拆分为 input 和 target"""
     max_len = max(len(sample) for sample in batch)
 
     padded = []

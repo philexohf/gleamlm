@@ -11,9 +11,6 @@ os.chdir(BASE_DIR)  # standalone test script, safe to chdir (not importable)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"设备: {device}")
 
-# ============================================================
-# Step 1: 快速预训练 → best_model.pt
-# ============================================================
 print("=" * 60)
 print("Step 1: 快速预训练 (200 steps)...")
 from tokenizer.bbpe_tokenizer import BBPETokenizer
@@ -83,9 +80,6 @@ os.makedirs("checkpoints", exist_ok=True)
 torch.save({"model_state_dict": model.state_dict()}, "checkpoints/best_model.pt")
 print("  Saved: checkpoints/best_model.pt")
 
-# ============================================================
-# Step 2: 生成 SFT 数据
-# ============================================================
 print("=" * 60)
 print("Step 2: 生成 SFT 数据...")
 sft_prompts = [
@@ -107,9 +101,6 @@ with open("data/test_sft.jsonl", "w", encoding="utf-8") as f:
         f.write(json.dumps({"instruction": q, "output": a}, ensure_ascii=False) + "\n")
 print(f"  生成 {len(sft_prompts)} 条 SFT 数据")
 
-# ============================================================
-# Step 3: 最小化 SFT 训练（直接用 gleamlm_sft.py 但设极小 max_new_tokens）
-# ============================================================
 print("=" * 60)
 print("Step 3: SFT 指令微调 (1 epoch, 跳过 evaluate)...")
 
@@ -164,7 +155,6 @@ def sft_collate_fn(batch):
         labels_list.append(torch.cat([lab, torch.full((pad_len,), -100, dtype=torch.long)]))
     return torch.stack(inputs), torch.stack(labels_list)
 
-# 加载预训练模型
 sft_model = GleamLMModel(vocab_size=12003, d_model=512, num_layers=12,
                           num_heads=8, num_kv_heads=4, max_seq_len=512, tie_weights=True).to(device)
 ckpt = torch.load("checkpoints/best_model.pt", map_location=device)
@@ -191,9 +181,6 @@ torch.save({"model_state_dict": sft_model.state_dict()}, "checkpoints/sft_test/s
 torch.save({"model_state_dict": sft_model.state_dict()}, "checkpoints/sft_test/dpo_best.pt")
 print(f"  Saved: checkpoints/sft_test/sft_best.pt ({time.time()-t0:.1f}s)")
 
-# ============================================================
-# Step 4: 生成 DPO 数据
-# ============================================================
 print("=" * 60)
 print("Step 4: 生成 DPO 数据...")
 dpo_data = [
@@ -221,9 +208,6 @@ with open("data/test_dpo.jsonl", "w", encoding="utf-8") as f:
         f.write(json.dumps(item, ensure_ascii=False) + "\n")
 print(f"  生成 {len(dpo_data)} 条 DPO 数据")
 
-# ============================================================
-# Step 5: 最小 DPO 训练
-# ============================================================
 print("=" * 60)
 print("Step 5: DPO 偏好对齐 (1 epoch)...")
 
@@ -328,9 +312,6 @@ torch.save({"model_state_dict": policy.state_dict(), "dpo_loss": loss.item()},
            "checkpoints/dpo_test/dpo_best.pt")
 print(f"  Saved: checkpoints/dpo_test/dpo_best.pt")
 
-# ============================================================
-# Step 6: 验证
-# ============================================================
 print("=" * 60)
 print("Step 6: 验证所有产出...")
 checks = {

@@ -104,16 +104,6 @@ def clean_file(input_path, output_path, min_len=10, max_len=2000, convert_zh=Fal
                min_zh_ratio=0.0, filter_ads=False, filter_wiki_junk=False):
     """
     清洗整个文本文件
-
-    Args:
-        input_path: 输入文件路径（每行一条文本）
-        output_path: 输出文件路径
-        min_len: 最小文本长度
-        max_len: 最大文本长度
-        convert_zh: 是否自动转换繁体到简体
-        min_zh_ratio: 最小中文占比（0=关闭）
-        filter_ads: 是否过滤广告软文
-        filter_wiki_junk: 是否过滤 Wiki 无价值模板（人口普查/坐标等）
     """
     total = 0
     kept = 0

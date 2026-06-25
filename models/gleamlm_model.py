@@ -68,7 +68,6 @@ class GroupedQueryAttention(nn.Module):
         # K, V 投影（KV 头数 × 头维度）
         self.W_k = nn.Linear(d_model, num_kv_heads * self.head_dim, bias=False)
         self.W_v = nn.Linear(d_model, num_kv_heads * self.head_dim, bias=False)
-        # 输出投影
         self.W_o = nn.Linear(num_heads * self.head_dim, d_model, bias=False)
 
         # QK-Norm：注意力计算前对 Q/K 额外 RMSNorm，稳定训练
@@ -174,19 +173,15 @@ class GleamLMModel(nn.Module):
         self.pad_token_id = pad_token_id
         self.max_seq_len = max_seq_len
 
-        # Token Embedding
         self.token_embed = nn.Embedding(vocab_size, d_model, padding_idx=pad_token_id)
 
-        # Dropout after embedding
         self.emb_dropout = nn.Dropout(dropout)
 
-        # 堆叠 N 个 Decoder Block
         self.layers = nn.ModuleList([
             DecoderBlock(d_model, num_heads, num_kv_heads, d_ff, dropout, max_seq_len)
             for _ in range(num_layers)
         ])
 
-        # 最终 RMSNorm
         self.final_norm = RMSNorm(d_model)
 
         # 输出投影：d_model → vocab_size
@@ -196,7 +191,6 @@ class GleamLMModel(nn.Module):
         if tie_weights:
             self.lm_head.weight = self.token_embed.weight
 
-        # 权重初始化
         self._init_weights()
 
     def _init_weights(self):
