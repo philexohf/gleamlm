@@ -225,11 +225,11 @@ pytest tests/ -v
 
 ### （BBPE 12K + 字符加权四源混合，~40M）
 
-![](./images/V4/train_loss.jpg)
+![](./assets/train_loss.jpg)
 
 
 
-![](./images/V4/val.jpg)
+![](./assets/val.jpg)
 
 训练配置：`batch_size=4, accumulate_grad=16`（等效 64），`label_smoothing=0.1`，`stride=768`，Cosine Warmup + Decay，12GB 显存持续 ~92% 满载。
 
