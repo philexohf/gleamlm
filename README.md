@@ -152,6 +152,8 @@ tensorboard --logdir ./checkpoints/runs
 
 优化器：AdamW（β=0.9,0.95，wd=0.01），BF16 AMP，Cosine Warmup + Decay。首次运行自动 BBPE 分词，后续 mmap 加载 ~1MB。
 
+单卡 RTX 4070 Ti 12GB，每 epoch ~15 小时，5 epoch 约 75 小时。预训练基座模型已在魔搭上线，地址：[GleamLM-Nano · 模型库](https://www.modelscope.cn/models/philexohf/GleamLM-Nano)。如果直接使用预训练模型进行后续任务，需要修改指令中的模型名称。
+
 ### 3. 推理
 
 ```bash
