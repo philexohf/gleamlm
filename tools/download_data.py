@@ -9,8 +9,9 @@
 数据来源：
 - nlp_chinese_corpus (brightmart/nlp_chinese_corpus)
 - baby-llama2-chinese (DLLXW/baby-llama2-chinese)
+- Kaggle (webtext2019zh)
 
-下载方式：优先尝试 gdown (Google Drive)，失败则打印百度网盘手动下载指引。
+下载方式：优先 kagglehub 自动下载，失败则打印手动搜索指引。
 
 输出目录：
     data/raw/news_raw.txt
@@ -101,19 +102,12 @@ def download_news(output_txt):
         print(f"  解压完成: {archive_file}")
         return _extract_news(archive_file, output_txt)
 
-    # 尝试 gdown (Google Drive)
-    google_drive_id = "1TMKu1FpTr6kcjWXWlQHX7YJsMfhhcVKp"
-    downloaded = try_gdown(google_drive_id, archive_file, "news2016zh")
-
-    if not downloaded:
-        print("\n  === 手动下载指引 ===")
-        print(f"  百度网盘: https://pan.baidu.com/s/1MLLM-CdM6BhJkj8D0u3atA")
-        print(f"  提取码: k265")
-        print(f"  下载后将 news2016zh.json.gz 放到: {RAW_DIR}")
-        print(f"  然后重新运行: python tools/download_data.py --source news")
-        return False
-
-    return _extract_news(archive_file, output_txt)
+    # 该数据集版权归各新闻媒体所有，不提供直链
+    print("\n  === 手动获取指引 ===")
+    print(f"  请自行搜索 news2016zh 数据集（nlp_chinese_corpus）")
+    print(f"  下载后将 news2016zh.json.gz 放到: {RAW_DIR}")
+    print(f"  然后重新运行: python tools/download_data.py --source news")
+    return False
 
 
 def _extract_news(archive_file, output_txt):
@@ -158,10 +152,9 @@ def download_baike(output_txt):
     # Google Drive 无此文件
 
     if not os.path.exists(json_file) and not os.path.exists(archive_file):
-        print("  === 手动下载指引 ===")
-        print(f"  百度网盘: https://pan.baidu.com/s/1jIpCHnWLTNYabftavo3DVw?pwd=bwvb")
-        print(f"  提取码: bwvb")
-        print(f"  下载 563w_baidubaike.json.7z 放到: {RAW_DIR}")
+        print("  === 手动获取指引 ===")
+        print(f"  请自行搜索 baidubaike 563w 数据集（baby-llama2-chinese）")
+        print(f"  下载后放到: {RAW_DIR}")
         print(f"  然后重新运行: python tools/download_data.py --source baike")
         return False
 
@@ -303,22 +296,14 @@ def download_qa(output_txt):
         except Exception as e:
             print(f"  [webtext2019zh] Kaggle 下载失败: {e}")
 
-    # 方法2: gdown (Google Drive)
     if not os.path.exists(archive_file):
-        google_drive_id = "1u2yW_XohbYL2YAK6Bzc5XrngHstQTf0v"
-        try_gdown(google_drive_id, archive_file, "webtext2019zh")
-
-    if not os.path.exists(archive_file):
-        print("\n  === 手动下载指引 ===")
+        print("\n  === 手动获取指引 ===")
         print(f"  Kaggle: https://www.kaggle.com/datasets/terrychanorg/webtext2019zhjsonwebtext2019zh")
-        print(f"  或 Google Drive: https://drive.google.com/open?id=1u2yW_XohbYL2YAK6Bzc5XrngHstQTf0v")
         print(f"  下载后将 webtext2019zh.json.gz 放到: {RAW_DIR}")
         print(f"  然后重新运行: python tools/download_data.py --source qa")
         print()
-        print(f"  备选数据源 - baike2018qa (150万百科问答，百度网盘可用):")
-        print(f"  百度网盘: https://pan.baidu.com/s/12TCEwC_Q3He65HtPKN17cA")
-        print(f"  提取码: fu45")
-        print(f"  下载后将 baike2018qa.json.gz 放到 {RAW_DIR}")
+        print(f"  备选数据源 - baike2018qa (150万百科问答):")
+        print(f"  请自行搜索下载，放到 {RAW_DIR}")
         print(f"  然后用 --source qa_alt 运行本脚本")
         return False
 
@@ -334,18 +319,11 @@ def download_qa_alt(output_txt):
 
     archive_file = os.path.join(RAW_DIR, 'baike2018qa.json.gz')
 
-    google_drive_id = "1_vgGQZpfSxN_Ng9iTAvE7hM3Z7NVwXP2"
-    downloaded = try_gdown(google_drive_id, archive_file, "baike2018qa")
-
-    if not downloaded:
-        print("\n  === 手动下载指引 ===")
-        print(f"  百度网盘: https://pan.baidu.com/s/12TCEwC_Q3He65HtPKN17cA")
-        print(f"  提取码: fu45")
-        print(f"  下载后将 baike2018qa.json.gz 放到: {RAW_DIR}")
-        print(f"  然后重新运行: python tools/download_data.py --source qa_alt")
-        return False
-
-    return _extract_qa_alt(archive_file, output_txt)
+    print("\n  === 手动获取指引 ===")
+    print(f"  请自行搜索 baike2018qa 数据集")
+    print(f"  下载后将 baike2018qa.json.gz 放到: {RAW_DIR}")
+    print(f"  然后重新运行: python tools/download_data.py --source qa_alt")
+    return False
 
 
 def _extract_qa(archive_file, output_txt):
