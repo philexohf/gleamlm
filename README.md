@@ -253,7 +253,7 @@ python gleamlm-nano/quantize.py --input gleamlm-nano/checkpoints/dpo/dpo_best.pt
 ### 7. 运行测试
 
 ```bash
-pip install -r requirements-dev.txt
+pip install -e ".[dev]"
 pytest tests/ gleamlm-nano/tests/ gleamlm-lite/tests/ -v
 ```
 

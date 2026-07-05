@@ -25,6 +25,7 @@ gleamlm-lite/data/splits/*
 build/
 dist/
 gleamlm.egg-info/
+gleamlm-*/
 
 # Documentation (internal, select files uploaded manually)
 docs/
