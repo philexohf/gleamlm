@@ -6,6 +6,8 @@
 
  **项目持续开发中， 点个 Star ⭐ 收藏，更新不错过。**
 
+**现版本正在开发87M模型的代码，如果想测试项目，请用TAG：v0.1.0的软件包**
+
 ## 项目简介
 
 纯 PyTorch 从零实现，零 HuggingFace 依赖，覆盖 **多源中文数据管线**（下载→清洗→去重→字符加权配比）→ **BBPE 分词器训练**（自研，零外部依赖）→ **Decoder-only 模型**（SwiGLU / GQA / RoPE / QK-Norm）→ **AMP + DDP 训练**（断点续训保存 optimizer/scheduler/scaler 全量状态）→ **SFT / DPO 对齐**（ChatML + loss mask）→FP16量化 → **KV Cache 流式推理**全链路。
