@@ -60,7 +60,7 @@ def load_model(model_path, device='cuda'):
 
 
 def generate(model, tokenizer, prompt, max_new_tokens=256,
-             temperature=1.0, top_k=50, top_p=0.9, repetition_penalty=1.0,
+             temperature=1.0, top_k=50, top_p=0.9, repetition_penalty=1.1,
              sft_mode=False, stop_token=None):
     """生成文本并实时打印"""
     streamer = TextStreamer(tokenizer)
@@ -104,7 +104,7 @@ def generate(model, tokenizer, prompt, max_new_tokens=256,
 
 
 def interactive(model, tokenizer, max_new_tokens=256,
-                temperature=1.0, top_k=50, top_p=0.9, repetition_penalty=1.0,
+                temperature=1.0, top_k=50, top_p=0.9, repetition_penalty=1.1,
                 device='cuda', sft_mode=False):
     """交互式对话模式"""
     print("\n" + "=" * 60)
