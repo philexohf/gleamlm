@@ -51,7 +51,7 @@ tools = [
 ]
 quality = [
     "openai>=1.0",
-    "fasttext>=0.9",
+    "fasttext-wheel>=0.9",
 ]
 
 [project.urls]

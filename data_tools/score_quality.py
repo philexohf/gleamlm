@@ -5,7 +5,7 @@
 
 用法：
     set DEEPSEEK_API_KEY=sk-xxxx
-    pip install fasttext openai
+    pip install fasttext-wheel openai
 
     # 首次标注
     python data_tools/score_quality.py --input data/lite_data/train.txt --sample 5000
@@ -172,57 +172,51 @@ def convert_to_fasttext(json_path: str, ft_path: str) -> int:
 
 
 def train_fasttext(ft_path: str, model_path: str) -> None:
-    """训练文本质量分类器（scikit-learn LogisticRegression + char n-grams）"""
-    import pickle
+    """训练 fastText 分类器"""
+    try:
+        import fasttext
+    except ImportError:
+        print("请先安装 fasttext-wheel: pip install fasttext-wheel")
+        sys.exit(1)
 
-    from sklearn.feature_extraction.text import TfidfVectorizer
-    from sklearn.linear_model import LogisticRegression
-    from sklearn.pipeline import Pipeline
-
-    texts: list[str] = []
-    labels: list[int] = []
-    with open(ft_path, encoding="utf-8") as f:
-        for line in f:
-            parts = line.strip().split(" ", 1)
-            if len(parts) < 2:
-                continue
-            labels.append(int(parts[0].replace("__label__", "")))
-            texts.append(parts[1])
-
-    print(f"Training classifier on {len(texts)} samples...")
-    pipeline = Pipeline(
-        [
-            (
-                "tfidf",
-                TfidfVectorizer(
-                    analyzer="char",
-                    ngram_range=(2, 4),
-                    max_features=50000,
-                    sublinear_tf=True,
-                ),
-            ),
-            ("clf", LogisticRegression(max_iter=200, class_weight="balanced", n_jobs=-1)),
-        ]
+    print(f"Training fastText on {ft_path}...")
+    model = fasttext.train_supervised(
+        input=ft_path,
+        epoch=25,
+        lr=0.5,
+        wordNgrams=2,
+        dim=100,
+        loss="softmax",
+        verbose=2,
     )
-    pipeline.fit(texts, labels)
-
-    with open(model_path, "wb") as f:
-        pickle.dump(pipeline, f)
+    model.save_model(model_path)
     print(f"Saved: {model_path}")
 
-    acc = pipeline.score(texts, labels)
-    print(f"  Training accuracy: {acc:.3f}")
+    n, p, r = model.test(ft_path)
+    print(f"  Samples:     {n}")
+    print(f"  Precision@1: {p:.3f}")
+    print(f"  Recall@1:    {r:.3f}")
 
 
 def score_all(input_path: str, model_path: str, output_path: str, min_len: int = 20) -> None:
-    """用训练好的分类器对全量数据评分"""
-    import pickle
+    """用训练好的 fastText 分类器对全量数据评分"""
+    try:
+        import fasttext
+    except ImportError:
+        print("请先安装 fasttext-wheel: pip install fasttext-wheel")
+        sys.exit(1)
 
-    with open(model_path, "rb") as f:
-        pipeline = pickle.load(f)
-
+    model = fasttext.load_model(model_path)
     total = 0
     scored = 0
+
+    def _predict(text: str) -> str | None:
+        """fasttext C++ predict，绕过 numpy 2.x 兼容问题"""
+        results = model.f.predict(text, 1, 0.0, "")
+        if not results:
+            return None
+        return results[0][1]
+
     with open(input_path, encoding="utf-8") as fin, open(output_path, "w", encoding="utf-8") as fout:
         for line in fin:
             stripped = line.strip()
@@ -230,7 +224,8 @@ def score_all(input_path: str, model_path: str, output_path: str, min_len: int =
             if len(stripped) < min_len:
                 fout.write("0\n")
                 continue
-            label = int(pipeline.predict([stripped[:3000]])[0])
+            pred = _predict(stripped[:3000])
+            label = 0 if pred is None else int(pred.replace("__label__", ""))
             fout.write(f"{label}\n")
             scored += 1
             if total % 100000 == 0:
@@ -275,7 +270,7 @@ def main() -> None:
     parser.add_argument("--delay", type=float, default=0.3, help="API 调用间隔秒数")
     parser.add_argument("--train", action="store_true", help="训 fastText 分类器")
     parser.add_argument("--score", action="store_true", help="全量数据评分")
-    parser.add_argument("--ft_model", type=str, default="data/quality_model.pkl", help="分类器模型路径")
+    parser.add_argument("--ft_model", type=str, default="data/quality_model.bin", help="分类器模型路径")
     parser.add_argument("--score_out", type=str, default="data/train.score", help="评分输出路径")
     args = parser.parse_args()
 
