@@ -2,38 +2,37 @@
 
 用法：
     python data_tools/prepare_data.py
-    
+
     自定义配比：
     python data_tools/prepare_data.py --ratios 0.40 0.23 0.22 0.15
-    
+
     跳过已完成的步骤（断点续跑）：
     python data_tools/prepare_data.py --skip_dedup
 """
 
-import os
-import sys
 import argparse
+import os
 import subprocess
+import sys
 
 # 数据源配置（顺序即混合轮询优先级，配比影响每轮读取行数）
 SOURCES = [
-    {"name": "wiki",   "file": "wiki_clean.txt",     "type": "text", "ratio": 0.30},
-    {"name": "baike",  "file": "baike_clean.txt",    "type": "text", "ratio": 0.12},
-    {"name": "news",   "file": "news_clean.txt",     "type": "news", "ratio": 0.43},
-    {"name": "qa",     "file": "qa_clean.txt",       "type": "qa",   "ratio": 0.15},
+    {"name": "wiki", "file": "wiki_clean.txt", "type": "text", "ratio": 0.30},
+    {"name": "baike", "file": "baike_clean.txt", "type": "text", "ratio": 0.12},
+    {"name": "news", "file": "news_clean.txt", "type": "news", "ratio": 0.43},
+    {"name": "qa", "file": "qa_clean.txt", "type": "qa", "ratio": 0.15},
 ]
 
 
 def run(cmd_list, desc):
     """运行子命令，失败则报错退出"""
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"[{desc}]")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     result = subprocess.run(cmd_list, shell=False)
     if result.returncode != 0:
         print(f"ERROR: {desc} 失败 (exit={result.returncode})")
         sys.exit(1)
-
 
 
 def compute_avg_chars(filepath, sample_lines=50000):
@@ -41,7 +40,7 @@ def compute_avg_chars(filepath, sample_lines=50000):
     total_chars = 0
     lines = 0
     try:
-        with open(filepath, 'r', encoding='utf-8') as f:
+        with open(filepath, encoding="utf-8") as f:
             for i, line in enumerate(f):
                 if i >= sample_lines:
                     break
@@ -55,22 +54,26 @@ def compute_avg_chars(filepath, sample_lines=50000):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='数据预处理一键管道')
-    parser.add_argument('--input', type=str, default='data/raw',
-                        help='原始数据目录')
-    parser.add_argument('--output', type=str, default='data/nano_data',
-                        help='输出目录')
-    parser.add_argument('--ratios', type=float, nargs='+', default=None,
-                        help='多源配比，顺序与 SOURCES 一致，默认 0.30 0.12 0.43 0.15')
-    parser.add_argument('--skip_clean', action='store_true',
-                        help='跳过清洗（输入已是 clean 文件）')
-    parser.add_argument('--skip_dedup', action='store_true',
-                        help='跳过去重')
-    parser.add_argument('--dedup_mode', type=str, default='exact',
-                        choices=['exact', 'prefix'],
-                        help='去重模式 (exact/prefix)')
-    parser.add_argument('--prefix_len', type=int, default=100,
-                        help='prefix 模式下的字符数')
+    parser = argparse.ArgumentParser(description="数据预处理一键管道")
+    parser.add_argument("--input", type=str, default="data/raw", help="原始数据目录")
+    parser.add_argument("--output", type=str, default="data/nano_data", help="输出目录")
+    parser.add_argument(
+        "--ratios",
+        type=float,
+        nargs="+",
+        default=None,
+        help="多源配比，顺序与 SOURCES 一致，默认 0.30 0.12 0.43 0.15",
+    )
+    parser.add_argument("--skip_clean", action="store_true", help="跳过清洗（输入已是 clean 文件）")
+    parser.add_argument("--skip_dedup", action="store_true", help="跳过去重")
+    parser.add_argument(
+        "--dedup_mode",
+        type=str,
+        default="exact",
+        choices=["exact", "prefix"],
+        help="去重模式 (exact/prefix)",
+    )
+    parser.add_argument("--prefix_len", type=int, default=100, help="prefix 模式下的字符数")
     args = parser.parse_args()
 
     tools_dir = os.path.dirname(os.path.abspath(__file__))
@@ -99,10 +102,21 @@ def main():
             if s["name"] == "news":
                 extra += ["--filter_ads"]
             run(
-                ['python', os.path.join(tools_dir, 'clean_text.py'),
-                 '--input', raw, '--output', clean,
-                 '--min_len', '10', '--max_len', '2000', '--convert_zh'] + extra,
-                f"清洗: {s['name']} ({os.path.basename(raw)} → {os.path.basename(clean)})"
+                [
+                    "python",
+                    os.path.join(tools_dir, "clean_text.py"),
+                    "--input",
+                    raw,
+                    "--output",
+                    clean,
+                    "--min_len",
+                    "10",
+                    "--max_len",
+                    "2000",
+                    "--convert_zh",
+                ]
+                + extra,
+                f"清洗: {s['name']} ({os.path.basename(raw)} → {os.path.basename(clean)})",
             )
 
     # 2. 去重 / QA过滤
@@ -123,18 +137,33 @@ def main():
 
             if s["type"] == "qa":
                 run(
-                    ['python', os.path.join(tools_dir, 'filter_qa.py'),
-                     '--input', src, '--output', deduped],
-                    f"QA过滤: {s['name']}"
+                    [
+                        "python",
+                        os.path.join(tools_dir, "filter_qa.py"),
+                        "--input",
+                        src,
+                        "--output",
+                        deduped,
+                    ],
+                    f"QA过滤: {s['name']}",
                 )
             else:
                 # 新闻用 prefix 模式（标题去重），其他用 exact（全文去重）
                 mode = "prefix" if s["type"] == "news" else args.dedup_mode
                 run(
-                    ['python', os.path.join(tools_dir, 'dedup_text.py'),
-                     '--input', src, '--output', deduped,
-                     '--mode', mode, '--prefix_len', str(args.prefix_len)],
-                    f"去重: {s['name']} (mode={mode})"
+                    [
+                        "python",
+                        os.path.join(tools_dir, "dedup_text.py"),
+                        "--input",
+                        src,
+                        "--output",
+                        deduped,
+                        "--mode",
+                        mode,
+                        "--prefix_len",
+                        str(args.prefix_len),
+                    ],
+                    f"去重: {s['name']} (mode={mode})",
                 )
 
     # 3. 字符加权配比 → 行数配比（业界标准：按字符量而非行数混合）
@@ -177,23 +206,26 @@ def main():
         if input_files[i] is not None and effective[i] > 0:
             valid_files.append(input_files[i])
             valid_ratios.append(f"{effective[i]:.4f}")
-            print(f"  {s['name']}: 目标{target_ratios[i]*100:.0f}% 字符 → 行数配比 {effective[i]*100:.1f}%")
+            print(
+                f"  {s['name']}: 目标{target_ratios[i] * 100:.0f}% 字符 → 行数配比 {effective[i] * 100:.1f}%"
+            )
         elif input_files[i] is not None:
             valid_files.append(input_files[i])
             valid_ratios.append("0.0001")
-            print(f"  {s['name']}: 目标{target_ratios[i]*100:.0f}% 字符 → 文件为空，跳过")
+            print(f"  {s['name']}: 目标{target_ratios[i] * 100:.0f}% 字符 → 文件为空，跳过")
 
     if len(valid_files) < 2:
         print("ERROR: 有效数据源不足 2 个")
         sys.exit(1)
 
-    cmd_list = ['python', os.path.join(tools_dir, 'build_dataset.py'),
-                '--input'] + valid_files + ['--ratios'] + valid_ratios + [
-                '--output_dir', args.output]
-    run(
-        cmd_list,
-        f"build_dataset ({len(input_files)} sources)"
+    cmd_list = (
+        ["python", os.path.join(tools_dir, "build_dataset.py"), "--input"]
+        + valid_files
+        + ["--ratios"]
+        + valid_ratios
+        + ["--output_dir", args.output]
     )
+    run(cmd_list, f"build_dataset ({len(input_files)} sources)")
 
     # 4. 清理旧 token 缓存
     print("\n[4/4] 清理旧 token 缓存")
@@ -209,10 +241,10 @@ def main():
     print("数据预处理完成!")
     print(f"输出目录: {args.output}")
     for s in SOURCES:
-        print(f"  {s['name']}: {s['ratio']*100:.0f}%")
+        print(f"  {s['name']}: {s['ratio'] * 100:.0f}%")
     print(f"\n下一步: python train.py --data_dir {args.output}")
     print("=" * 60)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

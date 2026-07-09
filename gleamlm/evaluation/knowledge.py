@@ -1,17 +1,16 @@
-"""知识探针评估 — 填空测试 + 实体一致性检查
-"""
+"""知识探针评估 — 填空测试 + 实体一致性检查"""
+
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from dataclasses import dataclass, field
+from typing import Any
 
 import torch
-import random
-from dataclasses import dataclass, field
 
-from gleamlm.utils.torch_utils import safe_autocast
+from gleamlm.inference.sampler import sample_token
 from gleamlm.models.model import GleamLMModel
 from gleamlm.tokenizer.tokenizer import BBPETokenizer
-from gleamlm.inference.sampler import sample_token
+from gleamlm.utils.torch_utils import safe_autocast
 
 
 @dataclass
@@ -19,18 +18,18 @@ class KnowledgeResult:
     correct: int = 0
     wrong: int = 0
     hallucination: int = 0
-    detailed: List[Dict] = field(default_factory=list)
-    entity_consistency: Dict[str, int] = field(default_factory=dict)
+    detailed: list[dict[str, Any]] = field(default_factory=list)
+    entity_consistency: dict[str, int] = field(default_factory=dict)
 
     @property
-    def total(self):
+    def total(self) -> int:
         return self.correct + self.wrong + self.hallucination
 
     @property
-    def accuracy(self):
+    def accuracy(self) -> float:
         return self.correct / max(1, self.total)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "accuracy": round(self.accuracy, 4),
             "correct": self.correct,
@@ -42,9 +41,11 @@ class KnowledgeResult:
         }
 
     def __repr__(self) -> str:
-        return (f"KnowledgeResult(acc={self.accuracy:.2%}, "
-                f"{self.correct}/{self.total} correct, "
-                f"{self.hallucination} hallucinations)")
+        return (
+            f"KnowledgeResult(acc={self.accuracy:.2%}, "
+            f"{self.correct}/{self.total} correct, "
+            f"{self.hallucination} hallucinations)"
+        )
 
 
 # 默认知识探针池
@@ -81,10 +82,15 @@ DEFAULT_ENTITY_PROBES = {
 }
 
 
-def _simple_generate(model: GleamLMModel, tokenizer: BBPETokenizer,
-                     prompt: str, device: str,
-                     max_new_tokens: int = 64, temperature: float = 0.7,
-                     top_k: int = 50) -> str:
+def _simple_generate(
+    model: GleamLMModel,
+    tokenizer: BBPETokenizer,
+    prompt: str,
+    device: str,
+    max_new_tokens: int = 64,
+    temperature: float = 0.7,
+    top_k: int = 50,
+) -> str:
     """独立生成函数 — 使用 KV Cache 逐 token 增量推理。
 
     首步预填充 prompt，后续每步仅输入新 token 并复用 KV Cache，
@@ -113,15 +119,13 @@ def _simple_generate(model: GleamLMModel, tokenizer: BBPETokenizer,
             input_ids = torch.tensor([[token_id]], device=device)
 
     full = tokenizer.decode(generated_ids)
-    if full.startswith(prompt):
-        generated = full[len(prompt):].strip()
-    else:
-        generated = full.strip()
+    generated = full[len(prompt):].strip() if full.startswith(prompt) else full.strip()
     return generated[:200]
 
 
-def _check_answer(generated: str, expected: str,
-                  hallucination_keywords: Optional[List[str]] = None) -> str:
+def _check_answer(
+    generated: str, expected: str, hallucination_keywords: list[str] | None = None
+) -> str:
     """检查生成文本是否包含预期答案。返回 CORRECT / WRONG / HALLUCINATION"""
     gen_lower = generated.lower().replace(" ", "")
     answers = [a.strip().lower() for a in expected.split(",")]
@@ -135,14 +139,17 @@ def _check_answer(generated: str, expected: str,
     return "WRONG"
 
 
-def evaluate_knowledge(model: GleamLMModel, tokenizer: BBPETokenizer,
-                       device: str = "cuda",
-                       fact_prompts: Optional[List[Tuple[str, str]]] = None,
-                       entity_probes: Optional[Dict[str, List[str]]] = None,
-                       hallucination_keywords: Optional[List[str]] = None,
-                       max_new_tokens: int = 64,
-                       temperature: float = 0.7,
-                       verbose: bool = True) -> KnowledgeResult:
+def evaluate_knowledge(
+    model: GleamLMModel,
+    tokenizer: BBPETokenizer,
+    device: str = "cuda",
+    fact_prompts: list[tuple[str, str]] | None = None,
+    entity_probes: dict[str, list[str]] | None = None,
+    hallucination_keywords: list[str] | None = None,
+    max_new_tokens: int = 64,
+    temperature: float = 0.7,
+    verbose: bool = True,
+) -> KnowledgeResult:
     """运行知识探针评估。"""
     if fact_prompts is None:
         fact_prompts = DEFAULT_FACT_PROMPTS
@@ -154,13 +161,12 @@ def evaluate_knowledge(model: GleamLMModel, tokenizer: BBPETokenizer,
 
     # A1: 事实填空
     if verbose:
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"A1: FACT FILL-IN ({len(fact_prompts)} prompts)")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
 
     for prompt, expected in fact_prompts:
-        generated = _simple_generate(model, tokenizer, prompt, device,
-                                     max_new_tokens, temperature)
+        generated = _simple_generate(model, tokenizer, prompt, device, max_new_tokens, temperature)
         label = _check_answer(generated, expected, hallucination_keywords)
 
         if label == "CORRECT":
@@ -170,30 +176,30 @@ def evaluate_knowledge(model: GleamLMModel, tokenizer: BBPETokenizer,
         else:
             result.wrong += 1
 
-        result.detailed.append({
-            "prompt": prompt, "expected": expected,
-            "generated": generated[:100], "result": label
-        })
+        result.detailed.append(
+            {"prompt": prompt, "expected": expected, "generated": generated[:100], "result": label}
+        )
 
         if verbose:
             symbols = {"CORRECT": "OK", "HALLUCINATION": "HALU", "WRONG": "WRONG"}
             print(f"  [{symbols[label]:>4}] {prompt} → {generated[:60]}...")
 
     if verbose:
-        print(f"\n  Accuracy: {result.correct}/{result.total} ({result.accuracy:.1%}), "
-              f"{result.hallucination} hallucinations")
+        print(
+            f"\n  Accuracy: {result.correct}/{result.total} ({result.accuracy:.1%}), "
+            f"{result.hallucination} hallucinations"
+        )
 
     # A2: 实体探针
     if verbose:
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"A2: ENTITY PROBE ({len(entity_probes)} entities)")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
 
     for entity, questions in entity_probes.items():
         correct = 0
         for q in questions:
-            generated = _simple_generate(model, tokenizer, q, device,
-                                        max_new_tokens, temperature)
+            generated = _simple_generate(model, tokenizer, q, device, max_new_tokens, temperature)
             if entity.lower() in generated.lower():
                 correct += 1
         result.entity_consistency[entity] = correct
@@ -204,7 +210,8 @@ def evaluate_knowledge(model: GleamLMModel, tokenizer: BBPETokenizer,
 
     if verbose:
         consistent = sum(
-            1 for entity, v in result.entity_consistency.items()
+            1
+            for entity, v in result.entity_consistency.items()
             if entity in entity_probes and v >= len(entity_probes[entity]) * 0.67
         )
         print(f"\n  Consistent entities: {consistent}/{len(entity_probes)}")

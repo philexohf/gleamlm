@@ -1,17 +1,19 @@
 """GleamLM YAML + CLI 配置加载器"""
+
 from __future__ import annotations
 
-import os
-from typing import Any, Dict, List, Set
-import yaml
 import argparse
-
+import contextlib
+import os
 from importlib.resources import files
+from typing import Any
+
+import yaml
 
 DEFAULT_TOKENIZER_PATH = str(files("gleamlm") / "tokenizer" / "checkpoints" / "bbpe_12k")
 DEFAULT_DATA_DIR = os.path.join(os.getcwd(), "data", "nano_data")
 
-_NO_PREFIX_SECTIONS: Set[str] = {"model", "training", "data", "advanced", "lr"}
+_NO_PREFIX_SECTIONS: set[str] = {"model", "training", "data", "advanced", "lr"}
 
 
 def _deep_merge(base: dict, override: dict) -> dict:
@@ -27,6 +29,7 @@ def _deep_merge(base: dict, override: dict) -> dict:
 
 class _DictWrapper:
     """将嵌套 dict 包装为属性访问风格。cfg.training.epochs"""
+
     def __init__(self, data: dict) -> None:
         object.__setattr__(self, "_data", data)
 
@@ -62,7 +65,7 @@ def load_yaml(path: str) -> dict:
     path = os.path.abspath(path)
     base_dir = os.path.dirname(path)
 
-    with open(path, 'r', encoding='utf-8') as f:
+    with open(path, encoding="utf-8") as f:
         data = yaml.safe_load(f)
 
     if "extends" in data:
@@ -88,7 +91,7 @@ def _parse_cli_overrides(cfg_dict: dict) -> dict:
     """将 sys.argv 解析为命令行覆盖。支持 --training.epochs 10 和 --epochs 10"""
     parser = argparse.ArgumentParser(add_help=False)
 
-    NO_PREFIX: Set[str] = _NO_PREFIX_SECTIONS
+    NO_PREFIX: set[str] = _NO_PREFIX_SECTIONS
 
     def flatten(d: dict, prefix: str = "") -> None:
         for k, v in d.items():
@@ -122,49 +125,45 @@ def _apply_overrides(cfg_dict: dict, overrides: dict) -> None:
             if isinstance(current, bool):
                 value = value.lower() in ("true", "1", "yes")
             elif isinstance(current, int):
-                try:
+                with contextlib.suppress(ValueError):
                     value = int(value)
-                except ValueError:
-                    pass
             elif isinstance(current, float):
-                try:
+                with contextlib.suppress(ValueError):
                     value = float(value)
-                except ValueError:
-                    pass
         d[parts[-1]] = value
 
 
 # 配置校验规则
 _CONFIG_VALIDATORS = {
     "model": {
-        "d_model":       (int, lambda v: v >= 64 and v % 64 == 0),
-        "num_layers":    (int, lambda v: 1 <= v <= 256),
-        "num_heads":     (int, lambda v: v >= 1 and v % 2 == 0),
-        "num_kv_heads":  (int, lambda v: v >= 1 and v % 2 == 0),
-        "d_ff":          (int, lambda v: v >= 64),
-        "max_seq_len":   (int, lambda v: 32 <= v <= 131072),
-        "vocab_size":    (int, lambda v: v >= 256),
-        "dropout":       (float, lambda v: 0.0 <= v <= 1.0),
-        "tie_weights":   (bool, None),
-        "use_flash_attn":(bool, None),
+        "d_model": (int, lambda v: v >= 64 and v % 64 == 0),
+        "num_layers": (int, lambda v: 1 <= v <= 256),
+        "num_heads": (int, lambda v: v >= 1 and v % 2 == 0),
+        "num_kv_heads": (int, lambda v: v >= 1 and v % 2 == 0),
+        "d_ff": (int, lambda v: v >= 64),
+        "max_seq_len": (int, lambda v: 32 <= v <= 131072),
+        "vocab_size": (int, lambda v: v >= 256),
+        "dropout": (float, lambda v: 0.0 <= v <= 1.0),
+        "tie_weights": (bool, None),
+        "use_flash_attn": (bool, None),
     },
     "training": {
-        "epochs":        (int, lambda v: 1 <= v <= 1000),
-        "batch_size":    (int, lambda v: v >= 1),
+        "epochs": (int, lambda v: 1 <= v <= 1000),
+        "batch_size": (int, lambda v: v >= 1),
         "accumulate_grad": (int, lambda v: v >= 1),
-        "clip_grad":     (float, lambda v: v >= 0),
-        "weight_decay":  (float, None),
-        "seed":          (int, None),
+        "clip_grad": (float, lambda v: v >= 0),
+        "weight_decay": (float, None),
+        "seed": (int, None),
         "max_train_chars": (int, lambda v: v >= 0),
     },
     "lr": {
-        "lr":            (float, lambda v: v > 0),
-        "warmup_ratio":  (float, lambda v: 0.0 <= v <= 1.0),
-        "min_lr_ratio":  (float, lambda v: 0.0 <= v <= 1.0),
+        "lr": (float, lambda v: v > 0),
+        "warmup_ratio": (float, lambda v: 0.0 <= v <= 1.0),
+        "min_lr_ratio": (float, lambda v: 0.0 <= v <= 1.0),
     },
     "advanced": {
         "z_loss_weight": (float, lambda v: v >= 0),
-        "bf16":          (bool, None),
+        "bf16": (bool, None),
     },
 }
 
@@ -191,8 +190,9 @@ def _validate_config(cfg_dict: dict) -> None:
         raise ValueError("配置校验失败:\n" + "\n".join(f"  {e}" for e in errors))
 
 
-def load_config(config_file: str, model_name: str | None = None,
-                cli_overrides: bool = False) -> _DictWrapper:
+def load_config(
+    config_file: str, model_name: str | None = None, cli_overrides: bool = False
+) -> _DictWrapper:
     """加载配置文件，返回 _DictWrapper 属性访问对象。"""
     cfg_dict = load_yaml(config_file)
 
@@ -213,7 +213,7 @@ def load_config(config_file: str, model_name: str | None = None,
 
 def to_namespace(cfg: _DictWrapper) -> argparse.Namespace:
     """将 DictWrapper 配置转为 argparse.Namespace。"""
-    NO_PREFIX: Set[str] = _NO_PREFIX_SECTIONS
+    NO_PREFIX: set[str] = _NO_PREFIX_SECTIONS
 
     def _flatten_prefix(d: dict, prefix: str) -> dict:
         result: dict = {}
@@ -227,6 +227,7 @@ def to_namespace(cfg: _DictWrapper) -> argparse.Namespace:
 
     result: dict = {}
     import warnings
+
     for section_name, section_data in cfg._data.items():
         if isinstance(section_data, dict):
             if section_name in NO_PREFIX:
@@ -237,7 +238,7 @@ def to_namespace(cfg: _DictWrapper) -> argparse.Namespace:
                         if k in result:
                             warnings.warn(
                                 f"[to_namespace] 键冲突: '{k}' 被 section '{section_name}' 覆盖，"
-                                f"原值来自另一 section"
+                                f"原值来自另一 section", stacklevel=2
                             )
                         result[k] = v
             else:
@@ -245,7 +246,7 @@ def to_namespace(cfg: _DictWrapper) -> argparse.Namespace:
                 for k in prefixed:
                     if k in result:
                         warnings.warn(
-                            f"[to_namespace] 键冲突: '{k}' 从 prefixed section 覆盖已存在的键"
+                            f"[to_namespace] 键冲突: '{k}' 从 prefixed section 覆盖已存在的键", stacklevel=2
                         )
                 result.update(prefixed)
         else:
@@ -254,8 +255,9 @@ def to_namespace(cfg: _DictWrapper) -> argparse.Namespace:
     return argparse.Namespace(**result)
 
 
-def load_config_as_args(config_file: str, model_name: str | None = None,
-                        cli_overrides: bool = False) -> argparse.Namespace:
+def load_config_as_args(
+    config_file: str, model_name: str | None = None, cli_overrides: bool = False
+) -> argparse.Namespace:
     """一站式加载 YAML 配置并转为 argparse.Namespace"""
     cfg = load_config(config_file, model_name, cli_overrides)
     return to_namespace(cfg)

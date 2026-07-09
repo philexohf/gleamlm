@@ -1,18 +1,26 @@
 """模型 前向/反向/KV Cache/参数量/关键路径 测试"""
+
 import math
-import pytest
+
 import torch
 import torch.nn.functional as F
-from gleamlm.models.model import (
-    GleamLMModel, RMSNorm, GroupedQueryAttention, SwiGLUFFN, DecoderBlock,
-    precompute_freqs_cis, apply_rotary_emb, _rotate_half,
-)
 
+from gleamlm.models.model import (
+    DecoderBlock,
+    GleamLMModel,
+    GroupedQueryAttention,
+    RMSNorm,
+    SwiGLUFFN,
+    _rotate_half,
+    apply_rotary_emb,
+    precompute_freqs_cis,
+)
 
 VOCAB_SIZE = 12002
 
 
 # 基础组件
+
 
 def test_rms_norm_shape():
     norm = RMSNorm(64)
@@ -25,7 +33,7 @@ def test_rms_norm_numerics():
     norm = RMSNorm(64, eps=1e-6)
     x = torch.ones(2, 8, 64) * 3.0
     out = norm(x)
-    rms = math.sqrt(3.0 ** 2 + 1e-6)
+    rms = math.sqrt(3.0**2 + 1e-6)
     expected = (3.0 / rms) * 1.0
     assert abs(out[0, 0, 0].item() - expected) < 1e-4
 
@@ -89,6 +97,7 @@ def test_rotate_half():
 
 # GQA 注意力
 
+
 def test_gqa_repeat_kv():
     attn = GroupedQueryAttention(256, 8, 2, 128)
     kv = torch.randn(2, 2, 10, 32)
@@ -129,7 +138,7 @@ def test_gqa_kv_cache():
 def test_gqa_with_mask():
     attn = GroupedQueryAttention(256, 8, 2, 128)
     x = torch.randn(2, 8, 256)
-    mask = torch.full((1, 1, 8, 8), float('-inf'))
+    mask = torch.full((1, 1, 8, 8), float("-inf"))
     mask = torch.triu(mask, diagonal=1)
     out, weights, kv = attn(x, mask=mask)
     assert out.shape == (2, 8, 256)
@@ -137,6 +146,7 @@ def test_gqa_with_mask():
 
 
 # DecoderBlock
+
 
 def test_decoder_block_shape():
     block = DecoderBlock(256, 8, 2, 682, 128)
@@ -154,6 +164,7 @@ def test_decoder_block_residual():
 
 
 # GleamLMModel
+
 
 def test_parameter_count(small_model):
     total, trainable = small_model.get_num_params()
@@ -209,34 +220,55 @@ def test_long_sequence(small_model):
 
 # 权重绑定 (Weight Tying)
 
+
 def test_weight_tying_enabled():
     model = GleamLMModel(
-        vocab_size=12002, d_model=256, num_layers=2,
-        num_heads=4, num_kv_heads=2, d_ff=682,
-        max_seq_len=128, tie_weights=True,
+        vocab_size=12002,
+        d_model=256,
+        num_layers=2,
+        num_heads=4,
+        num_kv_heads=2,
+        d_ff=682,
+        max_seq_len=128,
+        tie_weights=True,
     )
     assert model.lm_head.weight is model.token_embed.weight
 
 
 def test_weight_tying_disabled():
     model = GleamLMModel(
-        vocab_size=12002, d_model=256, num_layers=2,
-        num_heads=4, num_kv_heads=2, d_ff=682,
-        max_seq_len=128, tie_weights=False,
+        vocab_size=12002,
+        d_model=256,
+        num_layers=2,
+        num_heads=4,
+        num_kv_heads=2,
+        d_ff=682,
+        max_seq_len=128,
+        tie_weights=False,
     )
     assert model.lm_head.weight is not model.token_embed.weight
 
 
 def test_weight_tying_param_count():
     tied = GleamLMModel(
-        vocab_size=12002, d_model=256, num_layers=2,
-        num_heads=4, num_kv_heads=2, d_ff=682,
-        max_seq_len=128, tie_weights=True,
+        vocab_size=12002,
+        d_model=256,
+        num_layers=2,
+        num_heads=4,
+        num_kv_heads=2,
+        d_ff=682,
+        max_seq_len=128,
+        tie_weights=True,
     )
     untied = GleamLMModel(
-        vocab_size=12002, d_model=256, num_layers=2,
-        num_heads=4, num_kv_heads=2, d_ff=682,
-        max_seq_len=128, tie_weights=False,
+        vocab_size=12002,
+        d_model=256,
+        num_layers=2,
+        num_heads=4,
+        num_kv_heads=2,
+        d_ff=682,
+        max_seq_len=128,
+        tie_weights=False,
     )
     tied_total, _ = tied.get_num_params()
     untied_total, _ = untied.get_num_params()
@@ -252,11 +284,17 @@ def test_weight_tying_get_num_params_dedup(small_model):
 
 # Flash Attention 路径
 
+
 def test_flash_attn_model_forward():
     model = GleamLMModel(
-        vocab_size=12002, d_model=256, num_layers=2,
-        num_heads=4, num_kv_heads=2, d_ff=682,
-        max_seq_len=128, use_flash_attn=True,
+        vocab_size=12002,
+        d_model=256,
+        num_layers=2,
+        num_heads=4,
+        num_kv_heads=2,
+        d_ff=682,
+        max_seq_len=128,
+        use_flash_attn=True,
     )
     model.eval()
     input_ids = torch.randint(0, VOCAB_SIZE, (2, 32))
@@ -268,9 +306,14 @@ def test_flash_attn_model_forward():
 
 def test_flash_attn_kv_cache():
     model = GleamLMModel(
-        vocab_size=12002, d_model=256, num_layers=2,
-        num_heads=4, num_kv_heads=2, d_ff=682,
-        max_seq_len=128, use_flash_attn=True,
+        vocab_size=12002,
+        d_model=256,
+        num_layers=2,
+        num_heads=4,
+        num_kv_heads=2,
+        d_ff=682,
+        max_seq_len=128,
+        use_flash_attn=True,
     )
     model.eval()
     prompt = torch.randint(0, VOCAB_SIZE, (1, 10))
@@ -280,6 +323,7 @@ def test_flash_attn_kv_cache():
 
 
 # QK-Norm
+
 
 def test_qk_norm_applied():
     attn = GroupedQueryAttention(256, 8, 2, 128)
@@ -297,11 +341,17 @@ def test_qk_norm_applied():
 
 # output 一致性验证
 
+
 def test_same_input_same_output():
     model = GleamLMModel(
-        vocab_size=12002, d_model=256, num_layers=2,
-        num_heads=4, num_kv_heads=2, d_ff=682,
-        max_seq_len=128, tie_weights=True,
+        vocab_size=12002,
+        d_model=256,
+        num_layers=2,
+        num_heads=4,
+        num_kv_heads=2,
+        d_ff=682,
+        max_seq_len=128,
+        tie_weights=True,
     )
     model.eval()
     input_ids = torch.randint(0, VOCAB_SIZE, (1, 16))
@@ -313,8 +363,12 @@ def test_same_input_same_output():
 
 def test_model_device_consistency():
     model = GleamLMModel(
-        vocab_size=12002, d_model=256, num_layers=2,
-        num_heads=4, num_kv_heads=2, d_ff=682,
+        vocab_size=12002,
+        d_model=256,
+        num_layers=2,
+        num_heads=4,
+        num_kv_heads=2,
+        d_ff=682,
         max_seq_len=128,
     )
     device = next(model.parameters()).device

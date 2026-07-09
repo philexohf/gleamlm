@@ -5,20 +5,25 @@
 
 N=0 (完整12L) → N=1 (11L) → N=2 (10L) → N=3 (9L) → N=4 (8L)
 """
-import sys, os, torch
+
+import os
+import sys
+
+import torch
 import torch.nn as nn
+
 from gleamlm.models.model import GleamLMModel
-from gleamlm.utils.config import DEFAULT_TOKENIZER_PATH
 from gleamlm.tokenizer.tokenizer import BBPETokenizer
+from gleamlm.utils.config import DEFAULT_TOKENIZER_PATH
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _PROJECT_ROOT = os.path.dirname(_SCRIPT_DIR)
 DEFAULT_CHECKPOINT_DIR = os.path.join(_PROJECT_ROOT, "gleamlm-nano", "checkpoints")
 
-DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 MODEL_PATH = f"{DEFAULT_CHECKPOINT_DIR}/best_model.pt"
 TOKENIZER_PATH = DEFAULT_TOKENIZER_PATH
-OUTPUT_FILE = 'scripts/eval_layer_result.txt'
+OUTPUT_FILE = "scripts/eval_layer_result.txt"
 
 # Test prompts covering different aspects
 TEST_PROMPTS = [
@@ -27,12 +32,16 @@ TEST_PROMPTS = [
     ("知识问答", "世界上最高的山峰是"),
     ("常识推理", "如果明天下雨，那么"),
     ("逻辑连接", "因为小明忘记带钥匙，所以"),
-    ("长距离依赖", "在遥远的古代，人们使用各种方法记录信息。其中最著名的发明之一是造纸术，它最早出现在"),
+    (
+        "长距离依赖",
+        "在遥远的古代，人们使用各种方法记录信息。其中最著名的发明之一是造纸术，它最早出现在",
+    ),
 ]
 
 
 class LayerLimitedModel(nn.Module):
     """Wrapper that limits the number of active layers"""
+
     def __init__(self, original_model, num_active_layers):
         super().__init__()
         self.original = original_model
@@ -53,7 +62,7 @@ class LayerLimitedModel(nn.Module):
         new_kv_list = []
         for i, layer in enumerate(self.original.layers):
             if i >= self.num_active_layers:
-            # Bypass: just pass through with identity (dummy KV on correct device)
+                # Bypass: just pass through with identity (dummy KV on correct device)
                 current_kv = (torch.zeros(1, device=device), torch.zeros(1, device=device))
                 new_kv_list.append(current_kv)
                 continue
@@ -72,7 +81,7 @@ class LayerLimitedModel(nn.Module):
 def load_model(tokenizer):
     print(f"Loading pretrained model: {MODEL_PATH}")
     checkpoint = torch.load(MODEL_PATH, map_location=DEVICE, weights_only=False)
-    args = checkpoint.get('args', None)
+    args = checkpoint.get("args", None)
 
     if args:
         m = GleamLMModel(
@@ -85,21 +94,27 @@ def load_model(tokenizer):
             dropout=args.dropout,
             max_seq_len=args.max_seq_len,
             pad_token_id=tokenizer.pad_id,
-            tie_weights=True
+            tie_weights=True,
         )
     else:
         m = GleamLMModel(
             vocab_size=tokenizer.get_vocab_size(),
-            d_model=512, num_layers=12, num_heads=8, num_kv_heads=4,
-            d_ff=1365, dropout=0.1, max_seq_len=1024,
-            pad_token_id=tokenizer.pad_id, tie_weights=True
+            d_model=512,
+            num_layers=12,
+            num_heads=8,
+            num_kv_heads=4,
+            d_ff=1365,
+            dropout=0.1,
+            max_seq_len=1024,
+            pad_token_id=tokenizer.pad_id,
+            tie_weights=True,
         )
 
-    state = checkpoint['model_state_dict']
+    state = checkpoint["model_state_dict"]
     # Strip DDP prefix if present
     new_state = {}
     for k, v in state.items():
-        new_k = k.replace('module.', '')
+        new_k = k.replace("module.", "")
         new_state[new_k] = v
     m.load_state_dict(new_state, strict=False)
     m.to(DEVICE)
@@ -115,7 +130,7 @@ def generate_text(model, tokenizer, prompt, max_new_tokens=80):
     generated = []
     with torch.no_grad():
         for _ in range(max_new_tokens):
-            with torch.amp.autocast('cuda', dtype=torch.bfloat16):
+            with torch.amp.autocast("cuda", dtype=torch.bfloat16):
                 logits, _ = model(input_ids)
             next_token_logits = logits[0, -1, :]
             next_token = next_token_logits.argmax(dim=-1).item()
@@ -165,7 +180,9 @@ def run_layer_dropout_test():
         avg_len = sum(len(r[2]) for r in results) / len(results)
         # Check for repetition patterns
         repetition_count = sum(1 for r in results if _has_repetition(r[2]))
-        print(f"{num_layers:<8} {unique_chars:<12} {avg_len:<12.1f} {'N/A':<12} {repetition_count}/{len(results)} rep")
+        print(
+            f"{num_layers:<8} {unique_chars:<12} {avg_len:<12.1f} {'N/A':<12} {repetition_count}/{len(results)} rep"
+        )
 
     return all_results
 
@@ -177,20 +194,22 @@ def _has_repetition(text, max_rep=3):
         return False
     # 检查连续重复词（如 "啊 啊 啊"）
     for i in range(len(words) - max_rep + 1):
-        window = words[i:i+max_rep]
+        window = words[i : i + max_rep]
         if len(set(window)) == 1:
             return True
     # 检查短周期循环（如 "A B A B A B"）
     if len(words) >= 6:
         for i in range(len(words) - 5):
-            if words[i] == words[i+2] == words[i+4] and words[i+1] == words[i+3] == words[i+5]:
+            if (
+                words[i] == words[i + 2] == words[i + 4]
+                and words[i + 1] == words[i + 3] == words[i + 5]
+            ):
                 return True
     return False
 
 
 def main():
-    import sys
-    sys.stdout = open(OUTPUT_FILE, 'w', encoding='utf-8')
+    sys.stdout = open(OUTPUT_FILE, "w", encoding="utf-8")
     results = run_layer_dropout_test()
     # Key finding
     print("\n" + "=" * 70)
@@ -200,7 +219,7 @@ def main():
     # Compare 8L vs 12L on knowledge question
     r12 = results[12]
     r8 = results[8]
-    for (cat12, p12, g12), (cat8, p8, g8) in zip(r12, r8):
+    for (_cat12, p12, g12), (_cat8, _p8, g8) in zip(r12, r8, strict=False):
         if "山峰" in p12:
             print(f"  12L: {g12[:100]}")
             print(f"  8L:  {g8[:100]}")

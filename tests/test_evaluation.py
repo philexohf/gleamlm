@@ -1,9 +1,10 @@
 """评估工具 benchmark prompt / knowledge check 测试"""
+
 from gleamlm.evaluation.benchmark import _build_prompt
 from gleamlm.evaluation.knowledge import _check_answer
 
-
 # Benchmark
+
 
 def test_build_prompt_full():
     item = {"question": "1+1=?", "A": "1", "B": "2", "C": "3", "D": "4"}
@@ -34,6 +35,7 @@ def test_build_prompt_order():
 
 # Knowledge
 
+
 def test_check_answer_correct():
     assert _check_answer("北京是中国的首都", "北京") == "CORRECT"
 
@@ -61,13 +63,12 @@ def test_check_answer_spaces_removed():
 
 
 def test_check_answer_hallucination():
-    assert (_check_answer("我不知道，随便猜一个",
-                          "北京",
-                          hallucination_keywords=["随便猜", "不知道"])
-            == "HALLUCINATION")
+    assert (
+        _check_answer("我不知道，随便猜一个", "北京", hallucination_keywords=["随便猜", "不知道"])
+        == "HALLUCINATION"
+    )
 
 
 def test_check_answer_no_hallucination_without_keywords():
     """无 hallucination_keywords 时不触发幻觉检测"""
-    assert (_check_answer("我不知道", "北京")
-            == "WRONG")  # 不是 HALLUCINATION
+    assert _check_answer("我不知道", "北京") == "WRONG"  # 不是 HALLUCINATION

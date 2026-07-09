@@ -9,10 +9,10 @@
         --max_files 5
 """
 
+import argparse
+import glob
 import os
 import sys
-import glob
-import argparse
 
 
 def extract_with_pyarrow(files, output_path, text_col="text"):
@@ -38,7 +38,7 @@ def extract_with_pyarrow(files, output_path, text_col="text"):
                         total_lines += 1
 
             if (i + 1) % 5 == 0:
-                print(f"  [{i+1}/{len(files)}] {total_lines:,} 行")
+                print(f"  [{i + 1}/{len(files)}] {total_lines:,} 行")
 
     print(f"完成: {total_lines:,} 行")
 
@@ -63,21 +63,19 @@ def extract_with_fastparquet(files, output_path, text_col="text"):
                 total_lines += 1
 
             if (i + 1) % 5 == 0:
-                print(f"  [{i+1}/{len(files)}] {total_lines:,} 行")
+                print(f"  [{i + 1}/{len(files)}] {total_lines:,} 行")
 
     print(f"完成: {total_lines:,} 行")
 
 
 def main():
     parser = argparse.ArgumentParser(description="提取 Parquet → 纯文本")
-    parser.add_argument("--input", type=str, required=True,
-                        help="Parquet 文件目录路径")
-    parser.add_argument("--output", type=str, required=True,
-                        help="输出 .txt 文件路径")
-    parser.add_argument("--text_col", type=str, default="text",
-                        help="文本列名（默认: text）")
-    parser.add_argument("--max_files", type=int, default=0,
-                        help="最多提取前 N 个 parquet 文件（0=全部）")
+    parser.add_argument("--input", type=str, required=True, help="Parquet 文件目录路径")
+    parser.add_argument("--output", type=str, required=True, help="输出 .txt 文件路径")
+    parser.add_argument("--text_col", type=str, default="text", help="文本列名（默认: text）")
+    parser.add_argument(
+        "--max_files", type=int, default=0, help="最多提取前 N 个 parquet 文件（0=全部）"
+    )
     args = parser.parse_args()
 
     # 收集文件列表
@@ -87,17 +85,19 @@ def main():
         sys.exit(1)
 
     if args.max_files > 0:
-        files = files[:args.max_files]
+        files = files[: args.max_files]
         print(f"限制: 仅处理前 {args.max_files} 个文件")
 
     # 优先 pyarrow，回退 fastparquet
     try:
         import pyarrow.parquet
+
         extract_fn = extract_with_pyarrow
     except ImportError:
         print("pyarrow 未安装，尝试 fastparquet...")
         try:
             import pandas as pd
+
             pd.read_parquet
             extract_fn = extract_with_fastparquet
         except (ImportError, AttributeError):

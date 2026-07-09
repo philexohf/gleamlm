@@ -5,13 +5,20 @@
 然后切分为 train/valid/test。支持 GB 级大文件，无需全量读入内存。
 """
 
-import os
 import argparse
+import os
 import random
 
 
-def stream_build(input_paths, output_dir, train_ratio=0.9, valid_ratio=0.05,
-                 ratios=None, total_lines=None, buf_size=50000):
+def stream_build(
+    input_paths,
+    output_dir,
+    train_ratio=0.9,
+    valid_ratio=0.05,
+    ratios=None,
+    total_lines=None,
+    buf_size=50000,
+):
     """
     流式构建数据集：多文件按配比轮询读取 → 缓存区打乱 → 写输出
     """
@@ -23,8 +30,8 @@ def stream_build(input_paths, output_dir, train_ratio=0.9, valid_ratio=0.05,
         raise ValueError(f"ratios 数量 ({len(ratios)}) 与输入文件数 ({len(input_paths)}) 不匹配")
 
     print(f"Streaming build {len(input_paths)} sources → {output_dir}")
-    for p, r in zip(input_paths, ratios):
-        print(f"  {os.path.basename(p)}: {r*100:.0f}%")
+    for p, r in zip(input_paths, ratios, strict=False):
+        print(f"  {os.path.basename(p)}: {r * 100:.0f}%")
 
     separator = "\n<|endoftext|>\n"
 
@@ -36,7 +43,7 @@ def stream_build(input_paths, output_dir, train_ratio=0.9, valid_ratio=0.05,
     # 打开输入文件
     readers = []
     for path in input_paths:
-        readers.append(open(path, "r", encoding="utf-8"))
+        readers.append(open(path, encoding="utf-8"))
 
     random.seed(42)
     train_lines = valid_lines = test_lines = 0
@@ -108,36 +115,39 @@ def stream_build(input_paths, output_dir, train_ratio=0.9, valid_ratio=0.05,
         test_f.close()
 
     print(f"\r  Processed {total:,} lines total")
-    for i, (path, cnt) in enumerate(zip(input_paths, source_counts)):
-        print(f"  {os.path.basename(path)}: {cnt:,} lines ({ratios[i]*100:.0f}% target)")
+    for i, (path, cnt) in enumerate(zip(input_paths, source_counts, strict=False)):
+        print(f"  {os.path.basename(path)}: {cnt:,} lines ({ratios[i] * 100:.0f}% target)")
 
-    print(f"\nDataset built:")
-    print(f"  Train: {train_lines:,} lines ({train_lines/max(1,total)*100:.0f}%)")
-    print(f"  Valid: {valid_lines:,} lines ({valid_lines/max(1,total)*100:.0f}%)")
-    print(f"  Test:  {test_lines:,} lines ({test_lines/max(1,total)*100:.0f}%)")
+    print("\nDataset built:")
+    print(f"  Train: {train_lines:,} lines ({train_lines / max(1, total) * 100:.0f}%)")
+    print(f"  Valid: {valid_lines:,} lines ({valid_lines / max(1, total) * 100:.0f}%)")
+    print(f"  Test:  {test_lines:,} lines ({test_lines / max(1, total) * 100:.0f}%)")
 
     for name in ["train.txt", "valid.txt", "test.txt"]:
         path = os.path.join(output_dir, name)
         size = os.path.getsize(path)
-        print(f"  {name}: {size/1e9:.2f} GB")
+        print(f"  {name}: {size / 1e9:.2f} GB")
 
 
 def main():
-    parser = argparse.ArgumentParser(description='构建训练数据集（流式）')
-    parser.add_argument('--input', type=str, nargs='+', required=True,
-                        help='输入文本文件路径')
-    parser.add_argument('--output_dir', type=str, default='./data/nano_data')
-    parser.add_argument('--train_ratio', type=float, default=0.9)
-    parser.add_argument('--valid_ratio', type=float, default=0.05)
-    parser.add_argument('--ratios', type=float, nargs='+', default=None,
-                        help='数据源配比')
-    parser.add_argument('--buf_size', type=int, default=50000,
-                        help='打乱缓冲区大小')
+    parser = argparse.ArgumentParser(description="构建训练数据集（流式）")
+    parser.add_argument("--input", type=str, nargs="+", required=True, help="输入文本文件路径")
+    parser.add_argument("--output_dir", type=str, default="./data/nano_data")
+    parser.add_argument("--train_ratio", type=float, default=0.9)
+    parser.add_argument("--valid_ratio", type=float, default=0.05)
+    parser.add_argument("--ratios", type=float, nargs="+", default=None, help="数据源配比")
+    parser.add_argument("--buf_size", type=int, default=50000, help="打乱缓冲区大小")
     args = parser.parse_args()
 
-    stream_build(args.input, args.output_dir, args.train_ratio, args.valid_ratio,
-                 ratios=args.ratios, buf_size=args.buf_size)
+    stream_build(
+        args.input,
+        args.output_dir,
+        args.train_ratio,
+        args.valid_ratio,
+        ratios=args.ratios,
+        buf_size=args.buf_size,
+    )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

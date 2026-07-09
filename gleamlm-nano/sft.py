@@ -4,24 +4,25 @@
     python sft.py --data_path ./data/sft_data.jsonl --model_path ./checkpoints/best_model.pt
 """
 
+import argparse
+import json
+import math
+import os
+import random
+
+import numpy as np
 import torch
 import torch.nn.functional as F
-from torch.utils.data import Dataset, DataLoader
-import os
-import json
-import random
-import numpy as np
-import math
-import argparse
+from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
 from gleamlm.models.model import GleamLMModel
 from gleamlm.utils.config import DEFAULT_TOKENIZER_PATH
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_CHECKPOINT_DIR = os.path.join(_SCRIPT_DIR, 'checkpoints')
-from gleamlm.tokenizer.tokenizer import BBPETokenizer
+DEFAULT_CHECKPOINT_DIR = os.path.join(_SCRIPT_DIR, "checkpoints")
 from gleamlm.inference.generate import generate_response
+from gleamlm.tokenizer.tokenizer import BBPETokenizer
 from gleamlm.utils.torch_utils import get_lr_cosine
 
 # 系统消息池
@@ -55,8 +56,7 @@ class SFTDataset(Dataset):
     loss mask：user/system 部分 label=-100，只对 assistant 部分计算损失
     """
 
-    def __init__(self, data_path, tokenizer, max_seq_len=512,
-                 inject_system_ratio=0.2):
+    def __init__(self, data_path, tokenizer, max_seq_len=512, inject_system_ratio=0.2):
         self.tokenizer = tokenizer
         self.max_seq_len = max_seq_len
         self.inject_system_ratio = inject_system_ratio
@@ -66,8 +66,8 @@ class SFTDataset(Dataset):
 
         # 加载 JSONL 数据
         self.data = []
-        required_keys = {'instruction', 'output'}
-        with open(data_path, 'r', encoding='utf-8') as f:
+        required_keys = {"instruction", "output"}
+        with open(data_path, encoding="utf-8") as f:
             for i, line in enumerate(f):
                 line = line.strip()
                 if not line:
@@ -80,10 +80,12 @@ class SFTDataset(Dataset):
                 missing = required_keys - set(item.keys())
                 if missing:
                     raise ValueError(f"Line {i}: missing required keys {missing} in {data_path}")
-                self.data.append({
-                    'instruction': item['instruction'],
-                    'output': item['output'],
-                })
+                self.data.append(
+                    {
+                        "instruction": item["instruction"],
+                        "output": item["output"],
+                    }
+                )
         print(f"Loaded {len(self.data)} SFT samples from {data_path}")
 
         # 预生成 system prompt，用固定种子保证可复现
@@ -105,27 +107,32 @@ class SFTDataset(Dataset):
     def _build_prompt(self, instruction, system_prompt=""):
         """构建 prompt 文本（到 assistant 开头，不含回答）"""
         if system_prompt:
-            return (f"<|im_start|><|system|>\n{system_prompt}<|im_end|>\n"
-                    f"<|im_start|><|user|>\n{instruction}<|im_end|>\n"
-                    f"<|im_start|><|assistant|>\n")
+            return (
+                f"<|im_start|><|system|>\n{system_prompt}<|im_end|>\n"
+                f"<|im_start|><|user|>\n{instruction}<|im_end|>\n"
+                f"<|im_start|><|assistant|>\n"
+            )
         else:
-            return (f"<|im_start|><|user|>\n{instruction}<|im_end|>\n"
-                    f"<|im_start|><|assistant|>\n")
+            return f"<|im_start|><|user|>\n{instruction}<|im_end|>\n<|im_start|><|assistant|>\n"
 
     def _build_full(self, instruction, output, system_prompt=""):
         """构建完整 ChatML 文本（含回答）"""
         if system_prompt:
-            return (f"<|im_start|><|system|>\n{system_prompt}<|im_end|>\n"
-                    f"<|im_start|><|user|>\n{instruction}<|im_end|>\n"
-                    f"<|im_start|><|assistant|>\n{output}<|im_end|>")
+            return (
+                f"<|im_start|><|system|>\n{system_prompt}<|im_end|>\n"
+                f"<|im_start|><|user|>\n{instruction}<|im_end|>\n"
+                f"<|im_start|><|assistant|>\n{output}<|im_end|>"
+            )
         else:
-            return (f"<|im_start|><|user|>\n{instruction}<|im_end|>\n"
-                    f"<|im_start|><|assistant|>\n{output}<|im_end|>")
+            return (
+                f"<|im_start|><|user|>\n{instruction}<|im_end|>\n"
+                f"<|im_start|><|assistant|>\n{output}<|im_end|>"
+            )
 
     def __getitem__(self, idx):
         item = self.data[idx]
-        instruction = item['instruction']
-        output = item['output']
+        instruction = item["instruction"]
+        output = item["output"]
 
         # 使用预生成的 system prompt（固定种子，可复现）
         system_prompt = self._system_prompts[idx]
@@ -144,19 +151,21 @@ class SFTDataset(Dataset):
         # 截断到 max_seq_len（确保 <|im_end|> 不被切掉）
         if len(full_ids) > self.max_seq_len:
             im_end_ids = self._encode("<|im_end|>")
-            full_ids = full_ids[:self.max_seq_len]
+            full_ids = full_ids[: self.max_seq_len]
             # 如果截断后末尾不是完整的 <|im_end|>，用 <|im_end|> 替代末尾
-            if len(full_ids) >= len(im_end_ids) and full_ids[-len(im_end_ids):] != im_end_ids:
-                full_ids = full_ids[:self.max_seq_len - len(im_end_ids)] + im_end_ids
+            if len(full_ids) >= len(im_end_ids) and full_ids[-len(im_end_ids) :] != im_end_ids:
+                full_ids = full_ids[: self.max_seq_len - len(im_end_ids)] + im_end_ids
 
-        N = len(full_ids)
-        input_ids = full_ids[:-1]       # shape: [N-1]
-        labels = full_ids[1:]           # shape: [N-1]
+        len(full_ids)
+        input_ids = full_ids[:-1]  # shape: [N-1]
+        labels = full_ids[1:]  # shape: [N-1]
 
         # loss mask：prompt 部分（user/system）label = -100
         # labels[0] 预测 position 1，labels[P-1] 预测 position P（第一个 output token）
-        labels = list(labels)           # 转为 Python list 以便赋值
-        mask_end = min(P, len(labels))  # P 个 prompt token → mask 前 P-1 个 label，第 P 个是 output 首 token
+        labels = list(labels)  # 转为 Python list 以便赋值
+        mask_end = min(
+            P, len(labels)
+        )  # P 个 prompt token → mask 前 P-1 个 label，第 P 个是 output 首 token
         for i in range(mask_end - 1):
             labels[i] = -100
 
@@ -166,8 +175,7 @@ class SFTDataset(Dataset):
             input_ids = input_ids + [self.pad_id] * pad_len
             labels = labels + [-100] * pad_len
 
-        return (torch.tensor(input_ids, dtype=torch.long),
-                torch.tensor(labels, dtype=torch.long))
+        return (torch.tensor(input_ids, dtype=torch.long), torch.tensor(labels, dtype=torch.long))
 
     @staticmethod
     def collate_fn(batch):
@@ -177,12 +185,19 @@ class SFTDataset(Dataset):
         return input_ids, labels
 
 
-
-
-
 # 训练循环
-def train_one_epoch(model, train_loader, optimizer, scheduler, device,
-                    epoch, args, global_step, scaler, log_interval=50):
+def train_one_epoch(
+    model,
+    train_loader,
+    optimizer,
+    scheduler,
+    device,
+    epoch,
+    args,
+    global_step,
+    scaler,
+    log_interval=50,
+):
     """训练一个 epoch"""
     model.train()
     total_loss = 0
@@ -194,7 +209,7 @@ def train_one_epoch(model, train_loader, optimizer, scheduler, device,
         input_ids = input_ids.to(device)
         labels = labels.to(device)
 
-        amp_device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        amp_device = "cuda" if torch.cuda.is_available() else "cpu"
         with torch.amp.autocast(amp_device):
             logits, _ = model(input_ids)
             # 用 ignore_index=-100 的 loss，自动跳过 prompt 部分
@@ -221,21 +236,22 @@ def train_one_epoch(model, train_loader, optimizer, scheduler, device,
 
         if batch_idx % log_interval == 0:
             lr = scheduler.get_last_lr()[0]
-            pbar.set_postfix({
-                "loss": f"{loss.item() * args.accumulate_grad:.4f}",
-                "lr": f"{lr:.2e}"
-            })
+            pbar.set_postfix(
+                {"loss": f"{loss.item() * args.accumulate_grad:.4f}", "lr": f"{lr:.2e}"}
+            )
 
     return total_loss / num_batches, global_step
 
 
 # 生成评估
 @torch.no_grad()
-def generate_response_sft(model, tokenizer, instruction, max_new_tokens=256,
-                          temperature=0.8, top_k=50, top_p=0.9):
+def generate_response_sft(
+    model, tokenizer, instruction, max_new_tokens=256, temperature=0.8, top_k=50, top_p=0.9
+):
     """SFT 后生成对话回复（委托共享实现）"""
-    return generate_response(model, tokenizer, instruction, max_new_tokens,
-                             temperature, top_k, top_p)
+    return generate_response(
+        model, tokenizer, instruction, max_new_tokens, temperature, top_k, top_p
+    )
 
 
 def evaluate_sft(model, tokenizer, test_prompts):
@@ -256,26 +272,30 @@ def evaluate_sft(model, tokenizer, test_prompts):
 
 # 主函数
 def get_sft_args():
-    parser = argparse.ArgumentParser(description='GleamLM SFT 指令微调')
+    parser = argparse.ArgumentParser(description="GleamLM SFT 指令微调")
 
     # 数据与模型路径
-    parser.add_argument("--data_path", type=str, default="data/sft_data_clean.jsonl",
-                        help='SFT JSONL 数据路径')
-    parser.add_argument("--model_path", type=str,
-                        default=f"{DEFAULT_CHECKPOINT_DIR}/best_model.pt",
-                        help='预训练模型路径')
-    parser.add_argument("--tokenizer_path", type=str,
-                        default=DEFAULT_TOKENIZER_PATH,
-                        help='BBPE 分词器目录路径')
-    parser.add_argument("--save_dir", type=str, default=f"{DEFAULT_CHECKPOINT_DIR}/sft",
-                        help='SFT 模型保存目录')
+    parser.add_argument(
+        "--data_path", type=str, default="data/sft_data_clean.jsonl", help="SFT JSONL 数据路径"
+    )
+    parser.add_argument(
+        "--model_path",
+        type=str,
+        default=f"{DEFAULT_CHECKPOINT_DIR}/best_model.pt",
+        help="预训练模型路径",
+    )
+    parser.add_argument(
+        "--tokenizer_path", type=str, default=DEFAULT_TOKENIZER_PATH, help="BBPE 分词器目录路径"
+    )
+    parser.add_argument(
+        "--save_dir", type=str, default=f"{DEFAULT_CHECKPOINT_DIR}/sft", help="SFT 模型保存目录"
+    )
 
     # 训练参数
     parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--accumulate_grad", type=int, default=4)
-    parser.add_argument("--lr", type=float, default=5e-6,
-                        help='SFT 学习率')
+    parser.add_argument("--lr", type=float, default=5e-6, help="SFT 学习率")
     parser.add_argument("--warmup_ratio", type=float, default=0.02)
     parser.add_argument("--clip_grad", type=float, default=1.0)
     parser.add_argument("--weight_decay", type=float, default=0.01)
@@ -283,11 +303,16 @@ def get_sft_args():
     parser.add_argument("--seed", type=int, default=42)
 
     # 系统消息注入
-    parser.add_argument("--inject_system_ratio", type=float, default=0.2,
-                        help='系统消息随机注入比例')
+    parser.add_argument(
+        "--inject_system_ratio", type=float, default=0.2, help="系统消息随机注入比例"
+    )
 
-    parser.add_argument("--resume", type=str, default=None,
-                        help='从指定 checkpoint 续训（如 ./checkpoints/sft/sft_epoch_1.pt）')
+    parser.add_argument(
+        "--resume",
+        type=str,
+        default=None,
+        help="从指定 checkpoint 续训（如 ./checkpoints/sft/sft_epoch_1.pt）",
+    )
 
     parser.add_argument("--d_model", type=int, default=512)
     parser.add_argument("--num_layers", type=int, default=12)
@@ -295,7 +320,7 @@ def get_sft_args():
     parser.add_argument("--num_kv_heads", type=int, default=4)
     parser.add_argument("--d_ff", type=int, default=1365)
     parser.add_argument("--dropout", type=float, default=0.1)
-    parser.add_argument("--use_flash_attn", action='store_true', default=False)
+    parser.add_argument("--use_flash_attn", action="store_true", default=False)
 
     return parser.parse_args()
 
@@ -332,7 +357,7 @@ def main():
     ).to(device)
 
     checkpoint = torch.load(args.model_path, map_location=device, weights_only=False)
-    model.load_state_dict(checkpoint['model_state_dict'], strict=True)
+    model.load_state_dict(checkpoint["model_state_dict"], strict=True)
     print(f"Loaded pretrained model: {args.model_path}")
     total, trainable = model.get_num_params()
     print(f"Model params: {total / 1e6:.2f}M total, {trainable / 1e6:.2f}M trainable")
@@ -366,23 +391,25 @@ def main():
         optimizer,
         lambda step: get_lr_cosine(step, total_steps, args.warmup_ratio, min_lr_ratio=0.05),
     )
-    scaler = torch.amp.GradScaler('cuda')
+    scaler = torch.amp.GradScaler("cuda")
 
     # 断点续训
     start_epoch = 0
-    best_loss = float('inf')
+    best_loss = float("inf")
 
     if args.resume:
         print(f"\nResuming from: {args.resume}")
         resume_ckpt = torch.load(args.resume, map_location=device, weights_only=False)
-        model.load_state_dict(resume_ckpt['model_state_dict'])
-        optimizer.load_state_dict(resume_ckpt['optimizer_state_dict'])
-        scheduler.load_state_dict(resume_ckpt['scheduler_state_dict'])
-        scaler.load_state_dict(resume_ckpt['scaler_state_dict'])
-        start_epoch = resume_ckpt['epoch'] + 1
-        global_step = resume_ckpt.get('global_step', 0)
-        best_loss = resume_ckpt.get('train_loss', float('inf'))
-        print(f"  Resumed at epoch {start_epoch}, global_step={global_step}, best_loss={best_loss:.4f}")
+        model.load_state_dict(resume_ckpt["model_state_dict"])
+        optimizer.load_state_dict(resume_ckpt["optimizer_state_dict"])
+        scheduler.load_state_dict(resume_ckpt["scheduler_state_dict"])
+        scaler.load_state_dict(resume_ckpt["scaler_state_dict"])
+        start_epoch = resume_ckpt["epoch"] + 1
+        global_step = resume_ckpt.get("global_step", 0)
+        best_loss = resume_ckpt.get("train_loss", float("inf"))
+        print(
+            f"  Resumed at epoch {start_epoch}, global_step={global_step}, best_loss={best_loss:.4f}"
+        )
 
     # 5. 评估提示词
     eval_prompts = [
@@ -404,8 +431,15 @@ def main():
 
     for epoch in range(start_epoch, args.epochs):
         train_loss, global_step = train_one_epoch(
-            model, train_loader, optimizer, scheduler, device,
-            epoch, args, global_step, scaler,
+            model,
+            train_loader,
+            optimizer,
+            scheduler,
+            device,
+            epoch,
+            args,
+            global_step,
+            scaler,
         )
 
         # 每个 epoch 后生成评估
@@ -417,26 +451,32 @@ def main():
         print(f"\nEpoch {epoch}: train_loss={train_loss:.4f}, lr={scheduler.get_last_lr()[0]:.2e}")
 
         ckpt_name = f"sft_epoch_{epoch}.pt"
-        torch.save({
-            'epoch': epoch,
-            'global_step': global_step,
-            'model_state_dict': model.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
-            'scheduler_state_dict': scheduler.state_dict(),
-            'scaler_state_dict': scaler.state_dict(),
-            'train_loss': train_loss,
-            'args': args,
-        }, os.path.join(args.save_dir, ckpt_name))
+        torch.save(
+            {
+                "epoch": epoch,
+                "global_step": global_step,
+                "model_state_dict": model.state_dict(),
+                "optimizer_state_dict": optimizer.state_dict(),
+                "scheduler_state_dict": scheduler.state_dict(),
+                "scaler_state_dict": scaler.state_dict(),
+                "train_loss": train_loss,
+                "args": args,
+            },
+            os.path.join(args.save_dir, ckpt_name),
+        )
 
         # 跟踪 best（按 loss）
         if train_loss < best_loss:
             best_loss = train_loss
             best_path = os.path.join(args.save_dir, "sft_best.pt")
-            torch.save({
-                'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'args': args,
-            }, best_path)
+            torch.save(
+                {
+                    "epoch": epoch,
+                    "model_state_dict": model.state_dict(),
+                    "args": args,
+                },
+                best_path,
+            )
             print(f"  Saved best SFT model (loss={train_loss:.4f}) -> {best_path}")
 
     print("\n" + "=" * 60)

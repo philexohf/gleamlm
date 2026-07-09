@@ -324,6 +324,7 @@ def main():
     evaluate_dpo(policy_model, tokenizer)
     policy_model.train()
 
+    avg_loss = float("inf")
     for epoch in range(args.epochs):
         avg_loss = train_one_epoch(
             policy_model, ref_model, dataloader, optimizer, scheduler,

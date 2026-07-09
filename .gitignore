@@ -43,6 +43,15 @@ images/
 
 # IDE config
 opencode.json
+.claude/
+AGENTS.md
+
+# Local issue tracker (internal planning)
+.scratch/
+
+# Lint & type-check caches
+.ruff_cache/
+.mypy_cache/
 
 # Pytest cache
 .pytest_cache/

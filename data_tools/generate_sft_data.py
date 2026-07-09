@@ -17,7 +17,6 @@ import time
 
 from openai import OpenAI
 
-
 # 200 种子问题（通用问答80 + 百科知识70 + 中文创作50）
 
 SEEDS = [
@@ -113,7 +112,6 @@ SEEDS = [
     "如何看待成功和失败？",
     "你相信星座吗？为什么？",
     "怎样做一个受欢迎的人？",
-
     # 百科知识 (70)
     # 历史
     "唐朝是中国历史上哪个朝代？它有什么特点？",
@@ -193,7 +191,6 @@ SEEDS = [
     "为什么会有贸易？",
     "股票和债券有什么区别？",
     "什么是GDP？它用来衡量什么？",
-
     # 中文创作 (50)
     # 诗歌
     "写一首关于春天的五言诗。",
@@ -283,8 +280,9 @@ def get_client(api_key, base_url):
     return OpenAI(api_key=api_key, base_url=base_url)
 
 
-def call_api(client, model, system_prompt, user_prompt,
-             temperature=0.7, max_tokens=1024, max_retries=3):
+def call_api(
+    client, model, system_prompt, user_prompt, temperature=0.7, max_tokens=1024, max_retries=3
+):
     """调用 API，带重试"""
     for attempt in range(max_retries):
         try:
@@ -303,9 +301,9 @@ def call_api(client, model, system_prompt, user_prompt,
             if attempt < max_retries - 1:
                 err_msg = str(e).lower()
                 if "429" in err_msg or "rate" in err_msg:
-                    time.sleep(5 * (2 ** attempt))
+                    time.sleep(5 * (2**attempt))
                 else:
-                    time.sleep(2 ** attempt)
+                    time.sleep(2**attempt)
             else:
                 return None
 
@@ -318,7 +316,8 @@ def generate_variants(client, model, seed, n_variants=4):
         example_text=VARIANT_EXAMPLE,
     )
     result = call_api(
-        client, model,
+        client,
+        model,
         system_prompt="你是一个中文语言专家，擅长改写问题。",
         user_prompt=prompt,
         temperature=0.8,
@@ -330,7 +329,7 @@ def generate_variants(client, model, seed, n_variants=4):
     # 去重、过滤与原问题完全相同的内容
     unique = []
     for v in variants:
-        v = re.sub(r'^[\d\s.\-、)）*#]+\s*', '', v).strip()
+        v = re.sub(r"^[\d\s.\-、)）*#]+\s*", "", v).strip()
         if v and v != seed and len(v) >= 5 and v not in unique:
             unique.append(v)
     return unique[:n_variants]
@@ -339,7 +338,8 @@ def generate_variants(client, model, seed, n_variants=4):
 def generate_answer(client, model, instruction):
     """用 DeepSeek 生成高质量回答"""
     return call_api(
-        client, model,
+        client,
+        model,
         system_prompt=(
             "你是GleamLM，一个面向教育和研究的轻量级开源对话模型（约40M参数），"
             "由个人开发者基于PyTorch从零实现，参考了LLaMA3和Qwen3架构。"
@@ -356,23 +356,25 @@ def generate_answer(client, model, instruction):
 
 def main():
     parser = argparse.ArgumentParser(description="SFT 数据蒸馏")
-    parser.add_argument("--output", type=str, default="data/sft_data.jsonl",
-                        help="输出 JSONL 路径")
-    parser.add_argument("--api_key", type=str, default=None,
-                        help="DeepSeek API Key（默认从环境变量 DEEPSEEK_API_KEY 读取）")
-    parser.add_argument("--base_url", type=str,
-                        default="https://api.deepseek.com",
-                        help="API Base URL")
-    parser.add_argument("--model", type=str, default="deepseek-chat",
-                        help="模型名称")
-    parser.add_argument("--variants_per_seed", type=int, default=4,
-                        help="每个种子生成的变体数（目标：200×4=800）")
-    parser.add_argument("--skip_variants", action="store_true",
-                        help="跳过变体生成，只对种子生成答案")
-    parser.add_argument("--delay", type=float, default=0.5,
-                        help="API 调用间隔秒数")
-    parser.add_argument("--dry_run", type=int, default=0,
-                        help="只运行前 N 条（用于测试）")
+    parser.add_argument("--output", type=str, default="data/sft_data.jsonl", help="输出 JSONL 路径")
+    parser.add_argument(
+        "--api_key",
+        type=str,
+        default=None,
+        help="DeepSeek API Key（默认从环境变量 DEEPSEEK_API_KEY 读取）",
+    )
+    parser.add_argument(
+        "--base_url", type=str, default="https://api.deepseek.com", help="API Base URL"
+    )
+    parser.add_argument("--model", type=str, default="deepseek-chat", help="模型名称")
+    parser.add_argument(
+        "--variants_per_seed", type=int, default=4, help="每个种子生成的变体数（目标：200×4=800）"
+    )
+    parser.add_argument(
+        "--skip_variants", action="store_true", help="跳过变体生成，只对种子生成答案"
+    )
+    parser.add_argument("--delay", type=float, default=0.5, help="API 调用间隔秒数")
+    parser.add_argument("--dry_run", type=int, default=0, help="只运行前 N 条（用于测试）")
     args = parser.parse_args()
 
     # API Key
@@ -385,7 +387,7 @@ def main():
     print(f"API: {args.base_url}, model: {args.model}")
 
     # 准备种子（dry_run 截断）
-    seeds = SEEDS[:args.dry_run] if args.dry_run > 0 else SEEDS
+    seeds = SEEDS[: args.dry_run] if args.dry_run > 0 else SEEDS
     print(f"种子问题数: {len(seeds)}")
 
     # Step 1: 变体生成（可选跳过）
@@ -396,7 +398,7 @@ def main():
     else:
         print(f"\n=== Step 1: 生成变体（每个种子 {args.variants_per_seed} 个）===")
         for i, seed in enumerate(seeds):
-            print(f"[{i+1}/{len(seeds)}] {seed[:40]}...", end=" ", flush=True)
+            print(f"[{i + 1}/{len(seeds)}] {seed[:40]}...", end=" ", flush=True)
             variants = generate_variants(client, args.model, seed, args.variants_per_seed)
             all_instructions.append(seed)
             all_instructions.extend(variants)
@@ -406,12 +408,12 @@ def main():
     print(f"\n总共将生成 {len(all_instructions)} 条问答")
 
     # Step 2: 生成回答
-    print(f"\n=== Step 2: 生成高质量回答 ===")
+    print("\n=== Step 2: 生成高质量回答 ===")
     results = []
     fail_count = 0
 
     for i, instruction in enumerate(all_instructions):
-        print(f"[{i+1}/{len(all_instructions)}] {instruction[:50]}...", end=" ", flush=True)
+        print(f"[{i + 1}/{len(all_instructions)}] {instruction[:50]}...", end=" ", flush=True)
         answer = generate_answer(client, args.model, instruction)
         if answer:
             results.append({"instruction": instruction, "output": answer})
@@ -465,14 +467,68 @@ def save_final(results, path):
 
 def print_distribution(results):
     """统计并打印类别分布"""
-    creation_kw = ["诗", "描写", "描述", "短文", "故事", "续写", "信", "想象",
-                   "比喻", "独白", "议论", "谈谈", "论述", "倡议"]
-    general_kw = ["介绍", "你", "能做什么", "优点", "缺点", "天气", "推荐", "缓解", "习惯",
-                  "睡眠", "心态", "独处", "碎片", "人工智能", "机器学习", "大数据",
-                  "5G", "物联网", "云计算", "区块链", "元宇宙", "学习", "记忆",
-                  "读书", "写作", "英语", "孩子", "大学", "终身", "面试", "租房",
-                  "邮件", "朋友", "拒绝", "家庭", "工作压力", "健身", "时间",
-                  "幸福", "自由", "失败", "善良", "猫", "人生"]
+    creation_kw = [
+        "诗",
+        "描写",
+        "描述",
+        "短文",
+        "故事",
+        "续写",
+        "信",
+        "想象",
+        "比喻",
+        "独白",
+        "议论",
+        "谈谈",
+        "论述",
+        "倡议",
+    ]
+    general_kw = [
+        "介绍",
+        "你",
+        "能做什么",
+        "优点",
+        "缺点",
+        "天气",
+        "推荐",
+        "缓解",
+        "习惯",
+        "睡眠",
+        "心态",
+        "独处",
+        "碎片",
+        "人工智能",
+        "机器学习",
+        "大数据",
+        "5G",
+        "物联网",
+        "云计算",
+        "区块链",
+        "元宇宙",
+        "学习",
+        "记忆",
+        "读书",
+        "写作",
+        "英语",
+        "孩子",
+        "大学",
+        "终身",
+        "面试",
+        "租房",
+        "邮件",
+        "朋友",
+        "拒绝",
+        "家庭",
+        "工作压力",
+        "健身",
+        "时间",
+        "幸福",
+        "自由",
+        "失败",
+        "善良",
+        "猫",
+        "人生",
+    ]
 
     general = 0
     creation = 0
@@ -485,7 +541,7 @@ def print_distribution(results):
         else:
             knowledge += 1
 
-    print(f"\n类别分布（近似）:")
+    print("\n类别分布（近似）:")
     print(f"  通用问答: {general}")
     print(f"  百科知识: {knowledge}")
     print(f"  中文创作: {creation}")

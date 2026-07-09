@@ -13,9 +13,8 @@
     python scripts/quick_run.py --level 3         # 全量训练
 """
 
-import os
-import sys
 import argparse
+import os
 import shutil
 import subprocess
 
@@ -29,12 +28,13 @@ def run(cmd, desc="", conda_env="dl2llm"):
     if conda_env:
         cmd = f"conda run -n {conda_env} {cmd}"
     if desc:
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"  {desc}")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
     print(f"  $ {cmd}")
-    result = subprocess.run(cmd, shell=True,
-                            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    result = subprocess.run(
+        cmd, shell=True, cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    )
     if result.returncode != 0:
         print(f"  [!] Command failed (exit code {result.returncode})")
         return False
@@ -55,7 +55,7 @@ def prepare_small_data(n_train=2000, n_valid=500):
             continue
 
         lines = []
-        with open(src, "r", encoding="utf-8") as f:
+        with open(src, encoding="utf-8") as f:
             for i, line in enumerate(f):
                 if i >= n:
                     break
@@ -69,29 +69,43 @@ def prepare_small_data(n_train=2000, n_valid=500):
         if os.path.exists(npy):
             os.remove(npy)
 
-        print(f"  {split}.txt: {len(lines)} 行, {os.path.getsize(dst)/1024:.0f} KB")
+        print(f"  {split}.txt: {len(lines)} 行, {os.path.getsize(dst) / 1024:.0f} KB")
 
     print("  小数据集准备完成!")
 
 
 def main():
     parser = argparse.ArgumentParser(description="曜珑GleamLM 快速训练+验证")
-    parser.add_argument("--level", type=int, default=1, choices=[1, 2, 3],
-                        help="1=冒烟测试 2=小规模训练+验证 3=全量训练")
-    parser.add_argument("--verify_only", action="store_true",
-                        help="只验证已有模型，不训练")
-    parser.add_argument("--conda_env", type=str, default="dl2llm",
-                        help="conda 环境名 (默认: dl2llm，传空字符串则不使用 conda)")
+    parser.add_argument(
+        "--level",
+        type=int,
+        default=1,
+        choices=[1, 2, 3],
+        help="1=冒烟测试 2=小规模训练+验证 3=全量训练",
+    )
+    parser.add_argument("--verify_only", action="store_true", help="只验证已有模型，不训练")
+    parser.add_argument(
+        "--conda_env",
+        type=str,
+        default="dl2llm",
+        help="conda 环境名 (默认: dl2llm，传空字符串则不使用 conda)",
+    )
     args = parser.parse_args()
 
     # 验证已有模型
     if args.verify_only:
         print("\n>>> 验证已有模型: gleamlm-nano/checkpoints/best_model.pt")
-        run("python scripts/eval_ppl.py --max_batches 50 --batch_size 4",
-            "PPL 评估 (50 batches)", conda_env=args.conda_env)
-        run("python gleamlm-nano/evaluation/generate_samples.py "
+        run(
+            "python scripts/eval_ppl.py --max_batches 50 --batch_size 4",
+            "PPL 评估 (50 batches)",
+            conda_env=args.conda_env,
+        )
+        run(
+            "python gleamlm-nano/evaluation/generate_samples.py "
             "--model gleamlm-nano/checkpoints/best_model.pt --temperature 0.8 --top_k 50 --top_p 0.9 --max_new_tokens 64",
-            "生成样例", conda_env=args.conda_env)
+            "生成样例",
+            conda_env=args.conda_env,
+        )
         return
 
     # Level 1: 冒烟测试
@@ -114,7 +128,8 @@ def main():
             f"--data_dir {TEST_DATA_DIR} "
             "--epochs 2 --batch_size 8 --accumulate_grad 4 "
             f"--checkpoint_dir ./{TEST_CKPT_DIR}",
-            "训练 2 epochs (预计 ~30s)", conda_env=args.conda_env
+            "训练 2 epochs (预计 ~30s)",
+            conda_env=args.conda_env,
         )
         if not ok:
             print("\n[!] 训练失败")
@@ -122,13 +137,19 @@ def main():
                 shutil.copy(ckpt_backup, ckpt_path)
             return
 
-        run(f"python scripts/eval_ppl.py "
+        run(
+            f"python scripts/eval_ppl.py "
             f"--data_dir {TEST_DATA_DIR} "
             f"--model {TEST_CKPT_DIR}/best_model.pt --max_batches 30 --batch_size 4",
-            "PPL 评估", conda_env=args.conda_env)
-        run("python gleamlm-nano/evaluation/generate_samples.py "
+            "PPL 评估",
+            conda_env=args.conda_env,
+        )
+        run(
+            "python gleamlm-nano/evaluation/generate_samples.py "
             f"--model {TEST_CKPT_DIR}/best_model.pt --temperature 0.8 --max_new_tokens 32",
-            "生成样例", conda_env=args.conda_env)
+            "生成样例",
+            conda_env=args.conda_env,
+        )
 
         # 恢复 checkpoint
         if os.path.exists(ckpt_backup):
@@ -163,7 +184,8 @@ def main():
             f"--data_dir {TEST_DATA_DIR} "
             "--epochs 5 --batch_size 8 --accumulate_grad 8 "
             f"--checkpoint_dir ./{TEST_CKPT_DIR}",
-            "训练 5 epochs (预计 ~5min)", conda_env=args.conda_env
+            "训练 5 epochs (预计 ~5min)",
+            conda_env=args.conda_env,
         )
         if not ok:
             print("\n[!] 训练失败")
@@ -172,13 +194,19 @@ def main():
             return
 
         print("\n>>> 开始完整验证...")
-        run(f"python scripts/eval_ppl.py "
+        run(
+            f"python scripts/eval_ppl.py "
             f"--data_dir {TEST_DATA_DIR} "
             f"--model {TEST_CKPT_DIR}/best_model.pt --max_batches 100 --batch_size 4",
-            "PPL 评估 (100 batches)", conda_env=args.conda_env)
-        run("python gleamlm-nano/evaluation/generate_samples.py "
+            "PPL 评估 (100 batches)",
+            conda_env=args.conda_env,
+        )
+        run(
+            "python gleamlm-nano/evaluation/generate_samples.py "
             f"--model {TEST_CKPT_DIR}/best_model.pt --temperature 0.8 --top_k 50 --top_p 0.9 --max_new_tokens 64",
-            "生成样例 (temperature=0.8)", conda_env=args.conda_env)
+            "生成样例 (temperature=0.8)",
+            conda_env=args.conda_env,
+        )
 
         if os.path.exists(ckpt_backup):
             shutil.copy(ckpt_backup, ckpt_path)
@@ -198,19 +226,20 @@ def main():
         print("  Level 3: 全量正式训练")
         print("=" * 60)
 
-        cmd = ("python gleamlm-nano/train.py "
-               "--epochs 8 --batch_size 8 --accumulate_grad 8")
+        cmd = "python gleamlm-nano/train.py --epochs 8 --batch_size 8 --accumulate_grad 8"
         ok = run(cmd, "全量训练 8 epochs", conda_env=args.conda_env)
         if not ok:
             print("\n[!] 训练异常退出")
             return
 
         print("\n>>> 训练完成，开始验证...")
-        run("python scripts/eval_ppl.py --batch_size 4",
-            "完整 PPL 评估", conda_env=args.conda_env)
-        run("python gleamlm-nano/evaluation/generate_samples.py "
+        run("python scripts/eval_ppl.py --batch_size 4", "完整 PPL 评估", conda_env=args.conda_env)
+        run(
+            "python gleamlm-nano/evaluation/generate_samples.py "
             "--model gleamlm-nano/checkpoints/best_model.pt --temperature 0.8 --top_k 50 --top_p 0.9 --max_new_tokens 128",
-            "生成样例", conda_env=args.conda_env)
+            "生成样例",
+            conda_env=args.conda_env,
+        )
         print("\n>>> Level 3 完成!")
 
 

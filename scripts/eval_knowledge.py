@@ -1,18 +1,23 @@
 """A1: 40M 事实知识评估 — 填空测试 + A2: 实体知识探针"""
-import torch, os, sys, random, argparse, time
+
+import os
+import sys
+
+import torch
+
 from gleamlm import load_model_for_inference
+from gleamlm.inference.sampler import sample_token
 from gleamlm.tokenizer.tokenizer import BBPETokenizer
 from gleamlm.utils.config import DEFAULT_TOKENIZER_PATH
-from gleamlm.inference.sampler import sample_token
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _PROJECT_ROOT = os.path.dirname(_SCRIPT_DIR)
 DEFAULT_CHECKPOINT_DIR = os.path.join(_PROJECT_ROOT, "gleamlm-nano", "checkpoints")
 
-DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 MODEL_PATH = f"{DEFAULT_CHECKPOINT_DIR}/sft/sft_best.pt"
 TOKENIZER_PATH = DEFAULT_TOKENIZER_PATH
-OUTPUT_FILE = 'scripts/eval_knowledge_result.txt'
+OUTPUT_FILE = "scripts/eval_knowledge_result.txt"
 
 # A1: 50 fact fill-in prompts
 FACT_PROMPTS = [
@@ -99,7 +104,7 @@ def load_model_and_tokenizer():
     model, config = load_model_for_inference(MODEL_PATH, DEVICE)
     model.eval()
     total, _ = model.get_num_params()
-    print(f"  Model: {total/1e6:.2f}M params, Vocab: {tok.get_vocab_size()}")
+    print(f"  Model: {total / 1e6:.2f}M params, Vocab: {tok.get_vocab_size()}")
     return model, tok, config
 
 
@@ -111,8 +116,8 @@ def generate(model, tokenizer, prompt, max_new_tokens=64):
     past_kv = None
 
     with torch.no_grad():
-        for i in range(max_new_tokens):
-            with torch.amp.autocast('cuda', dtype=torch.bfloat16):
+        for _i in range(max_new_tokens):
+            with torch.amp.autocast("cuda", dtype=torch.bfloat16):
                 logits, past_kv = model(input_ids, past_kv_list=past_kv)
             next_token = sample_token(
                 logits[:, -1, :],
@@ -127,10 +132,7 @@ def generate(model, tokenizer, prompt, max_new_tokens=64):
             input_ids = torch.tensor([[token_id]], device=DEVICE)
 
     full = tokenizer.decode(generated_ids)
-    if full.startswith(prompt):
-        generated = full[len(prompt):].strip()
-    else:
-        generated = full.strip()
+    generated = full[len(prompt):].strip() if full.startswith(prompt) else full.strip()
     return generated[:200]
 
 
@@ -171,8 +173,10 @@ def run_a1(model, tok):
             print(f"  [WRONG] {prompt} -> {generated[:60]}...")
 
     total = sum(results.values())
-    print(f"\n  Results: {results['CORRECT']}/{total} correct ({100*results['CORRECT']/total:.0f}%), "
-          f"{results['HALLUCINATION']} hallucinations")
+    print(
+        f"\n  Results: {results['CORRECT']}/{total} correct ({100 * results['CORRECT'] / total:.0f}%), "
+        f"{results['HALLUCINATION']} hallucinations"
+    )
     return {"results": results, "details": details}
 
 
@@ -193,13 +197,12 @@ def run_a2(model, tok):
         print(f"  [{icon}] {entity}: {correct}/3")
 
     consistent = sum(1 for v in entity_scores.values() if v >= 2)
-    print(f"\n  Consistent entities (>=2/3): {consistent}/20 ({100*consistent/20:.0f}%)")
+    print(f"\n  Consistent entities (>=2/3): {consistent}/20 ({100 * consistent / 20:.0f}%)")
     return entity_scores
 
 
 def main():
-    import sys
-    f = open(OUTPUT_FILE, 'w', encoding='utf-8')
+    f = open(OUTPUT_FILE, "w", encoding="utf-8")
     orig_stdout = sys.stdout
     sys.stdout = f
     try:
@@ -211,13 +214,17 @@ def main():
         print("\n" + "=" * 70)
         print("SUMMARY")
         print("=" * 70)
-        total_q = sum(a1['results'].values())
-        print(f"A1 Fact Accuracy: {a1['results']['CORRECT']}/{total_q} "
-              f"({100*a1['results']['CORRECT']/total_q:.0f}%)")
-        print(f"A1 Hallucination Rate: {a1['results']['HALLUCINATION']}/{total_q} "
-              f"({100*a1['results']['HALLUCINATION']/total_q:.0f}%)")
+        total_q = sum(a1["results"].values())
+        print(
+            f"A1 Fact Accuracy: {a1['results']['CORRECT']}/{total_q} "
+            f"({100 * a1['results']['CORRECT'] / total_q:.0f}%)"
+        )
+        print(
+            f"A1 Hallucination Rate: {a1['results']['HALLUCINATION']}/{total_q} "
+            f"({100 * a1['results']['HALLUCINATION'] / total_q:.0f}%)"
+        )
         consistent = sum(1 for v in a2.values() if v >= 2)
-        print(f"A2 Entity Consistency: {consistent}/20 ({100*consistent/20:.0f}%)")
+        print(f"A2 Entity Consistency: {consistent}/20 ({100 * consistent / 20:.0f}%)")
     finally:
         sys.stdout = orig_stdout
         f.close()

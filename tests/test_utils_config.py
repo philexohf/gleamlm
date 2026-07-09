@@ -1,16 +1,22 @@
 """YAML 配置 加载/extends/CLI覆盖/校验 测试"""
+
 import os
-import sys
 import tempfile
+
 from gleamlm.utils.config import (
-    load_yaml, _deep_merge, _DictWrapper,
-    _parse_cli_overrides, _apply_overrides,
-    load_config, to_namespace, load_config_as_args,
+    _apply_overrides,
+    _deep_merge,
+    _DictWrapper,
+    _parse_cli_overrides,
     _validate_config,
+    load_config,
+    load_config_as_args,
+    load_yaml,
+    to_namespace,
 )
 
-
 # _deep_merge
+
 
 def test_deep_merge():
     base = {"a": 1, "b": {"x": 2}}
@@ -25,6 +31,7 @@ def test_deep_merge_override():
 
 
 # _DictWrapper
+
 
 def test_dict_wrapper():
     dw = _DictWrapper({"model": {"d_model": 512}, "training": {"epochs": 5}})
@@ -63,6 +70,7 @@ def test_dict_wrapper_to_dict():
 
 # load_yaml
 
+
 def test_load_yaml_with_extends():
     with tempfile.TemporaryDirectory() as tmp:
         base_path = os.path.join(tmp, "base.yaml")
@@ -88,6 +96,7 @@ def test_load_yaml_no_extends():
 
 
 # _parse_cli_overrides / _apply_overrides
+
 
 def test_parse_cli_overrides():
     cfg = {"model": {"d_model": 512}, "training": {"epochs": 4}}
@@ -129,13 +138,16 @@ def test_apply_overrides_new_section():
 
 # to_namespace
 
+
 def test_to_namespace_basic():
-    cfg = _DictWrapper({
-        "model": {"d_model": 512, "num_layers": 12},
-        "training": {"epochs": 4},
-        "optimizer": {"lr": 0.001},
-        "distributed": {"world_size": 1},
-    })
+    cfg = _DictWrapper(
+        {
+            "model": {"d_model": 512, "num_layers": 12},
+            "training": {"epochs": 4},
+            "optimizer": {"lr": 0.001},
+            "distributed": {"world_size": 1},
+        }
+    )
     ns = to_namespace(cfg)
     assert ns.d_model == 512
     assert ns.num_layers == 12
@@ -145,12 +157,15 @@ def test_to_namespace_basic():
 
 
 def test_to_namespace_key_collision_warning():
-    cfg = _DictWrapper({
-        "model": {"epochs": 1},
-        "training": {"epochs": 4},
-    })
+    cfg = _DictWrapper(
+        {
+            "model": {"epochs": 1},
+            "training": {"epochs": 4},
+        }
+    )
     import warnings
-    with warnings.catch_warnings(record=True) as w:
+
+    with warnings.catch_warnings(record=True):
         warnings.simplefilter("always")
         ns = to_namespace(cfg)
         assert ns.epochs == 4
@@ -164,15 +179,18 @@ def test_to_namespace_non_dict_section():
 
 # load_config (real YAML)
 
+
 def test_load_config_full():
     with tempfile.TemporaryDirectory() as tmp:
         base_path = os.path.join(tmp, "base.yaml")
         cfg_path = os.path.join(tmp, "nano.yaml")
 
         with open(base_path, "w", encoding="utf-8") as f:
-            f.write("model:\n  d_model: 512\n  num_layers: 12\n"
-                    "training:\n  epochs: 4\n  batch_size: 8\n"
-                    "lr:\n  lr: 0.0003\n  warmup_ratio: 0.01\n")
+            f.write(
+                "model:\n  d_model: 512\n  num_layers: 12\n"
+                "training:\n  epochs: 4\n  batch_size: 8\n"
+                "lr:\n  lr: 0.0003\n  warmup_ratio: 0.01\n"
+            )
         with open(cfg_path, "w", encoding="utf-8") as f:
             f.write("extends: base.yaml\nmodel:\n  d_model: 768\n")
 
@@ -187,9 +205,11 @@ def test_load_config_as_args():
     with tempfile.TemporaryDirectory() as tmp:
         cfg_path = os.path.join(tmp, "nano.yaml")
         with open(cfg_path, "w", encoding="utf-8") as f:
-            f.write("model:\n  d_model: 512\n  num_layers: 12\n  num_heads: 8\n"
-                    "training:\n  epochs: 4\n  batch_size: 8\n"
-                    "lr:\n  lr: 0.0003\n  warmup_ratio: 0.01\n")
+            f.write(
+                "model:\n  d_model: 512\n  num_layers: 12\n  num_heads: 8\n"
+                "training:\n  epochs: 4\n  batch_size: 8\n"
+                "lr:\n  lr: 0.0003\n  warmup_ratio: 0.01\n"
+            )
 
         args = load_config_as_args(cfg_path)
         assert args.d_model == 512
@@ -211,21 +231,34 @@ def test_load_config_real_nano():
 
 SAMPLE_VALID_CFG = {
     "model": {
-        "d_model": 512, "num_layers": 12, "num_heads": 8,
-        "num_kv_heads": 4, "d_ff": 1365, "max_seq_len": 1024,
-        "vocab_size": 12002, "dropout": 0.1,
-        "tie_weights": True, "use_flash_attn": False,
+        "d_model": 512,
+        "num_layers": 12,
+        "num_heads": 8,
+        "num_kv_heads": 4,
+        "d_ff": 1365,
+        "max_seq_len": 1024,
+        "vocab_size": 12002,
+        "dropout": 0.1,
+        "tie_weights": True,
+        "use_flash_attn": False,
     },
     "training": {
-        "epochs": 5, "batch_size": 8, "accumulate_grad": 8,
-        "clip_grad": 1.0, "weight_decay": 0.01, "seed": 42,
+        "epochs": 5,
+        "batch_size": 8,
+        "accumulate_grad": 8,
+        "clip_grad": 1.0,
+        "weight_decay": 0.01,
+        "seed": 42,
         "max_train_chars": 1_200_000_000,
     },
     "lr": {
-        "lr": 0.0003, "warmup_ratio": 0.01, "min_lr_ratio": 0.1,
+        "lr": 0.0003,
+        "warmup_ratio": 0.01,
+        "min_lr_ratio": 0.1,
     },
     "advanced": {
-        "z_loss_weight": 0.0, "bf16": False,
+        "z_loss_weight": 0.0,
+        "bf16": False,
     },
 }
 
@@ -238,6 +271,7 @@ def test_validate_config_type_error():
     bad = dict(SAMPLE_VALID_CFG)
     bad["model"] = dict(bad["model"], d_model="512")
     import pytest
+
     with pytest.raises(ValueError, match="d_model"):
         _validate_config(bad)
 
@@ -246,6 +280,7 @@ def test_validate_config_range_error():
     bad = dict(SAMPLE_VALID_CFG)
     bad["model"] = dict(bad["model"], num_layers=0)
     import pytest
+
     with pytest.raises(ValueError, match="num_layers"):
         _validate_config(bad)
 
@@ -254,6 +289,7 @@ def test_validate_config_dropout_range():
     bad = dict(SAMPLE_VALID_CFG)
     bad["model"] = dict(bad["model"], dropout=1.5)
     import pytest
+
     with pytest.raises(ValueError, match="dropout"):
         _validate_config(bad)
 
@@ -262,5 +298,6 @@ def test_validate_config_bool_field():
     bad = dict(SAMPLE_VALID_CFG)
     bad["model"] = dict(bad["model"], tie_weights=1)
     import pytest
+
     with pytest.raises(ValueError, match="tie_weights"):
         _validate_config(bad)

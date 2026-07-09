@@ -1,4 +1,5 @@
 """GleamLM Byte-Level BPE Tokenizer. 基于 GPT-2 Byte-Level BPE 方案，256 字节基座 + BPE 合并规则。"""
+
 from __future__ import annotations
 
 import heapq
@@ -7,18 +8,16 @@ import os
 import re
 import time
 from collections import defaultdict
-from typing import Dict, List, Optional, Tuple
-
 
 # CJK 逐字 + 非 CJK 连续段预分词正则
 _PRE_TOKENIZE_RE = re.compile(
-    r'[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]|'
-    r'[\u3000-\u303f\uff00-\uffef]|'
-    r'[^\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff\u3000-\u303f\uff00-\uffef]+'
+    r"[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]|"
+    r"[\u3000-\u303f\uff00-\uffef]|"
+    r"[^\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff\u3000-\u303f\uff00-\uffef]+"
 )
 
 
-def _pre_tokenize_re(text: str) -> List[str]:
+def _pre_tokenize_re(text: str) -> list[str]:
     """正则预分词：CJK 逐字切分 + 非 CJK 连续段保持"""
     return [m.group(0) for m in _PRE_TOKENIZE_RE.finditer(text)]
 
@@ -30,7 +29,7 @@ def _pre_tokenize_re(text: str) -> List[str]:
 class BBPETokenizer:
     """Byte-Level BPE 分词器"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         # 256 字节基座
         self.id_to_byte: dict[int, bytes] = {i: bytes([i]) for i in range(256)}
 
@@ -55,18 +54,23 @@ class BBPETokenizer:
     # 训练
 
     @classmethod
-    def train_from_files(cls, text_files: list[str], vocab_size: int = 12002,
-                         save_dir: Optional[str] = None, max_train_chars: int = 500_000_000,
-                         ratios: Optional[list[float]] = None) -> 'BBPETokenizer':
+    def train_from_files(
+        cls,
+        text_files: list[str],
+        vocab_size: int = 12002,
+        save_dir: str | None = None,
+        max_train_chars: int = 500_000_000,
+        ratios: list[float] | None = None,
+    ) -> BBPETokenizer:
         """从文本文件训练 BBPE tokenizer"""
         tokenizer = cls()
         if ratios is None:
             ratios = [1.0 / len(text_files)] * len(text_files)
 
         print(f"Training BBPE tokenizer (vocab_size={vocab_size})...")
-        print(f"  Input files: {len(text_files)}, max_chars={max_train_chars/1e6:.0f}M")
-        for fp, r in zip(text_files, ratios):
-            print(f"    [{r*100:.0f}%] {os.path.basename(fp)}")
+        print(f"  Input files: {len(text_files)}, max_chars={max_train_chars / 1e6:.0f}M")
+        for fp, r in zip(text_files, ratios, strict=False):
+            print(f"    [{r * 100:.0f}%] {os.path.basename(fp)}")
 
         print("  Step 1/3: Pre-tokenizing and converting to byte sequences...")
         byte_sequences = tokenizer._pre_tokenize_files(
@@ -131,8 +135,7 @@ class BBPETokenizer:
             tokenizer.merges[best_pair] = new_id
             tokenizer.merge_pairs[new_id] = best_pair
             tokenizer.id_to_byte[new_id] = (
-                tokenizer.id_to_byte[best_pair[0]]
-                + tokenizer.id_to_byte[best_pair[1]]
+                tokenizer.id_to_byte[best_pair[0]] + tokenizer.id_to_byte[best_pair[1]]
             )
             tokenizer._next_id += 1
 
@@ -188,21 +191,26 @@ class BBPETokenizer:
                 pct = step / n_merges * 100
                 bar_width = 30
                 filled = int(bar_width * step / n_merges)
-                bar = '#' * filled + '-' * (bar_width - filled)
+                bar = "#" * filled + "-" * (bar_width - filled)
                 elapsed = time.time() - t_start
                 eta = elapsed / step * (n_merges - step)
-                eta_str = f"{eta/60:.0f}m{eta%60:02.0f}s" if eta < 3600 else f"{eta/3600:.1f}h"
+                eta_str = (
+                    f"{eta / 60:.0f}m{eta % 60:02.0f}s" if eta < 3600 else f"{eta / 3600:.1f}h"
+                )
                 # 写临时文件避免 Windows GBK 编码问题
-                print(f"\r  [{bar}] {pct:5.1f}% ({step}/{n_merges}) | "
-                      f"pair=({best_pair[0]},{best_pair[1]}) cnt={best_count} | "
-                      f"ETA {eta_str}", end="", flush=True)
+                print(
+                    f"\r  [{bar}] {pct:5.1f}% ({step}/{n_merges}) | "
+                    f"pair=({best_pair[0]},{best_pair[1]}) cnt={best_count} | "
+                    f"ETA {eta_str}",
+                    end="",
+                    flush=True,
+                )
 
             # 里程碑日志（换行打印，不覆盖进度条）
             if step % 1000 == 0:
                 print()  # 换行
 
-        print(f"\n  Trained {len(tokenizer.merges)} merges, "
-              f"vocab_size={tokenizer._next_id}")
+        print(f"\n  Trained {len(tokenizer.merges)} merges, vocab_size={tokenizer._next_id}")
 
         tokenizer._add_special_tokens()
 
@@ -213,12 +221,11 @@ class BBPETokenizer:
 
         return tokenizer
 
-    def _pre_tokenize_files(self, text_files: List[str],
-                             max_chars: int = 500_000_000,
-                             ratios: Optional[List[float]] = None
-                             ) -> List[List[int]]:
+    def _pre_tokenize_files(
+        self, text_files: list[str], max_chars: int = 500_000_000, ratios: list[float] | None = None
+    ) -> list[list[int]]:
         """按配比从多文件中采样读取 → 预分词 → 转字节序列"""
-        byte_sequences: List[List[int]] = []
+        byte_sequences: list[list[int]] = []
         if ratios is None:
             ratios = [1.0 / len(text_files)] * len(text_files)
 
@@ -234,12 +241,15 @@ class BBPETokenizer:
                 continue
 
             quota_mb = quotas[i] / 1e6
-            print(f"    [{ratios[i]*100:.0f}%] {os.path.basename(fpath)}: "
-                  f"quota={quota_mb:.1f}M chars", flush=True)
+            print(
+                f"    [{ratios[i] * 100:.0f}%] {os.path.basename(fpath)}: "
+                f"quota={quota_mb:.1f}M chars",
+                flush=True,
+            )
 
             file_words = 0
 
-            with open(fpath, 'r', encoding='utf-8') as f:
+            with open(fpath, encoding="utf-8") as f:
                 text_remaining = quotas[i]
                 while text_remaining > 0:
                     chunk = f.read(min(chunk_size, text_remaining))
@@ -249,7 +259,7 @@ class BBPETokenizer:
 
                     words = self._pre_tokenize(chunk)
                     for word in words:
-                        byte_seq = list(word.encode('utf-8'))
+                        byte_seq = list(word.encode("utf-8"))
                         if byte_seq:
                             byte_sequences.append(byte_seq)
                             file_words += 1
@@ -260,15 +270,17 @@ class BBPETokenizer:
             total_words += file_words
             print(f" → {file_words:,} words")
 
-        print(f"    Total: {total_words:,} words, "
-              f"{sum(quotas)/1e6:.1f}M chars from {len(text_files)} files")
+        print(
+            f"    Total: {total_words:,} words, "
+            f"{sum(quotas) / 1e6:.1f}M chars from {len(text_files)} files"
+        )
         return byte_sequences
 
-    def _pre_tokenize(self, text: str) -> List[str]:
+    def _pre_tokenize(self, text: str) -> list[str]:
         """将文本拆分为 word 列表（C 级字符类正则）"""
         return self._pre_tokenize_fn(text)
 
-    def _add_special_tokens(self):
+    def _add_special_tokens(self) -> None:
         """注入特殊 token 到词表末尾"""
         specials = [
             "<|endoftext|>",
@@ -307,14 +319,13 @@ class BBPETokenizer:
 
     # 编码 / 解码
 
-    def _build_special_regex(self):
+    def _build_special_regex(self) -> None:
         """构建用于切分特殊 token 的正则（按长度降序，最长匹配优先）"""
         if not self.special_tokens:
             self._special_regex = None
             return
-        escaped = [re.escape(t) for t in sorted(
-            self.special_tokens.keys(), key=len, reverse=True)]
-        self._special_regex = re.compile('(' + '|'.join(escaped) + ')')
+        escaped = [re.escape(t) for t in sorted(self.special_tokens.keys(), key=len, reverse=True)]
+        self._special_regex = re.compile("(" + "|".join(escaped) + ")")
 
     def encode(self, text: str, add_bos: bool = False, add_eos: bool = False) -> list[int]:
         """文本 → token ID 序列
@@ -330,10 +341,7 @@ class BBPETokenizer:
         if add_bos:
             ids.append(self.bos_id)
 
-        if self._special_regex is not None:
-            parts = self._special_regex.split(text)
-        else:
-            parts = [text]
+        parts = self._special_regex.split(text) if self._special_regex is not None else [text]
 
         for part in parts:
             if not part:
@@ -345,7 +353,7 @@ class BBPETokenizer:
                 # 普通文本 → 预分词 → 逐词 BPE 编码
                 words = self._pre_tokenize(part)
                 for word in words:
-                    byte_seq = list(word.encode('utf-8'))
+                    byte_seq = list(word.encode("utf-8"))
                     ids.extend(self._apply_bpe_to_bytes(byte_seq))
 
         if add_eos:
@@ -353,14 +361,14 @@ class BBPETokenizer:
 
         return ids
 
-    def _apply_bpe_to_bytes(self, byte_seq: List[int]) -> List[int]:
+    def _apply_bpe_to_bytes(self, byte_seq: list[int]) -> list[int]:
         """对字节序列应用 BPE 合并"""
         if not byte_seq:
             return []
 
         seq = list(byte_seq)
         while len(seq) > 1:
-            best_rank = float('inf')
+            best_rank = float("inf")
             best_pos = -1
             for i in range(len(seq) - 1):
                 pair = (seq[i], seq[i + 1])
@@ -391,14 +399,15 @@ class BBPETokenizer:
                 byte_buffer.extend(self.id_to_byte[tid])
             else:
                 # 回退到 <unk> 的字节表示
-                byte_buffer.extend(b'?')
+                byte_buffer.extend(b"?")
 
-        return byte_buffer.decode('utf-8', errors='replace')
+        return byte_buffer.decode("utf-8", errors="replace")
 
     # 便捷方法
 
-    def encode_batch(self, texts: List[str], add_bos: bool = False,
-                     add_eos: bool = False) -> List[List[int]]:
+    def encode_batch(
+        self, texts: list[str], add_bos: bool = False, add_eos: bool = False
+    ) -> list[list[int]]:
         """批量编码"""
         return [self.encode(t, add_bos=add_bos, add_eos=add_eos) for t in texts]
 
@@ -428,19 +437,19 @@ class BBPETokenizer:
         }
 
         path = os.path.join(save_dir, "bbpe_tokenizer.json")
-        with open(path, 'w', encoding='utf-8') as f:
+        with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
         print(f"BBPE tokenizer saved: {path} (vocab_size={self._next_id})")
 
     @classmethod
-    def load(cls, save_dir: str) -> 'BBPETokenizer':
+    def load(cls, save_dir: str) -> BBPETokenizer:
         """从目录加载 tokenizer"""
         path = os.path.join(save_dir, "bbpe_tokenizer.json")
         if not os.path.exists(path):
             raise FileNotFoundError(f"Tokenizer not found: {path}")
 
-        with open(path, 'r', encoding='utf-8') as f:
+        with open(path, encoding="utf-8") as f:
             data = json.load(f)
 
         tokenizer = cls()
@@ -450,14 +459,11 @@ class BBPETokenizer:
             pair = (int(a), int(b))
             tokenizer.merges[pair] = int(mid)
 
-        for mid_str, pair_list in sorted(data["merge_pairs"].items(),
-                                          key=lambda x: int(x[0])):
+        for mid_str, pair_list in sorted(data["merge_pairs"].items(), key=lambda x: int(x[0])):
             mid = int(mid_str)
             tokenizer.merge_pairs[mid] = tuple(pair_list)
             a, b = pair_list
-            tokenizer.id_to_byte[mid] = (
-                tokenizer.id_to_byte[a] + tokenizer.id_to_byte[b]
-            )
+            tokenizer.id_to_byte[mid] = tokenizer.id_to_byte[a] + tokenizer.id_to_byte[b]
 
         tokenizer.special_tokens = data["special_tokens"]
         tokenizer.id_to_special = {int(k): v for k, v in data["id_to_special"].items()}
@@ -478,5 +484,3 @@ class BBPETokenizer:
 
         print(f"BBPE tokenizer loaded: {path} (vocab_size={tokenizer._next_id})")
         return tokenizer
-
-

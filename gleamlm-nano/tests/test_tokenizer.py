@@ -1,10 +1,9 @@
 """Tokenizer encode/decode round-trip tests"""
 
-import os
 import pytest
 
-from gleamlm.utils.config import DEFAULT_TOKENIZER_PATH
 from gleamlm.tokenizer.tokenizer import BBPETokenizer
+from gleamlm.utils.config import DEFAULT_TOKENIZER_PATH
 
 
 @pytest.fixture(scope="module")
@@ -41,7 +40,7 @@ def test_encode_decode_roundtrip_mixed(tokenizer):
 def test_special_tokens_present(tokenizer):
     for tok in ["<|im_start|>", "<|im_end|>", "<|endoftext|>", "<pad>", "<unk>"]:
         assert tok in tokenizer.special_tokens, f"Missing special token: {tok}"
-        tid = tokenizer.token_to_id(tok)
+        tokenizer.token_to_id(tok)
         encoded = tokenizer.encode(tok, add_bos=False, add_eos=False)
         assert len(encoded) == 1, f"'{tok}' should encode to single token, got {len(encoded)}"
 

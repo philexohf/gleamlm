@@ -1,15 +1,19 @@
 """GleamLM 采样策略：temperature / top_k / top_p"""
+
 from __future__ import annotations
 
-from typing import List, Optional
 import torch
 import torch.nn.functional as F
 
 
-def sample_token(logits: torch.Tensor, temperature: float = 1.0,
-                 top_k: int = 0, top_p: float = 0.0,
-                 repetition_penalty: float = 1.0,
-                 generated_ids: Optional[List[int]] = None) -> torch.Tensor:
+def sample_token(
+    logits: torch.Tensor,
+    temperature: float = 1.0,
+    top_k: int = 0,
+    top_p: float = 0.0,
+    repetition_penalty: float = 1.0,
+    generated_ids: list[int] | None = None,
+) -> torch.Tensor:
 
     if repetition_penalty != 1.0 and generated_ids is not None:
         if logits.requires_grad:
@@ -23,7 +27,7 @@ def sample_token(logits: torch.Tensor, temperature: float = 1.0,
     if top_k > 0:
         top_k = min(top_k, logits.size(-1))
         indices_to_remove = logits < torch.topk(logits, top_k, dim=-1)[0][..., -1, None]
-        logits = logits.masked_fill(indices_to_remove, float('-inf'))
+        logits = logits.masked_fill(indices_to_remove, float("-inf"))
 
     if top_p > 0.0 and top_p < 1.0:
         sorted_logits, sorted_indices = torch.sort(logits, descending=True, dim=-1)
@@ -34,7 +38,7 @@ def sample_token(logits: torch.Tensor, temperature: float = 1.0,
         indices_to_remove = sorted_indices_to_remove.scatter(
             -1, sorted_indices, sorted_indices_to_remove
         )
-        logits = logits.masked_fill(indices_to_remove, float('-inf'))
+        logits = logits.masked_fill(indices_to_remove, float("-inf"))
 
     probs = F.softmax(logits, dim=-1)
     if probs.dim() == 1:

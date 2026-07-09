@@ -1,29 +1,31 @@
 """基准测试评估 — CEVAL / CMMLU / 多选题"""
+
 from __future__ import annotations
 
-import os, json, re
+import json
+import os
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import torch
-import torch.nn.functional as F
 
-from gleamlm.utils.torch_utils import safe_autocast
 from gleamlm.models.model import GleamLMModel
 from gleamlm.tokenizer.tokenizer import BBPETokenizer
+from gleamlm.utils.torch_utils import safe_autocast
 
 
 @dataclass
 class BenchmarkResult:
     """基准测试结果"""
-    name: str                      # ceval / cmmlu
+
+    name: str  # ceval / cmmlu
     accuracy: float
     total: int
     correct: int
-    subject_scores: Dict[str, float] = field(default_factory=dict)
-    extra: Dict = field(default_factory=dict)
+    subject_scores: dict[str, float] = field(default_factory=dict)
+    extra: dict = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "benchmark": self.name,
             "accuracy": round(self.accuracy, 4),
@@ -34,13 +36,12 @@ class BenchmarkResult:
         }
 
     def __repr__(self) -> str:
-        return (f"BenchmarkResult({self.name}: "
-                f"acc={self.accuracy:.2%}, {self.correct}/{self.total})")
+        return f"BenchmarkResult({self.name}: acc={self.accuracy:.2%}, {self.correct}/{self.total})"
 
 
-def _mc_generate(model: GleamLMModel, tokenizer: BBPETokenizer,
-                 prompt: str, choices: List[str],
-                 device: str) -> str:
+def _mc_generate(
+    model: GleamLMModel, tokenizer: BBPETokenizer, prompt: str, choices: list[str], device: str
+) -> str:
     """多选题生成：预填充 prompt KV Cache，仅对选项部分增量推理。
 
     将 prompt 预填充一次得到 KV Cache，然后每个选项仅输入选项 token
@@ -57,7 +58,7 @@ def _mc_generate(model: GleamLMModel, tokenizer: BBPETokenizer,
     for choice in choices:
         choice_ids = tokenizer.encode(choice)
         if not choice_ids:
-            choice_scores.append(float('-inf'))
+            choice_scores.append(float("-inf"))
             continue
 
         choice_t = torch.tensor([choice_ids], device=device)
@@ -75,35 +76,35 @@ def _mc_generate(model: GleamLMModel, tokenizer: BBPETokenizer,
         choice_scores.append(avg_log_prob)
 
     best_idx = choice_scores.index(max(choice_scores))
-    return chr(ord('A') + best_idx) if best_idx < 4 else str(best_idx)
+    return chr(ord("A") + best_idx) if best_idx < 4 else str(best_idx)
 
 
-def _load_ceval(data_dir: str) -> List[Dict]:
+def _load_ceval(data_dir: str) -> list[dict]:
     """加载 CEVAL 数据集。支持单文件 ceval.json 或按学科拆分。"""
     ceval_file = os.path.join(data_dir, "ceval.json")
     if os.path.exists(ceval_file):
-        with open(ceval_file, 'r', encoding='utf-8') as f:
+        with open(ceval_file, encoding="utf-8") as f:
             return json.load(f)
 
     # 按学科拆分：ceval/high_school_math.json, etc.
     items = []
     for fname in sorted(os.listdir(data_dir)):
-        if fname.endswith('.json') and fname != 'ceval.json':
+        if fname.endswith(".json") and fname != "ceval.json":
             path = os.path.join(data_dir, fname)
-            with open(path, 'r', encoding='utf-8') as f:
+            with open(path, encoding="utf-8") as f:
                 subject_items = json.load(f)
                 subject = os.path.splitext(fname)[0]
                 for item in subject_items:
-                    item.setdefault('subject', subject)
+                    item.setdefault("subject", subject)
                 items.extend(subject_items)
     return items
 
 
-def _build_prompt(item: Dict) -> str:
+def _build_prompt(item: dict) -> str:
     """构建多选题 prompt: 问题 + A/B/C/D 选项"""
-    question = item.get('question', '')
+    question = item.get("question", "")
     choices = []
-    for key in ['A', 'B', 'C', 'D']:
+    for key in ["A", "B", "C", "D"]:
         if key in item:
             choices.append(item[key])
 
@@ -114,11 +115,15 @@ def _build_prompt(item: Dict) -> str:
     return prompt
 
 
-def evaluate_ceval(model: GleamLMModel, tokenizer: BBPETokenizer,
-                   data_dir: str, device: str = "cuda",
-                   subjects: Optional[List[str]] = None,
-                   max_samples: Optional[int] = None,
-                   verbose: bool = True) -> BenchmarkResult:
+def evaluate_ceval(
+    model: GleamLMModel,
+    tokenizer: BBPETokenizer,
+    data_dir: str,
+    device: str = "cuda",
+    subjects: list[str] | None = None,
+    max_samples: int | None = None,
+    verbose: bool = True,
+) -> BenchmarkResult:
     """CEVAL 中文综合能力评估。
 
     数据集格式: [{question, A, B, C, D, answer, subject}, ...]
@@ -128,7 +133,7 @@ def evaluate_ceval(model: GleamLMModel, tokenizer: BBPETokenizer,
         raise FileNotFoundError(f"No CEVAL data found in {data_dir}")
 
     if subjects:
-        items = [it for it in items if it.get('subject', '') in subjects]
+        items = [it for it in items if it.get("subject", "") in subjects]
     if max_samples:
         items = items[:max_samples]
 
@@ -138,11 +143,11 @@ def evaluate_ceval(model: GleamLMModel, tokenizer: BBPETokenizer,
     total_correct = 0
 
     for item in items:
-        subject = item.get('subject', 'general')
-        choices = [item.get(k, '') for k in ['A', 'B', 'C', 'D'] if k in item]
+        subject = item.get("subject", "general")
+        choices = [item.get(k, "") for k in ["A", "B", "C", "D"] if k in item]
         prompt = _build_prompt(item)
         predicted = _mc_generate(model, tokenizer, prompt, choices, device)
-        expected = item.get('answer', '')
+        expected = item.get("answer", "")
 
         correct = predicted == expected
         if correct:
@@ -152,7 +157,9 @@ def evaluate_ceval(model: GleamLMModel, tokenizer: BBPETokenizer,
 
         if verbose and len(items) <= 20:
             mark = "✓" if correct else "✗"
-            print(f"  [{mark}] {subject}: pred={predicted}, ans={expected} | {item.get('question', '')[:50]}...")
+            print(
+                f"  [{mark}] {subject}: pred={predicted}, ans={expected} | {item.get('question', '')[:50]}..."
+            )
 
     # 计算各学科分数
     subject_scores = {}
@@ -176,9 +183,13 @@ def evaluate_ceval(model: GleamLMModel, tokenizer: BBPETokenizer,
     return result
 
 
-def evaluate_cmmlu(model: GleamLMModel, tokenizer: BBPETokenizer,
-                   data_dir: str, device: str = "cuda",
-                   **kwargs: Any) -> BenchmarkResult:
+def evaluate_cmmlu(
+    model: GleamLMModel,
+    tokenizer: BBPETokenizer,
+    data_dir: str,
+    device: str = "cuda",
+    **kwargs: Any,
+) -> BenchmarkResult:
     """CMMLU 评估 — 同 CEVAL 格式，可直接复用。"""
     result = evaluate_ceval(model, tokenizer, data_dir, device, **kwargs)
     result.name = "cmmlu"

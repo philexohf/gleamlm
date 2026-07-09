@@ -1,8 +1,8 @@
 """Dataset and collate_fn tests"""
 
 import os
+
 import pytest
-import torch
 
 from gleamlm.dataset.dataset import LMDataset, collate_fn
 from gleamlm.tokenizer.tokenizer import BBPETokenizer

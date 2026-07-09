@@ -1,18 +1,19 @@
 """GleamLM Decoder-only 模型实现"""
+
 from __future__ import annotations
 
 import math
-from typing import List, Tuple
 
 import torch
-from torch import nn
 import torch.nn.functional as F
+from torch import nn
 
 from gleamlm.types import PastKeyValue, PastKeyValueList
 
 
 class RMSNorm(nn.Module):
     """RMS 归一化：x / sqrt(mean(x²) + ε) * γ"""
+
     def __init__(self, d_model: int, eps: float = 1e-6) -> None:
         super().__init__()
         self.eps = eps
@@ -25,7 +26,9 @@ class RMSNorm(nn.Module):
         return x * self.weight
 
 
-def precompute_freqs_cis(dim: int, max_seq_len: int, theta: float = 10000.0) -> Tuple[torch.Tensor, torch.Tensor]:
+def precompute_freqs_cis(
+    dim: int, max_seq_len: int, theta: float = 10000.0
+) -> tuple[torch.Tensor, torch.Tensor]:
     """预计算 RoPE 频率基 (cos/sin)"""
     freq = 1.0 / (theta ** (torch.arange(0, dim, 2, dtype=torch.float) / dim))
     t = torch.arange(max_seq_len, dtype=torch.float)
@@ -36,13 +39,13 @@ def precompute_freqs_cis(dim: int, max_seq_len: int, theta: float = 10000.0) -> 
     return cos, sin
 
 
-def apply_rotary_emb(xq: torch.Tensor, xk: torch.Tensor,
-                     cos: torch.Tensor, sin: torch.Tensor,
-                     offset: int = 0) -> Tuple[torch.Tensor, torch.Tensor]:
+def apply_rotary_emb(
+    xq: torch.Tensor, xk: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor, offset: int = 0
+) -> tuple[torch.Tensor, torch.Tensor]:
     """对 Q/K 施加旋转位置编码。cos/sin 长度必须 >= offset+seq_len，由调用方负责缓存扩展。"""
     seq_len = xq.size(2)
-    cos = cos[offset:offset+seq_len].unsqueeze(0).unsqueeze(0)
-    sin = sin[offset:offset+seq_len].unsqueeze(0).unsqueeze(0)
+    cos = cos[offset : offset + seq_len].unsqueeze(0).unsqueeze(0)
+    sin = sin[offset : offset + seq_len].unsqueeze(0).unsqueeze(0)
     xq_out = xq * cos + _rotate_half(xq) * sin
     xk_out = xk * cos + _rotate_half(xk) * sin
     return xq_out, xk_out
@@ -58,9 +61,16 @@ def _rotate_half(x: torch.Tensor) -> torch.Tensor:
 
 class GroupedQueryAttention(nn.Module):
     """GQA + QK-Norm + Flash Attention（可选）"""
-    def __init__(self, d_model: int, num_heads: int, num_kv_heads: int,
-                 max_seq_len: int, dropout: float = 0.0,
-                 use_flash_attn: bool = False) -> None:
+
+    def __init__(
+        self,
+        d_model: int,
+        num_heads: int,
+        num_kv_heads: int,
+        max_seq_len: int,
+        dropout: float = 0.0,
+        use_flash_attn: bool = False,
+    ) -> None:
         super().__init__()
         assert d_model % num_heads == 0, "d_model 必须能被 num_heads 整除"
         assert num_heads % num_kv_heads == 0, "num_heads 必须能被 num_kv_heads 整除"
@@ -85,17 +95,17 @@ class GroupedQueryAttention(nn.Module):
         self.dropout = nn.Dropout(dropout) if dropout > 0 else nn.Identity()
 
         cos, sin = precompute_freqs_cis(self.head_dim, max_seq_len)
-        self.register_buffer('rope_cos', cos, persistent=False)
-        self.register_buffer('rope_sin', sin, persistent=False)
+        self.register_buffer("rope_cos", cos, persistent=False)
+        self.register_buffer("rope_sin", sin, persistent=False)
 
     def _repeat_kv(self, kv: torch.Tensor, num_groups: int) -> torch.Tensor:
         batch, kv_heads, seq_len, head_dim = kv.shape
         kv = kv.unsqueeze(2).expand(batch, kv_heads, num_groups, seq_len, head_dim)
         return kv.reshape(batch, kv_heads * num_groups, seq_len, head_dim)
 
-    def forward(self, x: torch.Tensor, mask: torch.Tensor | None = None,
-                past_kv: PastKeyValue | None = None
-                ) -> Tuple[torch.Tensor, torch.Tensor | None, PastKeyValue]:
+    def forward(
+        self, x: torch.Tensor, mask: torch.Tensor | None = None, past_kv: PastKeyValue | None = None
+    ) -> tuple[torch.Tensor, torch.Tensor | None, PastKeyValue]:
         batch_size, seq_len, _ = x.shape
         Q = self.W_q(x).view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
         K = self.W_k(x).view(batch_size, seq_len, self.num_kv_heads, self.head_dim).transpose(1, 2)
@@ -121,14 +131,16 @@ class GroupedQueryAttention(nn.Module):
 
         if self.use_flash_attn and past_kv is None:
             K_fa = K.unsqueeze(2).expand(-1, -1, self.num_groups, -1, -1)
-            K_fa = K_fa.reshape(batch_size, self.num_kv_heads * self.num_groups, -1, self.head_dim).contiguous()
+            K_fa = K_fa.reshape(
+                batch_size, self.num_kv_heads * self.num_groups, -1, self.head_dim
+            ).contiguous()
             V_fa = V.unsqueeze(2).expand(-1, -1, self.num_groups, -1, -1)
-            V_fa = V_fa.reshape(batch_size, self.num_kv_heads * self.num_groups, -1, self.head_dim).contiguous()
+            V_fa = V_fa.reshape(
+                batch_size, self.num_kv_heads * self.num_groups, -1, self.head_dim
+            ).contiguous()
 
             output = F.scaled_dot_product_attention(
-                Q, K_fa, V_fa,
-                dropout_p=self.attn_dropout if self.training else 0.0,
-                is_causal=True
+                Q, K_fa, V_fa, dropout_p=self.attn_dropout if self.training else 0.0, is_causal=True
             )
             output = output.transpose(1, 2).contiguous().view(batch_size, seq_len, -1)
             output = self.W_o(output)
@@ -151,6 +163,7 @@ class GroupedQueryAttention(nn.Module):
 
 class SwiGLUFFN(nn.Module):
     """SwiGLU 前馈网络"""
+
     def __init__(self, d_model: int, d_ff: int, dropout: float = 0.0) -> None:
         super().__init__()
         self.W_gate = nn.Linear(d_model, d_ff, bias=False)
@@ -166,9 +179,17 @@ class SwiGLUFFN(nn.Module):
 
 class DecoderBlock(nn.Module):
     """Decoder 层：RMSNorm → GQA → +残差 → RMSNorm → SwiGLU → +残差"""
-    def __init__(self, d_model: int, num_heads: int, num_kv_heads: int,
-                 d_ff: int, max_seq_len: int, dropout: float = 0.0,
-                 use_flash_attn: bool = False) -> None:
+
+    def __init__(
+        self,
+        d_model: int,
+        num_heads: int,
+        num_kv_heads: int,
+        d_ff: int,
+        max_seq_len: int,
+        dropout: float = 0.0,
+        use_flash_attn: bool = False,
+    ) -> None:
         super().__init__()
         self.attn_norm = RMSNorm(d_model)
         self.attn = GroupedQueryAttention(
@@ -177,9 +198,9 @@ class DecoderBlock(nn.Module):
         self.ffn_norm = RMSNorm(d_model)
         self.ffn = SwiGLUFFN(d_model, d_ff, dropout)
 
-    def forward(self, x: torch.Tensor, mask: torch.Tensor | None = None,
-                past_kv: PastKeyValue | None = None
-                ) -> Tuple[torch.Tensor, PastKeyValue]:
+    def forward(
+        self, x: torch.Tensor, mask: torch.Tensor | None = None, past_kv: PastKeyValue | None = None
+    ) -> tuple[torch.Tensor, PastKeyValue]:
         residual = x
         x = self.attn_norm(x)
         attn_out, _, current_kv = self.attn(x, mask, past_kv)
@@ -193,11 +214,21 @@ class DecoderBlock(nn.Module):
 
 class GleamLMModel(nn.Module):
     """V4 Deep-Narrow 架构。use_flash_attn=True 启用 PyTorch Flash Attention"""
-    def __init__(self, vocab_size: int, d_model: int, num_layers: int,
-                 num_heads: int, num_kv_heads: int, d_ff: int,
-                 max_seq_len: int, dropout: float = 0.0,
-                 pad_token_id: int = 0, tie_weights: bool = True,
-                 use_flash_attn: bool = False) -> None:
+
+    def __init__(
+        self,
+        vocab_size: int,
+        d_model: int,
+        num_layers: int,
+        num_heads: int,
+        num_kv_heads: int,
+        d_ff: int,
+        max_seq_len: int,
+        dropout: float = 0.0,
+        pad_token_id: int = 0,
+        tie_weights: bool = True,
+        use_flash_attn: bool = False,
+    ) -> None:
         super().__init__()
         self.d_model = d_model
         self.num_layers = num_layers
@@ -208,11 +239,14 @@ class GleamLMModel(nn.Module):
 
         self.emb_dropout = nn.Dropout(dropout)
 
-        self.layers = nn.ModuleList([
-            DecoderBlock(d_model, num_heads, num_kv_heads, d_ff, max_seq_len, dropout,
-                         use_flash_attn)
-            for _ in range(num_layers)
-        ])
+        self.layers = nn.ModuleList(
+            [
+                DecoderBlock(
+                    d_model, num_heads, num_kv_heads, d_ff, max_seq_len, dropout, use_flash_attn
+                )
+                for _ in range(num_layers)
+            ]
+        )
 
         self.final_norm = RMSNorm(d_model)
 
@@ -224,38 +258,32 @@ class GleamLMModel(nn.Module):
         self._init_weights()
 
     def _init_weights(self) -> None:
-        nn.init.normal_(self.token_embed.weight, mean=0.0, std=self.d_model ** -0.5)
+        nn.init.normal_(self.token_embed.weight, mean=0.0, std=self.d_model**-0.5)
 
-        for name, module in self.named_modules():
+        for _name, module in self.named_modules():
             if isinstance(module, nn.Linear):
                 if module is self.lm_head:
                     continue
                 fan_in = module.weight.size(1)
-                nn.init.normal_(module.weight, mean=0.0, std=fan_in ** -0.5)
+                nn.init.normal_(module.weight, mean=0.0, std=fan_in**-0.5)
 
         if self.lm_head.weight is not self.token_embed.weight:
             nn.init.normal_(self.lm_head.weight, mean=0.0, std=0.02)
 
     def _create_causal_mask(self, seq_len: int, device: torch.device) -> torch.Tensor:
         """创建因果注意力掩码（上三角 -inf）"""
-        mask = torch.triu(
-            torch.full((seq_len, seq_len), float('-inf'), device=device),
-            diagonal=1
-        )
+        mask = torch.triu(torch.full((seq_len, seq_len), float("-inf"), device=device), diagonal=1)
         return mask.unsqueeze(0).unsqueeze(0)
 
-    def forward(self, input_ids: torch.Tensor,
-                past_kv_list: PastKeyValueList | None = None
-                ) -> Tuple[torch.Tensor, PastKeyValueList]:
+    def forward(
+        self, input_ids: torch.Tensor, past_kv_list: PastKeyValueList | None = None
+    ) -> tuple[torch.Tensor, PastKeyValueList]:
         batch_size, seq_len = input_ids.shape
         device = input_ids.device
         x = self.token_embed(input_ids)
         x = self.emb_dropout(x)
 
-        if past_kv_list is None:
-            causal_mask = self._create_causal_mask(seq_len, device)
-        else:
-            causal_mask = None
+        causal_mask = self._create_causal_mask(seq_len, device) if past_kv_list is None else None
 
         new_kv_list: PastKeyValueList = []
         for i, layer in enumerate(self.layers):
@@ -267,7 +295,7 @@ class GleamLMModel(nn.Module):
         logits = self.lm_head(x)
         return logits, new_kv_list
 
-    def get_num_params(self) -> Tuple[int, int]:
+    def get_num_params(self) -> tuple[int, int]:
         """统计参数量。
         Note: PyTorch 的 parameters() 已通过 id() 去重，
         此处显式去重确保 tied weights (lm_head==token_embed) 不重复计算。"""
@@ -283,4 +311,3 @@ class GleamLMModel(nn.Module):
             if p.requires_grad:
                 trainable += p.numel()
         return total, trainable
-

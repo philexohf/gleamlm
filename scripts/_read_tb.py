@@ -1,10 +1,11 @@
 """Read latest TensorBoard scalars"""
+
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 
-ea = EventAccumulator('checkpoints/runs')
+ea = EventAccumulator("checkpoints/runs")
 ea.Reload()
 scalars = {}
-tags = ea.Tags().get('scalars', [])
+tags = ea.Tags().get("scalars", [])
 if tags:
     first_tag = tags[0]
     events = ea.Scalars(first_tag)

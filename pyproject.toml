@@ -37,6 +37,9 @@ train = [
 dev = [
     "pytest",
     "tensorboard>=2.14",
+    "ruff>=0.15",
+    "mypy>=2.0",
+    "pre-commit>=4.0",
 ]
 data = [
     "pandas",
@@ -56,6 +59,80 @@ include = ["gleamlm", "gleamlm.*"]
 
 [tool.setuptools.package-data]
 gleamlm = ["tokenizer/checkpoints/bbpe_12k/*.json"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+exclude = ["gleamlm-lite", "gleamlm-pro"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort (import sorting)
+    "N",   # pep8-naming
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "SIM", # flake8-simplify
+]
+ignore = [
+    "E501",  # line-too-long (handled by formatter)
+    "N812",  # lowercase-to-non-lower (PyTorch `F` convention)
+    "N806",  # non-lowercase var (Q/K/V in attention, ML convention)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"**/__init__.py" = ["F401"]  # re-exports
+"gleamlm-nano/tests/_run_tests.py" = ["E402"]  # path setup before imports
+"gleamlm-nano/train.py" = ["E402"]  # path setup before imports
+"gleamlm-nano/sft.py" = ["E402"]  # path setup before imports
+"gleamlm-nano/dpo.py" = ["E402"]  # path setup before imports
+"gleamlm-nano/infer.py" = ["E402"]  # path setup before imports
+"gleamlm-nano/quick_test_sft_dpo.py" = ["E402", "E701", "E702"]  # quick smoke test script
+"scripts/eval_ppl.py" = ["E402"]  # path setup before imports
+"scripts/eval_knowledge.py" = ["SIM115"]  # stdout redirect
+"scripts/eval_layer_dropout.py" = ["SIM115"]  # stdout redirect
+"scripts/_check_stats.py" = ["E741"]  # list comprehension
+"tests/test_tokenizer.py" = ["SIM115"]  # NamedTemporaryFile manual cleanup
+"tests/verify_flash_attn.py" = ["E741"]  # loss loop variable
+"data_tools/build_dataset.py" = ["SIM115"]  # multi-file streaming
+"data_tools/clean_text.py" = ["SIM117"]  # nested with for readability
+"data_tools/filter_qa.py" = ["SIM117"]  # nested with for readability
+"data_tools/extract_parquet.py" = ["F401", "B018"]  # availability probe
+"data_tools/prepare_data.py" = ["B007"]  # enumerate src iteration
+"gleamlm/utils/config.py" = ["N806"]  # NO_PREFIX convention
+
+[tool.ruff.lint.isort]
+known-first-party = ["gleamlm"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "lf"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+disallow_any_generics = false
+exclude = [
+    "gleamlm-nano/",
+    "gleamlm-lite/",
+    "gleamlm-pro/",
+    "scripts/",
+    "data_tools/",
+    "tests/",
+    "configs/",
+]
+
+[[tool.mypy.overrides]]
+module = "numpy"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "tqdm"
+ignore_missing_imports = true
 
 [tool.setuptools_scm]
 

@@ -1,7 +1,10 @@
 """分词器 编解码/特殊token/边界/训练 测试"""
+
 import os
 import tempfile
+
 import pytest
+
 from gleamlm.tokenizer.tokenizer import BBPETokenizer
 
 
@@ -65,7 +68,7 @@ def test_decode_skip_special(tokenizer):
     ids = tokenizer.encode(text, add_bos=False, add_eos=False)
     decoded = tokenizer.decode(ids, skip_special=True)
     assert "<|endoftext|>" not in decoded
-    assert "你好世界" == decoded
+    assert decoded == "你好世界"
 
 
 def test_train_tokenizer_small():
@@ -77,9 +80,7 @@ def test_train_tokenizer_small():
         "你好，世界！Hello, World!\n"
     ) * 100
 
-    tmp = tempfile.NamedTemporaryFile(
-        mode='w', delete=False, encoding='utf-8', suffix='.txt'
-    )
+    tmp = tempfile.NamedTemporaryFile(mode="w", delete=False, encoding="utf-8", suffix=".txt")
     tmp.write(test_text)
     tmp_path = tmp.name
     tmp.close()
@@ -113,10 +114,8 @@ def test_train_tokenizer_small():
 
 def test_train_save_load_roundtrip():
     """训练→保存→加载→编码，验证持久化正确性"""
-    test_text = ("测试文本。" * 200)
-    tmp = tempfile.NamedTemporaryFile(
-        mode='w', delete=False, encoding='utf-8', suffix='.txt'
-    )
+    test_text = "测试文本。" * 200
+    tmp = tempfile.NamedTemporaryFile(mode="w", delete=False, encoding="utf-8", suffix=".txt")
     tmp.write(test_text)
     tmp_path = tmp.name
     tmp.close()
@@ -124,8 +123,10 @@ def test_train_save_load_roundtrip():
     save_dir = tempfile.mkdtemp()
     try:
         trained = BBPETokenizer.train_from_files(
-            [tmp_path], vocab_size=500,
-            save_dir=save_dir, max_train_chars=200_000,
+            [tmp_path],
+            vocab_size=500,
+            save_dir=save_dir,
+            max_train_chars=200_000,
         )
         original_ids = trained.encode("你好世界", add_bos=False, add_eos=False)
 
@@ -142,7 +143,6 @@ def test_train_save_load_roundtrip():
 
 def test_encode_invalid_type():
     tok = BBPETokenizer()
-    import pytest
     with pytest.raises(TypeError, match="Expected str"):
         tok.encode(12345)
 
@@ -162,12 +162,12 @@ def test_decode_unknown_id():
 
 def test_train_multiple_files():
     """多文件+权重训练"""
-    tmp1 = tempfile.NamedTemporaryFile(mode='w', delete=False, encoding='utf-8', suffix='.txt')
+    tmp1 = tempfile.NamedTemporaryFile(mode="w", delete=False, encoding="utf-8", suffix=".txt")
     tmp1.write("中文AAA测试序列用于BPE训练。中文分词器需要大量中文文本。" * 500)
     tmp1_path = tmp1.name
     tmp1.close()
 
-    tmp2 = tempfile.NamedTemporaryFile(mode='w', delete=False, encoding='utf-8', suffix='.txt')
+    tmp2 = tempfile.NamedTemporaryFile(mode="w", delete=False, encoding="utf-8", suffix=".txt")
     tmp2.write("English text for BPE tokenizer training with sufficient repetition." * 500)
     tmp2_path = tmp2.name
     tmp2.close()
@@ -175,8 +175,10 @@ def test_train_multiple_files():
     save_dir = tempfile.mkdtemp()
     try:
         trained = BBPETokenizer.train_from_files(
-            [tmp1_path, tmp2_path], vocab_size=500,
-            save_dir=save_dir, max_train_chars=200_000,
+            [tmp1_path, tmp2_path],
+            vocab_size=500,
+            save_dir=save_dir,
+            max_train_chars=200_000,
             ratios=[0.5, 0.5],
         )
         assert trained.get_vocab_size() >= 400

@@ -5,7 +5,6 @@ import torch
 
 from gleamlm.models.model import GleamLMModel
 
-
 VOCAB_SIZE = 12002
 D_MODEL = 512
 MAX_SEQ_LEN = 256
@@ -29,7 +28,6 @@ def model():
 
 def test_parameter_count(model):
     total, trainable = model.get_num_params()
-    expected = 39_000_000  # ~39M
     assert 35_000_000 < total < 42_000_000, f"Unexpected param count: {total / 1e6:.1f}M"
 
 

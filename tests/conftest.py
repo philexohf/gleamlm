@@ -1,6 +1,7 @@
 """共享 fixtures — 所有测试模块复用"""
+
 import pytest
-import torch
+
 from gleamlm.models.model import GleamLMModel
 from gleamlm.tokenizer.tokenizer import BBPETokenizer
 from gleamlm.utils.config import DEFAULT_TOKENIZER_PATH
