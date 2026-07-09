@@ -132,11 +132,12 @@ def train_one_epoch(
 @torch.no_grad()
 def evaluate(model, val_loader, eval_criterion, device, pad_token_id=0, world_size=1):
     """验证集评估，返回 loss 和 PPL。DDP 下自动汇总所有 rank 的 loss"""
+    torch.cuda.empty_cache()
     model.eval()
     total_loss = 0
     total_tokens = 0
 
-    for input_ids, target_ids in val_loader:
+    for input_ids, target_ids in tqdm(val_loader, desc="  Eval", file=sys.stdout):
         input_ids = input_ids.to(device)
         target_ids = target_ids.to(device)
 
