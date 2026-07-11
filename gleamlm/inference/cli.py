@@ -42,12 +42,7 @@ def load_model(
         tokenizer_path = DEFAULT_TOKENIZER_PATH
 
     if not os.path.exists(tokenizer_path):
-        if tokenizer_path.startswith("./"):
-            alt = "../" + tokenizer_path[2:]
-            if os.path.exists(alt):
-                tokenizer_path = alt
-        if not os.path.exists(tokenizer_path):
-            tokenizer_path = DEFAULT_TOKENIZER_PATH
+        tokenizer_path = DEFAULT_TOKENIZER_PATH
 
     model, config = load_model_for_inference(model_path, device, checkpoint=checkpoint)
     tokenizer = BBPETokenizer.load(tokenizer_path)

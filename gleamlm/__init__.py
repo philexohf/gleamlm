@@ -1,6 +1,13 @@
 from __future__ import annotations
 
+from importlib.metadata import PackageNotFoundError, version
+
 from .models.model import GleamLMModel
+
+try:
+    __version__ = version("gleamlm")
+except PackageNotFoundError:
+    __version__ = "0.0.0"
 
 
 def load_model_for_inference(

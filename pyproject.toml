@@ -8,7 +8,7 @@ dynamic = ["version"]
 description = "GleamLM — A lightweight language model for education and research"
 readme = {file = "README.md", content-type = "text/markdown"}
 requires-python = ">=3.10"
-license = {text = "Apache-2.0"}
+license = "Apache-2.0"
 authors = [
     {name = "Fei Zhang", email = "philex_hf@163.com"},
 ]
