@@ -79,7 +79,7 @@ def main():
     print(f"Tokenizer vocab: {tokenizer.get_vocab_size()}")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    ckpt = torch.load(args.model_path, map_location=device)
+    ckpt = torch.load(args.model_path, map_location=device, weights_only=False)
     if "args" in ckpt:
         a = ckpt["args"]
         model = GleamLMModel(

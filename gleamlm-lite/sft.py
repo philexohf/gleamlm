@@ -351,7 +351,6 @@ def main():
         shuffle=True,
         collate_fn=SFTDataset.collate_fn,
         num_workers=0,
-        pin_memory=True,
     )
 
     # 优化器
