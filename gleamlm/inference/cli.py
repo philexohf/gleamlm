@@ -2,8 +2,7 @@
 
 Usage:
     python -m gleamlm.inference.cli --model path/to/model.pt
-    python -m gleamlm.inference.cli --variant lite  # auto-discovers lite checkpoint
-    python -m gleamlm.inference.cli --prompt "你好"
+    python -m gleamlm.inference.cli --model checkpoints/best_model.pt --prompt "你好"
 """
 
 from __future__ import annotations
@@ -23,7 +22,6 @@ from gleamlm import load_model_for_inference
 from gleamlm.inference.streamer import TextStreamer
 from gleamlm.tokenizer.tokenizer import BBPETokenizer
 from gleamlm.utils.config import DEFAULT_TOKENIZER_PATH
-from gleamlm.utils.paths import get_default_checkpoint_dir
 
 
 def load_model(
@@ -170,14 +168,7 @@ def interactive(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="GleamLM Unified Inference CLI")
-    parser.add_argument("--model", type=str, default=None, help="模型 checkpoint 路径")
-    parser.add_argument(
-        "--variant",
-        type=str,
-        default="nano",
-        choices=["nano", "lite", "pro"],
-        help="模型变体 (默认 nano，用于自动发现 checkpoint)",
-    )
+    parser.add_argument("--model", type=str, required=True, help="模型 checkpoint 路径 (.pt 文件)")
     parser.add_argument("--prompt", type=str, default=None, help="提示文本（不提供则进入交互模式）")
     parser.add_argument("--max_new_tokens", type=int, default=256)
     parser.add_argument("--temperature", type=float, default=0.8)
@@ -193,8 +184,6 @@ def main() -> None:
     args = parser.parse_args()
 
     model_path = args.model
-    if model_path is None:
-        model_path = os.path.join(get_default_checkpoint_dir(args.variant), "best_model.pt")
 
     if not os.path.exists(model_path):
         print(f"Error: 模型文件不存在: {model_path}")

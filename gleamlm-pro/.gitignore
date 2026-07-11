@@ -1,0 +1,3 @@
+# 测试生成的数据
+data/test_splits/
+data/splits/*.npy
