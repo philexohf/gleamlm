@@ -1,6 +1,8 @@
 """SFT (Supervised Fine-Tuning) shared module. Extracted from nano/sft.py and lite/sft.py.
 
 Provides SFTDataset, train_one_epoch_sft, evaluate_sft, and generate_response_sft.
+
+Supports both single-turn and multi-turn conversation formats.
 """
 
 from __future__ import annotations
@@ -28,15 +30,21 @@ SYSTEM_PROMPTS = [
 class SFTDataset(Dataset):
     """SFT dataset: JSONL -> ChatML format -> loss mask.
 
-    ChatML format:
-      <|im_start|><|user|>\\n{instruction}<|im_end|>\\n<|im_start|><|assistant|>\\n{output}<|im_end|>
+    Supports two formats, auto-detected from the first line:
 
-    With system message:
-      <|im_start|><|system|>\\n{system_prompt}<|im_end|>\\n
-      <|im_start|><|user|>\\n{instruction}<|im_end|>\\n
-      <|im_start|><|assistant|>\\n{output}<|im_end|>
+    Single-turn (backward-compatible):
+        {"instruction": "...", "output": "..."}
 
-    loss mask: user/system portion labels=-100, only assistant portion contributes to loss.
+    Multi-turn:
+        {"messages": [
+            {"role": "system", "content": "..."},
+            {"role": "user", "content": "..."},
+            {"role": "assistant", "content": "..."}
+        ]}
+
+    Loss mask: only the LAST assistant turn contributes to loss.
+    In multi-turn mode, all prior turns (including earlier assistant replies)
+    are treated as context and masked.
     """
 
     def __init__(
@@ -53,8 +61,10 @@ class SFTDataset(Dataset):
         self.bos_id = tokenizer.bos_id
         self.eos_id = tokenizer.eos_id
 
-        self.data: list[dict[str, str]] = []
-        required_keys = {"instruction", "output"}
+        self.multiturn: bool = False
+        self.data: list[dict[str, Any]] = []
+
+        raw_lines: list[dict[str, Any]] = []
         with open(data_path, encoding="utf-8") as f:
             for i, line in enumerate(f):
                 line = line.strip()
@@ -65,11 +75,46 @@ class SFTDataset(Dataset):
                 except json.JSONDecodeError as e:
                     print(f"Warning: skipping line {i} in {data_path}: {e}")
                     continue
-                missing = required_keys - set(item.keys())
-                if missing:
-                    raise ValueError(f"Line {i}: missing required keys {missing} in {data_path}")
-                self.data.append({"instruction": item["instruction"], "output": item["output"]})
-        print(f"Loaded {len(self.data)} SFT samples from {data_path}")
+                raw_lines.append(item)
+
+        if not raw_lines:
+            raise ValueError(f"No valid samples in {data_path}")
+
+        first_has_messages = "messages" in raw_lines[0]
+
+        if first_has_messages:
+            self.multiturn = True
+            for i, item in enumerate(raw_lines):
+                msgs = item.get("messages")
+                if not isinstance(msgs, list) or len(msgs) < 2:
+                    print(f"Warning: skipping line {i} in {data_path}: invalid messages")
+                    continue
+                has_assistant = any(m.get("role") == "assistant" for m in msgs)
+                if not has_assistant:
+                    print(f"Warning: skipping line {i} in {data_path}: no assistant turn")
+                    continue
+                self.data.append({"messages": msgs})
+            print(f"Loaded {len(self.data)} multi-turn SFT samples from {data_path}")
+        else:
+            self.multiturn = False
+            for i, item in enumerate(raw_lines):
+                if "messages" in item:
+                    msgs = item.get("messages")
+                    if isinstance(msgs, list) and len(msgs) >= 2:
+                        has_assistant = any(m.get("role") == "assistant" for m in msgs)
+                        if has_assistant:
+                            self.data.append({"messages": msgs})
+                            continue
+                if "instruction" in item and "output" in item:
+                    self.data.append({"instruction": item["instruction"], "output": item["output"]})
+                else:
+                    print(f"Warning: skipping line {i} in {data_path}: unknown format")
+            single_count = sum(1 for d in self.data if "instruction" in d)
+            multi_count = sum(1 for d in self.data if "messages" in d)
+            print(
+                f"Loaded {len(self.data)} SFT samples from {data_path} "
+                f"({single_count} single-turn, {multi_count} multi-turn)"
+            )
 
         rng = random.Random(42)
         self._system_prompts: list[str] = []
@@ -85,8 +130,9 @@ class SFTDataset(Dataset):
     def _encode(self, text: str) -> list[int]:
         return self.tokenizer.encode(text, add_bos=False, add_eos=False)
 
+    # --- single-turn helpers (unchanged) ---
+
     def _build_prompt(self, instruction: str, system_prompt: str = "") -> str:
-        """Build prompt text up to assistant header (excludes answer)."""
         if system_prompt:
             return (
                 f"<|im_start|><|system|>\n{system_prompt}<|im_end|>\n"
@@ -107,7 +153,7 @@ class SFTDataset(Dataset):
             f"<|im_start|><|assistant|>\n{output}<|im_end|>"
         )
 
-    def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
+    def _single_turn_item(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
         item = self.data[idx]
         instruction = item["instruction"]
         output = item["output"]
@@ -119,13 +165,12 @@ class SFTDataset(Dataset):
         prompt_ids = self._encode(prompt_text)
         full_ids = self._encode(full_text)
 
-        P = min(len(prompt_ids), self.max_seq_len - 2)
+        P = len(prompt_ids)
 
         if len(full_ids) > self.max_seq_len:
-            im_end_ids = self._encode("<|im_end|>")
-            full_ids = full_ids[: self.max_seq_len]
-            if len(full_ids) >= len(im_end_ids) and full_ids[-len(im_end_ids) :] != im_end_ids:
-                full_ids = full_ids[: self.max_seq_len - len(im_end_ids)] + im_end_ids
+            dropped = len(full_ids) - self.max_seq_len
+            full_ids = full_ids[-self.max_seq_len :]
+            P = max(0, P - dropped)
 
         input_ids = full_ids[:-1]
         labels = list(full_ids[1:])
@@ -143,6 +188,72 @@ class SFTDataset(Dataset):
             torch.tensor(input_ids, dtype=torch.long),
             torch.tensor(labels, dtype=torch.long),
         )
+
+    # --- multi-turn helpers ---
+
+    @staticmethod
+    def _message_to_text(msg: dict[str, str], trailing_nl: bool = True) -> str:
+        role = msg["role"]
+        content = msg["content"]
+        end = "\n" if trailing_nl else ""
+        return f"<|im_start|><|{role}|>\n{content}<|im_end|>{end}"
+
+    def _build_multiturn_prompt_and_full(self, messages: list[dict[str, str]]) -> tuple[str, str]:
+        if len(messages) < 2:
+            raise ValueError("Multi-turn conversation must have at least 2 messages")
+
+        last = messages[-1]
+        if last["role"] != "assistant":
+            raise ValueError(f"Last message must be assistant, got '{last['role']}'")
+
+        prompt_parts: list[str] = []
+        for msg in messages[:-1]:
+            prompt_parts.append(self._message_to_text(msg, trailing_nl=True))
+        prompt_parts.append("<|im_start|><|assistant|>\n")
+
+        full_parts = list(prompt_parts)
+        full_parts.append(f"{last['content']}<|im_end|>")
+
+        return "".join(prompt_parts), "".join(full_parts)
+
+    def _multi_turn_item(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
+        messages = self.data[idx]["messages"]
+
+        prompt_text, full_text = self._build_multiturn_prompt_and_full(messages)
+        prompt_ids = self._encode(prompt_text)
+        full_ids = self._encode(full_text)
+
+        P = len(prompt_ids)
+
+        if len(full_ids) > self.max_seq_len:
+            dropped = len(full_ids) - self.max_seq_len
+            full_ids = full_ids[-self.max_seq_len :]
+            P = max(0, P - dropped)
+
+        input_ids = full_ids[:-1]
+        labels = list(full_ids[1:])
+
+        mask_end = min(P, len(labels))
+        for i in range(mask_end - 1):
+            labels[i] = -100
+
+        pad_len = self.max_seq_len - len(input_ids)
+        if pad_len > 0:
+            input_ids = input_ids + [self.pad_id] * pad_len
+            labels = labels + [-100] * pad_len
+
+        return (
+            torch.tensor(input_ids, dtype=torch.long),
+            torch.tensor(labels, dtype=torch.long),
+        )
+
+    # --- dispatch ---
+
+    def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
+        item = self.data[idx]
+        if "messages" in item:
+            return self._multi_turn_item(idx)
+        return self._single_turn_item(idx)
 
     @staticmethod
     def collate_fn(

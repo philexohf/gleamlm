@@ -70,6 +70,7 @@ def main():
     parser.add_argument("--dropout", type=float, default=0.0)
     parser.add_argument("--use_flash_attn", action="store_true", default=True)
     parser.add_argument("--no_flash_attn", dest="use_flash_attn", action="store_false")
+    parser.set_defaults(use_flash_attn=True)
 
     # 训练参数（WSD 调度，YAML 中配置）
     parser.add_argument("--epochs", type=int, default=3)

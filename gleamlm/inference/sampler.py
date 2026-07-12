@@ -13,12 +13,14 @@ def sample_token(
     top_p: float = 0.0,
     repetition_penalty: float = 1.0,
     generated_ids: list[int] | None = None,
+    penalty_window: int = 0,
 ) -> torch.Tensor:
 
     if repetition_penalty != 1.0 and generated_ids is not None:
         if logits.requires_grad:
             logits = logits.clone()
-        for gid in set(generated_ids):
+        window_ids = generated_ids[-penalty_window:] if penalty_window > 0 else generated_ids
+        for gid in set(window_ids):
             logits[..., gid] = logits[..., gid] / repetition_penalty
 
     if temperature > 0 and temperature != 1.0:

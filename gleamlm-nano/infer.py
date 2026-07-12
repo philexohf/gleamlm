@@ -23,21 +23,11 @@ from gleamlm.tokenizer.tokenizer import BBPETokenizer
 
 def load_model(model_path, device="cuda"):
     print(f"Loading model: {model_path}")
-    try:
-        checkpoint = torch.load(model_path, map_location=device, weights_only=False)
-    except TypeError:
-        checkpoint = torch.load(model_path, map_location=device)
 
-    # 从 checkpoint 提取分词器路径
-    if "args" in checkpoint:
-        args = checkpoint["args"]
-        tokenizer_path = getattr(args, "tokenizer_path", DEFAULT_TOKENIZER_PATH)
-    elif "config" in checkpoint:
-        tokenizer_path = DEFAULT_TOKENIZER_PATH
-    else:
-        tokenizer_path = DEFAULT_TOKENIZER_PATH
+    model, config = load_model_for_inference(model_path, device)
 
-    # 兼容旧 checkpoint 中存储的旧路径
+    # 从返回的 config 提取分词器路径，回退到默认值
+    tokenizer_path = config.get("tokenizer_path", DEFAULT_TOKENIZER_PATH)
     if not os.path.exists(tokenizer_path):
         if tokenizer_path.startswith("./"):
             alt = "../" + tokenizer_path[2:]
@@ -45,9 +35,6 @@ def load_model(model_path, device="cuda"):
                 tokenizer_path = alt
         if not os.path.exists(tokenizer_path):
             tokenizer_path = DEFAULT_TOKENIZER_PATH
-
-    # 使用共享函数加载模型（传入已加载的 checkpoint 避免重复磁盘读取）
-    model, config = load_model_for_inference(model_path, device, checkpoint=checkpoint)
 
     tokenizer = BBPETokenizer.load(tokenizer_path)
 

@@ -48,6 +48,7 @@ def main():
                         help="Use PyTorch Flash Attention (sdpa)")
     parser.add_argument("--no_flash_attn", dest="use_flash_attn", action="store_false",
                         help="Disable Flash Attention")
+    parser.set_defaults(use_flash_attn=True)
 
     parser.add_argument("--batch_size", type=int, default=2)
     parser.add_argument("--accumulate_grad", type=int, default=2)

@@ -3,6 +3,7 @@
 Usage:
     python -m gleamlm.inference.cli --model path/to/model.pt
     python -m gleamlm.inference.cli --model checkpoints/best_model.pt --prompt "你好"
+    python -m gleamlm.inference.cli --model checkpoints/best_model.pt --conversation  # multi-turn
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ if sys.platform == "win32":
         sys.stdout.reconfigure(encoding="utf-8")
 
 from gleamlm import load_model_for_inference
+from gleamlm.inference.conversation import Conversation
 from gleamlm.inference.streamer import TextStreamer
 from gleamlm.tokenizer.tokenizer import BBPETokenizer
 from gleamlm.utils.config import DEFAULT_TOKENIZER_PATH
@@ -28,23 +30,10 @@ def load_model(
     model_path: str, device: str = "cuda"
 ) -> tuple[torch.nn.Module, BBPETokenizer, dict]:
     print(f"Loading model: {model_path}")
-    try:
-        checkpoint = torch.load(model_path, map_location=device, weights_only=False)
-    except TypeError:
-        checkpoint = torch.load(model_path, map_location=device)
-
-    if "args" in checkpoint:
-        args = checkpoint["args"]
-        tokenizer_path = getattr(args, "tokenizer_path", DEFAULT_TOKENIZER_PATH)
-    elif "config" in checkpoint:
-        tokenizer_path = DEFAULT_TOKENIZER_PATH
-    else:
-        tokenizer_path = DEFAULT_TOKENIZER_PATH
-
+    model, config = load_model_for_inference(model_path, device)
+    tokenizer_path = config.get("tokenizer_path") or DEFAULT_TOKENIZER_PATH
     if not os.path.exists(tokenizer_path):
         tokenizer_path = DEFAULT_TOKENIZER_PATH
-
-    model, config = load_model_for_inference(model_path, device, checkpoint=checkpoint)
     tokenizer = BBPETokenizer.load(tokenizer_path)
 
     total, _ = model.get_num_params()
@@ -124,15 +113,35 @@ def interactive(
     top_k: int = 50,
     top_p: float = 0.9,
     repetition_penalty: float = 1.15,
+    penalty_window: int = 0,
     device: str = "cuda",
     sft_mode: bool = False,
+    conversation_mode: bool = False,
 ) -> None:
     print("\n" + "=" * 60)
-    print("GleamLM 交互式文本生成")
+    if conversation_mode:
+        print("GleamLM 多轮对话模式（KV Cache 复用）")
+    else:
+        print("GleamLM 交互式文本生成")
     if sft_mode:
         print("SFT 对话模式（ChatML 格式）")
     print("输入 'quit' 或 'exit' 退出")
+    print("输入 '/clear' 清除对话历史")
     print("=" * 60)
+
+    conv: Conversation | None = None
+    if conversation_mode:
+        conv = Conversation(
+            model,
+            tokenizer,
+            system_prompt="你是一个有帮助的AI助手。",
+            max_new_tokens=max_new_tokens,
+            temperature=temperature,
+            top_k=top_k,
+            top_p=top_p,
+            repetition_penalty=repetition_penalty,
+            penalty_window=penalty_window if penalty_window > 0 else 50,
+        )
 
     while True:
         try:
@@ -145,20 +154,41 @@ def interactive(
             print("Goodbye!")
             break
 
+        if prompt.lower() == "/clear":
+            if conv:
+                conv.clear()
+                print("对话历史已清除。")
+            continue
+
         if not prompt:
             continue
 
-        generate(
-            model,
-            tokenizer,
-            prompt,
-            max_new_tokens,
-            temperature,
-            top_k,
-            top_p,
-            repetition_penalty,
-            sft_mode=sft_mode,
-        )
+        if conversation_mode and conv:
+            conv.append_user_message(prompt)
+            print(f"\n>>> {prompt}")
+            print("Assistant: ", end="", flush=True)
+
+            prev_len = 0
+            buffer: list[int] = []
+            for token_id in conv.stream_response():
+                buffer.append(token_id)
+                chunk = tokenizer.decode(buffer, skip_special=True)
+                new_text = chunk[prev_len:]
+                prev_len = len(chunk)
+                _safe_print(new_text)
+            print("\n")
+        else:
+            generate(
+                model,
+                tokenizer,
+                prompt,
+                max_new_tokens,
+                temperature,
+                top_k,
+                top_p,
+                repetition_penalty,
+                sft_mode=sft_mode,
+            )
 
 
 def main() -> None:
@@ -173,7 +203,18 @@ def main() -> None:
         "--repetition_penalty", type=float, default=1.15, help="重复惩罚（>1.0 抑制重复）"
     )
     parser.add_argument(
+        "--penalty_window",
+        type=int,
+        default=0,
+        help="repetition_penalty 滑动窗口大小（0=全部，推荐 50）",
+    )
+    parser.add_argument(
         "--sft", action="store_true", help="SFT 对话模式（ChatML 包装 prompt，遇 <|im_end|> 截断）"
+    )
+    parser.add_argument(
+        "--conversation",
+        action="store_true",
+        help="多轮对话模式（KV Cache 复用，自动启用 SFT ChatML 格式）",
     )
     parser.add_argument("--device", type=str, default="cuda", help="设备 (cuda/cpu)")
     args = parser.parse_args()
@@ -188,18 +229,40 @@ def main() -> None:
     device = args.device if torch.cuda.is_available() else "cpu"
     model, tokenizer, config = load_model(model_path, device)
 
+    sft_mode = args.sft or args.conversation
+
     if args.prompt:
-        generate(
-            model,
-            tokenizer,
-            args.prompt,
-            args.max_new_tokens,
-            args.temperature,
-            args.top_k,
-            args.top_p,
-            args.repetition_penalty,
-            sft_mode=args.sft,
-        )
+        if args.conversation:
+            conv = Conversation(
+                model,
+                tokenizer,
+                system_prompt="你是一个有帮助的AI助手。",
+                max_new_tokens=args.max_new_tokens,
+                temperature=args.temperature,
+                top_k=args.top_k,
+                top_p=args.top_p,
+                repetition_penalty=args.repetition_penalty,
+                penalty_window=args.penalty_window if args.penalty_window > 0 else 50,
+            )
+            conv.append_user_message(args.prompt)
+            generated: list[int] = []
+            for token_id in conv.stream_response():
+                generated.append(token_id)
+                chunk = tokenizer.decode(generated, skip_special=True)
+                print(chunk, end="", flush=True)
+            print()
+        else:
+            generate(
+                model,
+                tokenizer,
+                args.prompt,
+                args.max_new_tokens,
+                args.temperature,
+                args.top_k,
+                args.top_p,
+                args.repetition_penalty,
+                sft_mode=sft_mode,
+            )
     else:
         interactive(
             model,
@@ -209,8 +272,10 @@ def main() -> None:
             args.top_k,
             args.top_p,
             args.repetition_penalty,
+            args.penalty_window,
             device,
-            sft_mode=args.sft,
+            sft_mode=sft_mode,
+            conversation_mode=args.conversation,
         )
 
 

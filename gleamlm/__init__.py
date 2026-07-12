@@ -24,6 +24,7 @@ def load_model_for_inference(
 
     if "args" in checkpoint:
         args = checkpoint["args"]
+        tokenizer_path = getattr(args, "tokenizer_path", None)
         config = {
             "vocab_size": args.vocab_size,
             "d_model": args.d_model,
@@ -39,6 +40,7 @@ def load_model_for_inference(
         }
     elif "config" in checkpoint:
         config = checkpoint["config"]
+        tokenizer_path = config.get("tokenizer_path", None)
     else:
         raise ValueError(
             "Checkpoint 缺少模型结构信息。请确保 checkpoint 包含 'args' 或 'config' 字段。"
@@ -61,5 +63,7 @@ def load_model_for_inference(
 
     if checkpoint.get("dtype") == "float16":
         model = model.half()
+
+    config["tokenizer_path"] = tokenizer_path
 
     return model, config

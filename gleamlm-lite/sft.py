@@ -72,6 +72,7 @@ def get_sft_args():
     parser.add_argument("--dropout", type=float, default=0.0)
     parser.add_argument("--use_flash_attn", action='store_true', default=True)
     parser.add_argument("--no_flash_attn", dest='use_flash_attn', action='store_false')
+    parser.set_defaults(use_flash_attn=True)
 
     return parser.parse_args()
 

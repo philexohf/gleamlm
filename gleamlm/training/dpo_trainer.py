@@ -2,6 +2,8 @@
 
 Provides DPODataset, dpad_collate, compute_log_probs, dpo_loss, get_reference_logps,
 train_one_epoch_dpo, generate_response_dpo, evaluate_dpo.
+
+Supports both single-turn and multi-turn preference data.
 """
 
 from __future__ import annotations
@@ -48,51 +50,131 @@ def dpad_collate(batch: list[dict[str, Any]]) -> dict[str, torch.Tensor]:
 
 
 class DPODataset(Dataset):
-    """DPO dataset: chosen/rejected pairs, prompt portion loss mask = 0."""
+    """DPO dataset: chosen/rejected pairs, prompt portion loss mask = 0.
+
+    Supports two formats, auto-detected:
+
+    Single-turn:
+        {"instruction": "...", "chosen": "...", "rejected": "..."}
+
+    Multi-turn:
+        {"messages": [{"role":"user","content":"..."}, ...],
+         "chosen": "...",
+         "rejected": "..."}
+
+    In multi-turn mode, `messages` provides the conversation history.
+    `chosen` / `rejected` are the preferred / dispreferred continuations
+    for the final assistant turn. Only the final answer tokens contribute
+    to the DPO loss.
+    """
 
     def __init__(self, data_path: str, tokenizer: BBPETokenizer, max_seq_len: int = 512):
         self.tokenizer = tokenizer
         self.max_seq_len = max_seq_len
-        self.samples: list[dict[str, str]] = []
+
+        raw_samples: list[dict[str, Any]] = []
         with open(data_path, encoding="utf-8") as f:
             for i, line in enumerate(f):
                 try:
-                    self.samples.append(json.loads(line))
+                    raw_samples.append(json.loads(line))
                 except json.JSONDecodeError as e:
                     print(f"Warning: skipping line {i} in {data_path}: {e}")
+
+        if not raw_samples:
+            raise ValueError(f"No valid samples in {data_path}")
+
+        self.multiturn: bool = "messages" in raw_samples[0]
+
+        self.samples: list[dict[str, Any]] = []
+        for i, s in enumerate(raw_samples):
+            has_messages = "messages" in s
+            has_single = "instruction" in s
+            has_pair = "chosen" in s and "rejected" in s
+
+            if not has_pair:
+                print(f"Warning: skipping line {i} in {data_path}: missing chosen/rejected")
+                continue
+            if not (has_messages or has_single):
+                print(f"Warning: skipping line {i} in {data_path}: missing messages or instruction")
+                continue
+
+            self.samples.append(s)
+
+        single_count = sum(1 for s in self.samples if "instruction" in s)
+        multi_count = sum(1 for s in self.samples if "messages" in s)
+        print(
+            f"Loaded {len(self.samples)} DPO samples from {data_path} "
+            f"({single_count} single-turn, {multi_count} multi-turn)"
+        )
 
     def __len__(self) -> int:
         return len(self.samples)
 
+    def _encode(self, text: str) -> list[int]:
+        return self.tokenizer.encode(text, add_bos=False, add_eos=False)
+
+    @staticmethod
+    def _message_to_text(msg: dict[str, str], trailing_nl: bool = True) -> str:
+        role = msg["role"]
+        content = msg["content"]
+        end = "\n" if trailing_nl else ""
+        return f"<|im_start|><|{role}|>\n{content}<|im_end|>{end}"
+
+    def _build_multiturn_prompt_text(self, messages: list[dict[str, str]]) -> str:
+        parts: list[str] = []
+        for msg in messages:
+            parts.append(self._message_to_text(msg, trailing_nl=True))
+        parts.append("<|im_start|><|assistant|>\n")
+        return "".join(parts)
+
     def __getitem__(self, idx: int) -> dict[str, Any]:
         s = self.samples[idx]
-        instruction = s["instruction"]
         chosen = s["chosen"]
         rejected = s["rejected"]
 
-        prompt_text = f"<|im_start|><|user|>\n{instruction}<|im_end|>\n<|im_start|><|assistant|>\n"
-        prompt_ids = self.tokenizer.encode(prompt_text, add_bos=False, add_eos=False)
+        if "messages" in s:
+            messages = s["messages"]
+            prompt_text = self._build_multiturn_prompt_text(messages)
 
-        chosen_text = (
-            f"<|im_start|><|user|>\n{instruction}<|im_end|>\n"
-            f"<|im_start|><|assistant|>\n{chosen}<|im_end|>"
-        )
-        rejected_text = (
-            f"<|im_start|><|user|>\n{instruction}<|im_end|>\n"
-            f"<|im_start|><|assistant|>\n{rejected}<|im_end|>"
-        )
+            history_text = "".join(self._message_to_text(m, trailing_nl=True) for m in messages)
+            chosen_text = f"{history_text}<|im_start|><|assistant|>\n{chosen}<|im_end|>"
+            rejected_text = f"{history_text}<|im_start|><|assistant|>\n{rejected}<|im_end|>"
+        else:
+            instruction = s["instruction"]
+            prompt_text = (
+                f"<|im_start|><|user|>\n{instruction}<|im_end|>\n<|im_start|><|assistant|>\n"
+            )
+            chosen_text = (
+                f"<|im_start|><|user|>\n{instruction}<|im_end|>\n"
+                f"<|im_start|><|assistant|>\n{chosen}<|im_end|>"
+            )
+            rejected_text = (
+                f"<|im_start|><|user|>\n{instruction}<|im_end|>\n"
+                f"<|im_start|><|assistant|>\n{rejected}<|im_end|>"
+            )
 
-        chosen_ids = self.tokenizer.encode(chosen_text, add_bos=False, add_eos=False)
-        rejected_ids = self.tokenizer.encode(rejected_text, add_bos=False, add_eos=False)
-
-        chosen_ids = chosen_ids[: self.max_seq_len]
-        rejected_ids = rejected_ids[: self.max_seq_len]
+        prompt_ids = self._encode(prompt_text)
+        chosen_ids = self._encode(chosen_text)
+        rejected_ids = self._encode(rejected_text)
 
         P = len(prompt_ids)
+        if len(chosen_ids) > self.max_seq_len:
+            dropped = len(chosen_ids) - self.max_seq_len
+            chosen_ids = chosen_ids[-self.max_seq_len :]
+            P_c = max(0, P - dropped)
+        else:
+            P_c = P
+        if len(rejected_ids) > self.max_seq_len:
+            dropped = len(rejected_ids) - self.max_seq_len
+            rejected_ids = rejected_ids[-self.max_seq_len :]
+            P_r = max(0, P - dropped)
+        else:
+            P_r = P
+
         chosen_mask = torch.zeros(len(chosen_ids) - 1, dtype=torch.float32)
         rejected_mask = torch.zeros(len(rejected_ids) - 1, dtype=torch.float32)
-        chosen_mask[max(0, min(P, len(chosen_ids)) - 1) :] = 1.0
-        rejected_mask[max(0, min(P, len(rejected_ids)) - 1) :] = 1.0
+        chosen_mask[max(0, min(P_c, len(chosen_ids)) - 1) :] = 1.0
+        rejected_mask[max(0, min(P_r, len(rejected_ids)) - 1) :] = 1.0
 
         return {
             "chosen_ids": torch.tensor(chosen_ids, dtype=torch.long),
