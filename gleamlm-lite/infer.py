@@ -16,6 +16,7 @@ if sys.platform == 'win32':
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 from gleamlm import load_model_for_inference
+from gleamlm.inference.chatml import format_chatml
 from gleamlm.inference.streamer import TextStreamer
 from gleamlm.tokenizer.tokenizer import BBPETokenizer
 from gleamlm.utils.config import DEFAULT_TOKENIZER_PATH
@@ -54,7 +55,10 @@ def generate(model, tokenizer, prompt, max_new_tokens=256,
 
     # SFT 模式：ChatML 包装
     if sft_mode:
-        prompt = f"<|im_start|><|user|>\n{prompt}<|im_end|>\n<|im_start|><|assistant|>\n"
+        prompt = format_chatml(
+            [{"role": "user", "content": prompt}],
+            add_generation_prompt=True,
+        )
         if stop_token is None:
             stop_token = "<|im_end|>"
 

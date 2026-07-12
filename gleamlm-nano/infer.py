@@ -17,6 +17,7 @@ from gleamlm.utils.config import DEFAULT_TOKENIZER_PATH
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_CHECKPOINT_DIR = os.path.join(_SCRIPT_DIR, "checkpoints")
+from gleamlm.inference.chatml import format_chatml
 from gleamlm.inference.streamer import TextStreamer
 from gleamlm.tokenizer.tokenizer import BBPETokenizer
 
@@ -61,7 +62,10 @@ def generate(
 
     # SFT 模式：ChatML 包装
     if sft_mode:
-        prompt = f"<|im_start|><|user|>\n{prompt}<|im_end|>\n<|im_start|><|assistant|>\n"
+        prompt = format_chatml(
+            [{"role": "user", "content": prompt}],
+            add_generation_prompt=True,
+        )
         if stop_token is None:
             stop_token = "<|im_end|>"
 
