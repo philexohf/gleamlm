@@ -114,6 +114,7 @@ def interactive(
     top_p: float = 0.9,
     repetition_penalty: float = 1.15,
     penalty_window: int = 0,
+    lower_bound: int = 0,
     device: str = "cuda",
     sft_mode: bool = False,
     conversation_mode: bool = False,
@@ -141,6 +142,7 @@ def interactive(
             top_p=top_p,
             repetition_penalty=repetition_penalty,
             penalty_window=penalty_window if penalty_window > 0 else 50,
+            lower_bound=lower_bound,
         )
 
     while True:
@@ -209,6 +211,12 @@ def main() -> None:
         help="repetition_penalty 滑动窗口大小（0=全部，推荐 50）",
     )
     parser.add_argument(
+        "--lower_bound",
+        type=int,
+        default=0,
+        help="句子边界截断下限（token 数，如 128。超过后遇句末标点即停止）",
+    )
+    parser.add_argument(
         "--sft", action="store_true", help="SFT 对话模式（ChatML 包装 prompt，遇 <|im_end|> 截断）"
     )
     parser.add_argument(
@@ -273,6 +281,7 @@ def main() -> None:
             args.top_p,
             args.repetition_penalty,
             args.penalty_window,
+            args.lower_bound,
             device,
             sft_mode=sft_mode,
             conversation_mode=args.conversation,

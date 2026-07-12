@@ -30,6 +30,7 @@ class Conversation:
         top_p: float = 0.9,
         repetition_penalty: float = 1.1,
         penalty_window: int = 50,
+        lower_bound: int = 0,
         use_amp: bool = True,
         amp_dtype: torch.dtype | None = None,
     ):
@@ -41,6 +42,7 @@ class Conversation:
         self.top_p = top_p
         self.repetition_penalty = repetition_penalty
         self.penalty_window = penalty_window
+        self.lower_bound = lower_bound
         self.use_amp = use_amp
         self.amp_dtype = amp_dtype
 
@@ -76,12 +78,16 @@ class Conversation:
 
         prompt_ids = self.tokenizer.encode(prompt_text, add_bos=False, add_eos=False)
 
-        # _kv_sink 是 generate_tokens 的唯一跨轮 KV Cache 出口。
-        # 生成结束后 kv_sink[0] 包含完整的上下文 + 本轮回复的缓存，
-        # 下一轮通过 past_kv 传入，避免重新编码历史消息。
         kv_sink: list[PastKeyValueList | None] = [None]
 
+        SENTENCE_ENDS = ("。", "！", "？", "；", "\n")
+        LOWER = self.lower_bound if self.lower_bound > 0 else 0
+
         generated_tokens: list[int] = []
+        _buffer: list[int] = []
+        _stop_yielding = False
+        _clean_cutoff = -1
+
         for token_id in generate_tokens(
             self.model,
             prompt_ids,
@@ -99,11 +105,42 @@ class Conversation:
             _kv_sink=kv_sink,
         ):
             generated_tokens.append(token_id)
-            yield token_id
+
+            if _stop_yielding:
+                continue
+
+            if LOWER == 0 or len(generated_tokens) < LOWER:
+                yield token_id
+                continue
+
+            _buffer.append(token_id)
+            tail = self.tokenizer.decode(_buffer, skip_special=True)
+
+            if tail and tail[-1] in SENTENCE_ENDS:
+                for t in _buffer:
+                    yield t
+                _clean_cutoff = len(generated_tokens)
+                _stop_yielding = True
+                _buffer.clear()
 
         self.past_kv = kv_sink[0]
 
-        if im_end_id is not None:
+        if _stop_yielding and _clean_cutoff > 0:
+            generated_tokens = generated_tokens[:_clean_cutoff]
+        elif _buffer and LOWER > 0:
+            tail = self.tokenizer.decode(_buffer, skip_special=True)
+            cutoff = -1
+            for sep in SENTENCE_ENDS:
+                idx = tail.rfind(sep)
+                if idx > cutoff:
+                    cutoff = idx
+            if cutoff >= 0:
+                clean_ids = self.tokenizer.encode(tail[: cutoff + 1], add_bos=False, add_eos=False)
+                generated_tokens = generated_tokens[: -len(_buffer)] + clean_ids
+
+        stopped_clean = len(generated_tokens) < self.max_new_tokens
+
+        if stopped_clean and im_end_id is not None:
             im_end_input = torch.tensor([[im_end_id]], dtype=torch.long, device=device)
             with torch.no_grad():
                 if self.use_amp:
