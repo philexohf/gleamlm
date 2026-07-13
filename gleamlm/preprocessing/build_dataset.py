@@ -18,7 +18,6 @@ def stream_build(
     train_ratio: float = 0.9,
     valid_ratio: float = 0.05,
     ratios: list[float] | None = None,
-    total_lines: int | None = None,  # noqa: ARG001 — kept for API compatibility
     buf_size: int = 50000,
 ) -> None:
     os.makedirs(output_dir, exist_ok=True)

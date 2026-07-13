@@ -129,9 +129,7 @@ class GroupedQueryAttention(nn.Module):
         offset = past_kv[0].size(2) if past_kv is not None else 0
         Q, K = apply_rotary_emb(Q, K, rope_cos, rope_sin, offset)
 
-        # 教学简化：每次增量解码通过 torch.cat 重新分配并拷贝全部历史 KV。
-        # 工业界（vLLM/SGLang/HF StaticCache）使用预分配固定 size buffer +
-        # copy_ 原地更新，或 PagedAttention 避免内存碎片和全量拷贝。
+        # TODO: replace torch.cat with pre-allocated KV buffer for inference
         if past_kv is not None:
             past_k, past_v = past_kv
             K = torch.cat([past_k, K], dim=2)
@@ -323,24 +321,19 @@ class GleamLMModel(nn.Module):
         attention_mask: torch.Tensor | None,
         past_kv_list: PastKeyValueList | None,
     ) -> torch.Tensor | None:
-        """决定是否创建注意力掩码，兼容 padding / flash / manual / chunked prefill。
-        """
+        """返回注意力掩码，平衡 flash/manual/padding/chunked prefill 多种路径。"""
         if attention_mask is not None:
             if attention_mask.eq(0).any():
-                # 有真实 padding → 合并因果 + padding mask
                 attn_mask = self._create_attn_mask(
                     seq_len, device, offset=offset, attention_mask=attention_mask
                 )
             elif not self._use_flash_attn:
                 attn_mask = self._create_attn_mask(seq_len, device, offset=offset)
             else:
-                # FLASH 模式 + 全 1 mask → 走最优 is_causal 路径
                 attn_mask = None
         elif self._use_flash_attn and not (past_kv_list is not None and seq_len > 1):
-            # 纯 FLASH 模式（非 chunked prefill）→ 无 mask
             attn_mask = None
         else:
-            # manual 模式或 chunked prefill → causal / attn mask
             attn_mask = self._create_attn_mask(seq_len, device, offset=offset)
         return attn_mask
 

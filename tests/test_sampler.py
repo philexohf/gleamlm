@@ -160,3 +160,20 @@ def test_repetition_penalty_prevents_token_cycling_temperature():
         f"temperature=0.8: repetition_penalty 应使生成中出现多个不同 token，"
         f"实际 token 集合: {unique_tokens}"
     )
+
+
+# ---- TextStreamer ----
+
+
+def test_streamer_generate(small_model, tokenizer):
+    from gleamlm.inference.streamer import TextStreamer
+
+    streamer = TextStreamer(tokenizer)
+    small_model.eval()
+    count = 0
+    for chunk in streamer.generate_text(
+        small_model, "你好", max_new_tokens=10, temperature=0.8, top_k=50
+    ):
+        count += 1
+        assert isinstance(chunk, str), f"Expected str got {type(chunk)}"
+    assert count > 0, "Should generate at least 1 token"

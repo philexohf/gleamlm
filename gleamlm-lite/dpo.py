@@ -96,6 +96,7 @@ def main():
             'num_layers': args.num_layers, 'num_heads': args.num_heads,
             'num_kv_heads': args.num_kv_heads, 'd_ff': args.d_ff,
             'dropout': args.dropout, 'max_seq_len': args.max_seq_len,
+            'pad_token_id': 0,
         }
 
     policy_model = GleamLMModel(**model_kwargs, use_flash_attn=args.use_flash_attn).to(device)

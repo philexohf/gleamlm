@@ -238,9 +238,10 @@ def test_full_pipeline():
     # 7. Loss 下降检查
     print(f"\n[7] Loss 趋势: {[f'{l:.4f}' for l in losses]}")
     if len(losses) >= 2:
-        loss_dropped = losses[-1] < losses[0] * 0.95
-        status = "[OK]" if loss_dropped else "[WARN] (小数据/少步数可能趋势不明显)"
-        print(f"  Loss 下降: {status}")
+        assert losses[-1] < losses[0] * 0.95, (
+            f"Loss did not decrease: {losses[0]:.4f} -> {losses[-1]:.4f}"
+        )
+        print(f"  Loss 下降: [OK]")
 
     # 8. checkpoint 保存
     print("\n[8] 保存 checkpoint...")
@@ -284,8 +285,8 @@ def test_full_pipeline():
             logits1, _ = model(test_input)
             logits2, _ = model2(test_input)
         diff = (logits1 - logits2).abs().max().item()
-        status = "[OK]" if diff < 1e-5 else "[FAIL]"
-        print(f"  重载后 logit 最大差异: {diff:.2e} {status}")
+        assert diff < 1e-5, f"Reloaded logit diff too large: {diff:.2e}"
+        print(f"  重载后 logit 最大差异: {diff:.2e} [OK]")
 
     shutil.rmtree(tmp_dir, ignore_errors=True)
 

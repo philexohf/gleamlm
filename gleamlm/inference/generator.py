@@ -42,8 +42,6 @@ def generate_tokens(
         prompt_ids: Pre-encoded prompt token IDs (without BOS/EOS padding).
         device: torch device.
         max_new_tokens: Maximum tokens to generate.
-            Actual RoPE cache upper bound is model.rope_max_len, which may
-            exceed the configured model.max_seq_len (due to pre-allocation).
         temperature, top_k, top_p, repetition_penalty: Sampling parameters.
         penalty_window: Sliding window size for repetition penalty (0 = all tokens).
         stop_ids: Set of token IDs that trigger generation stop. None = no early stop.

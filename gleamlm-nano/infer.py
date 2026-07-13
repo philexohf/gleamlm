@@ -51,7 +51,7 @@ def generate(
     tokenizer,
     prompt,
     max_new_tokens=256,
-    temperature=1.0,
+    temperature=0.8,
     top_k=50,
     top_p=0.9,
     repetition_penalty=1.1,
@@ -74,45 +74,42 @@ def generate(
     print(f"{'=' * 60}")
     print("Generated: ", end="", flush=True)
 
-    prev_len = 0
-    last_chunk = prompt
+    generated_text = ""
     for chunk in streamer.generate_text(
-        model, prompt, max_new_tokens, temperature, top_k, top_p, repetition_penalty
+        model, prompt, max_new_tokens, temperature, top_k, top_p, repetition_penalty,
+        stop_on_endoftext=sft_mode
     ):
-        new_text = chunk[prev_len:]
-        prev_len = len(chunk)
-        last_chunk = chunk
+        generated_text += chunk
         # SFT 模式：遇到 stop_token 截断
-        if sft_mode and stop_token and stop_token in new_text:
-            new_text = new_text.split(stop_token)[0] + stop_token
+        if sft_mode and stop_token and stop_token in chunk:
+            chunk = chunk.split(stop_token)[0] + stop_token
             try:
-                print(new_text, end="", flush=True)
+                print(chunk, end="", flush=True)
             except UnicodeEncodeError:
                 print(
-                    new_text.encode("utf-8", errors="replace").decode("utf-8", errors="replace"),
+                    chunk.encode("utf-8", errors="replace").decode("utf-8", errors="replace"),
                     end="",
                     flush=True,
                 )
             break
         try:
-            print(new_text, end="", flush=True)
+            print(chunk, end="", flush=True)
         except UnicodeEncodeError:
             print(
-                new_text.encode("utf-8", errors="replace").decode("utf-8", errors="replace"),
+                chunk.encode("utf-8", errors="replace").decode("utf-8", errors="replace"),
                 end="",
                 flush=True,
             )
 
-    full_text = prompt + last_chunk if last_chunk != prompt else prompt
     print("\n")
-    return full_text
+    return prompt + generated_text
 
 
 def interactive(
     model,
     tokenizer,
     max_new_tokens=256,
-    temperature=1.0,
+    temperature=0.8,
     top_k=50,
     top_p=0.9,
     repetition_penalty=1.1,

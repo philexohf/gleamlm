@@ -183,10 +183,11 @@ def test_full_pipeline():
         print(f"  Epoch {epoch}: train_loss={avg_loss:.4f}, val_loss={val_avg:.4f}, val_ppl={math.exp(val_avg):.2f}")
 
     print(f"\n[6] Loss 趋势: {[f'{l:.4f}' for l in losses]}")
-    if len(losses) >= 2 and losses[-1] < losses[0] * 0.95:
+    if len(losses) >= 2:
+        assert losses[-1] < losses[0] * 0.95, (
+            f"Loss did not decrease: {losses[0]:.4f} -> {losses[-1]:.4f}"
+        )
         print("  Loss 下降: [OK]")
-    else:
-        print("  Loss 下降: [WARN] (小数据/少步数可能趋势不明显)")
 
     print("\n[7] checkpoint 保存 + 重载验证...")
     ckpt_path = os.path.join(ckpt_dir, "test_best.pt")
@@ -213,8 +214,8 @@ def test_full_pipeline():
             logits1, _ = model(test_input)
             logits2, _ = model2(test_input)
         diff = (logits1 - logits2).abs().max().item()
-        print(f"  重载后 logit 最大差异: {diff:.2e} {'[OK]' if diff < 1e-5 else '[FAIL]'}")
-
+        assert diff < 1e-5, f"Reloaded logit diff too large: {diff:.2e}"
+        print(f"  重载后 logit 最大差异: {diff:.2e} [OK]")
     shutil.rmtree(tmp_dir, ignore_errors=True)
 
     print("\n" + "=" * 60)

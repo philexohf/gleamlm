@@ -61,7 +61,7 @@ class Conversation:
         tokens: list[int] = []
         for token_id in self.stream_response():
             tokens.append(token_id)
-        return self._decode_tokens(tokens)
+        return self.tokenizer.decode(tokens, skip_special=True)
 
     def stream_response(self) -> Iterator[int]:
         device = next(self.model.parameters()).device
@@ -85,13 +85,13 @@ class Conversation:
 
         kv_sink: list[PastKeyValueList | None] = [None]
 
-        SENTENCE_ENDS = ("。", "！", "？", "；", "\n", ".", "!", "?")
+        sentence_ends = ("。", "！", "？", "；", "\n", ".", "!", "?")
         LOWER = self.lower_bound if self.lower_bound > 0 else 0
 
         generated_tokens: list[int] = []
-        _buffer: list[int] = []
-        _stop_yielding = False
-        _clean_cutoff = -1
+        buffer: list[int] = []
+        stop_yielding = False
+        clean_cutoff = -1
 
         for token_id in generate_tokens(
             self.model,
@@ -111,44 +111,52 @@ class Conversation:
         ):
             generated_tokens.append(token_id)
 
-            if _stop_yielding:
+            if stop_yielding:
                 continue
 
             if LOWER == 0 or len(generated_tokens) < LOWER:
                 yield token_id
                 continue
 
-            _buffer.append(token_id)
-            tail = self.tokenizer.decode(_buffer, skip_special=True)
+            buffer.append(token_id)
+            tail = self.tokenizer.decode(buffer, skip_special=True)
 
-            if tail and tail[-1] in SENTENCE_ENDS:
-                for t in _buffer:
+            if tail and tail[-1] in sentence_ends:
+                for t in buffer:
                     yield t
-                _clean_cutoff = len(generated_tokens)
-                _stop_yielding = True
-                _buffer.clear()
+                clean_cutoff = len(generated_tokens)
+                stop_yielding = True
+                buffer.clear()
 
-        _total_before_trim = len(generated_tokens)
+        total_before_trim = len(generated_tokens)
         self.past_kv = kv_sink[0]
 
-        if _stop_yielding and _clean_cutoff > 0:
-            generated_tokens = generated_tokens[:_clean_cutoff]
-            removed = _total_before_trim - len(generated_tokens)
+        if stop_yielding and clean_cutoff > 0:
+            generated_tokens = generated_tokens[:clean_cutoff]
+            removed = total_before_trim - len(generated_tokens)
             if removed > 0:
                 self.past_kv = [
                     (k[:, :, :-removed], v[:, :, :-removed])
                     for k, v in kv_sink[0]
                 ]
-        elif _buffer and LOWER > 0:
-            tail = self.tokenizer.decode(_buffer, skip_special=True)
+        elif buffer and LOWER > 0:
+            buffer_len = len(buffer)
+            tail = self.tokenizer.decode(buffer, skip_special=True)
             cutoff = -1
-            for sep in SENTENCE_ENDS:
+            for sep in sentence_ends:
                 idx = tail.rfind(sep)
                 if idx > cutoff:
                     cutoff = idx
             if cutoff >= 0:
                 clean_ids = self.tokenizer.encode(tail[: cutoff + 1], add_bos=False, add_eos=False)
-                generated_tokens = generated_tokens[: -len(_buffer)] + clean_ids
+                if clean_ids:
+                    generated_tokens = generated_tokens[: -len(buffer)] + clean_ids
+                removed = buffer_len - len(clean_ids)
+                if removed > 0:
+                    self.past_kv = [
+                        (k[:, :, :-removed], v[:, :, :-removed])
+                        for k, v in kv_sink[0]
+                    ]
 
         stopped_clean = len(generated_tokens) < self.max_new_tokens
 
@@ -159,11 +167,8 @@ class Conversation:
                     _, self.past_kv = self.model(im_end_input, past_kv_list=self.past_kv)
 
         self.messages.append(
-            {"role": "assistant", "content": self._decode_tokens(generated_tokens)}
+            {"role": "assistant", "content": self.tokenizer.decode(generated_tokens, skip_special=True)}
         )
-
-    def _decode_tokens(self, tokens: list[int]) -> str:
-        return self.tokenizer.decode(tokens, skip_special=True)
 
     def get_history(self) -> list[dict[str, str]]:
         return list(self.messages)

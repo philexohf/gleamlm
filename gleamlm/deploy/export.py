@@ -13,17 +13,17 @@ import sys
 
 import torch
 
-try:
-    import safetensors.torch
-except ImportError:
-    print("Missing safetensors. Install: pip install safetensors", file=sys.stderr)
-    sys.exit(1)
-
 from gleamlm.deploy.quantize import extract_config
 from gleamlm.models.model import GleamLMModel
 
 
 def export_safetensors(checkpoint_path: str, output_dir: str) -> None:
+    try:
+        import safetensors.torch
+    except ImportError:
+        print("Missing safetensors. Install: pip install safetensors", file=sys.stderr)
+        sys.exit(1)
+
     ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
 
     config = extract_config(ckpt)
@@ -32,7 +32,11 @@ def export_safetensors(checkpoint_path: str, output_dir: str) -> None:
     model = GleamLMModel(**config)
     sd = ckpt["model_state_dict"]
     sd = {k.replace("module.", ""): v for k, v in sd.items()}
-    model.load_state_dict(sd, strict=False)
+    missing, unexpected = model.load_state_dict(sd, strict=False)
+    if missing:
+        print(f"Warning: {len(missing)} missing keys in checkpoint")
+    if unexpected:
+        print(f"Warning: {len(unexpected)} unexpected keys in checkpoint")
 
     if ckpt.get("dtype") == "float16":
         model = model.half()

@@ -46,7 +46,7 @@ class LMDataset(Dataset):
 
         if os.path.exists(ids_file):
             print(f"Loading pre-tokenized {split} data from {ids_file}...")
-            self.all_ids = np.load(ids_file, mmap_mode="r")
+            self.all_ids = np.load(ids_file, mmap_mode="r", allow_pickle=False)
             self.total_tokens = len(self.all_ids)
             print(f"Loaded {split} data: {self.total_tokens} tokens")
         else:
@@ -99,7 +99,7 @@ class LMDataset(Dataset):
             if dist.is_available() and dist.is_initialized():
                 dist.barrier()
 
-            self.all_ids = np.load(ids_file, mmap_mode="r")
+            self.all_ids = np.load(ids_file, mmap_mode="r", allow_pickle=False)
             self.total_tokens = len(self.all_ids)
             print(f"Loaded {split} data: {self.total_tokens} tokens")
 

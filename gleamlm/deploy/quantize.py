@@ -77,9 +77,19 @@ def quantize_to_fp16(input_path: str, output_path: str) -> None:
     config = extract_config(checkpoint)
 
     model = GleamLMModel(**config)
+    if "model_state_dict" not in checkpoint:
+        raise ValueError(
+            "Checkpoint 缺少模型权重。"
+            "请确认 checkpoint 包含 'model_state_dict' 字段，"
+            "且不是在仅有 config 元数据而無權重的情況下保存的。"
+        )
     state_dict = checkpoint["model_state_dict"]
     state_dict = {k.replace("module.", ""): v for k, v in state_dict.items()}
-    model.load_state_dict(state_dict, strict=False)
+    missing, unexpected = model.load_state_dict(state_dict, strict=False)
+    if missing:
+        print(f"Warning: {len(missing)} missing keys in checkpoint")
+    if unexpected:
+        print(f"Warning: {len(unexpected)} unexpected keys in checkpoint")
 
     model = model.half()
 

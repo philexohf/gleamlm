@@ -115,7 +115,7 @@ def _simple_generate(
     )
 
     full = tokenizer.decode(generated)
-    result = full[len(prompt) :].strip() if full.startswith(prompt) else full.strip()
+    result = full.removeprefix(prompt).strip()
     return result[:200]
 
 

@@ -63,10 +63,8 @@ def _mc_generate(
 
         choice_t = torch.tensor([choice_ids], device=device)
 
-        # 克隆 prompt_kv 避免当前 choice 污染下一个 choice 的 cache
-        prompt_kv_copy = [(k.clone(), v.clone()) for k, v in prompt_kv]
         with torch.no_grad(), safe_autocast():
-            logits, _ = model(choice_t, past_kv_list=prompt_kv_copy)
+            logits, _ = model(choice_t, past_kv_list=prompt_kv)
 
         total_log_prob = 0.0
         for i, token_id in enumerate(choice_ids):

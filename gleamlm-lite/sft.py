@@ -95,7 +95,7 @@ def main():
     print(f"Tokenizer vocab size: {tokenizer.get_vocab_size()}")
 
     model = GleamLMModel(
-        vocab_size=args.vocab_size,
+        vocab_size=tokenizer.get_vocab_size(),
         d_model=args.d_model,
         num_layers=args.num_layers,
         num_heads=args.num_heads,

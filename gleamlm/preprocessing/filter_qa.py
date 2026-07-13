@@ -93,6 +93,8 @@ def filter_qa(
         open(output_path, "w", encoding="utf-8") as fout,
     ):
         seen.clear()
+        # 第二个 pass 重新遍历文件；若外部进程在两次读取间修改文件，
+        # 统计数字可能与实际输出不一致。单进程批处理场景下此不触发。
         for line in fin:
             q, a = parse_qa(line)
             if q is None or a is None:
