@@ -197,6 +197,7 @@ def train_one_epoch(
     prev_loss: float | None = None
     accumulate_grad = args.accumulate_grad
     z_loss_weight = getattr(args, "z_loss_weight", 0.0)
+    spike_threshold = getattr(args, "loss_spike_threshold", 6.0)
     pad_id: int = criterion.ignore_index  # type: ignore[assignment]
     amp_dtype = torch.bfloat16 if getattr(args, "bf16", False) else torch.float16
 
@@ -240,7 +241,7 @@ def train_one_epoch(
                 print(f"\n[FATAL] NaN/Inf loss at step {global_step}, aborting")
                 raise RuntimeError(f"NaN/Inf loss at step {global_step}")
 
-            if prev_loss is not None and cur_loss > prev_loss * 3.0:
+            if prev_loss is not None and cur_loss > prev_loss * spike_threshold:
                 print(f"\n[WARN] Loss spike at step {global_step}: "
                       f"{prev_loss:.3f} -> {cur_loss:.3f}, skipping update")
                 optimizer.zero_grad()

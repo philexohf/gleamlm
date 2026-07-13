@@ -12,6 +12,7 @@ import torch
 
 from gleamlm.inference.sampler import sample_token
 from gleamlm.types import PastKeyValueList
+from gleamlm.utils.torch_utils import safe_autocast
 
 
 def generate_tokens(
@@ -93,7 +94,6 @@ def _forward(
     past_kv: PastKeyValueList | None = None,
 ) -> tuple[torch.Tensor, PastKeyValueList]:
     if use_amp:
-        amp_device = "cuda" if torch.cuda.is_available() else "cpu"
-        with torch.amp.autocast(amp_device, dtype=amp_dtype):  # type: ignore[attr-defined]
+        with safe_autocast(dtype=amp_dtype or torch.bfloat16):
             return model(input_ids, past_kv_list=past_kv)  # type: ignore[no-any-return]
     return model(input_ids, past_kv_list=past_kv)  # type: ignore[no-any-return]

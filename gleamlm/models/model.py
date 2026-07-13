@@ -73,8 +73,15 @@ class GroupedQueryAttention(nn.Module):
         use_qk_norm: bool = True,
     ) -> None:
         super().__init__()
-        assert d_model % num_heads == 0, "d_model 必须能被 num_heads 整除"
-        assert num_heads % num_kv_heads == 0, "num_heads 必须能被 num_kv_heads 整除"
+        if d_model % num_heads != 0:
+            raise ValueError(
+                f"d_model ({d_model}) must be divisible by num_heads ({num_heads})"
+            )
+        if num_heads % num_kv_heads != 0:
+            raise ValueError(
+                f"num_heads ({num_heads}) must be divisible by "
+                f"num_kv_heads ({num_kv_heads})"
+            )
 
         self.d_model = d_model
         self.num_heads = num_heads
@@ -325,16 +332,18 @@ class GleamLMModel(nn.Module):
         x = self.emb_dropout(x)
 
         if past_kv_list is not None:
-            if not isinstance(past_kv_list, list) or not past_kv_list:
+            if not isinstance(past_kv_list, list):
                 raise ValueError(
-                    "past_kv_list must be a non-empty list of (K, V) tuples, "
-                    f"got {type(past_kv_list)}"
+                    f"past_kv_list must be a list, got {type(past_kv_list)}"
                 )
-            if len(past_kv_list) != self.num_layers:
-                raise ValueError(
-                    f"past_kv_list length ({len(past_kv_list)}) != num_layers ({self.num_layers})"
-                )
-            offset = past_kv_list[0][0].size(2)
+            if not past_kv_list:
+                offset = 0
+            else:
+                if len(past_kv_list) != self.num_layers:
+                    raise ValueError(
+                        f"past_kv_list length ({len(past_kv_list)}) != num_layers ({self.num_layers})"
+                    )
+                offset = past_kv_list[0][0].size(2)
         else:
             offset = 0
 
@@ -347,9 +356,14 @@ class GleamLMModel(nn.Module):
             )
 
         if attention_mask is not None:
-            attn_mask = self._create_attn_mask(
-                seq_len, device, offset=offset, attention_mask=attention_mask
-            )
+            if attention_mask.eq(0).any():
+                attn_mask = self._create_attn_mask(
+                    seq_len, device, offset=offset, attention_mask=attention_mask
+                )
+            elif not self._use_flash_attn:
+                attn_mask = self._create_attn_mask(seq_len, device, offset=offset)
+            else:
+                attn_mask = None
         elif self._use_flash_attn and not (past_kv_list is not None and seq_len > 1):
             attn_mask = None
         else:

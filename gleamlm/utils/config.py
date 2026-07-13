@@ -136,12 +136,12 @@ def _apply_overrides(cfg_dict: dict, overrides: dict) -> None:
 # 配置校验规则
 _CONFIG_VALIDATORS = {
     "model": {
-        "d_model": (int, lambda v: v >= 64 and v % 64 == 0),
+        "d_model": (int, lambda v: v >= 64),
         "num_layers": (int, lambda v: 1 <= v <= 256),
-        "num_heads": (int, lambda v: v >= 1 and v % 2 == 0),
-        "num_kv_heads": (int, lambda v: v >= 1 and v % 2 == 0),
+        "num_heads": (int, lambda v: v >= 1),
+        "num_kv_heads": (int, lambda v: v >= 1),
         "d_ff": (int, lambda v: v >= 64),
-        "max_seq_len": (int, lambda v: 32 <= v <= 131072),
+        "max_seq_len": (int, lambda v: v >= 32),
         "vocab_size": (int, lambda v: v >= 256),
         "dropout": (float, lambda v: 0.0 <= v <= 1.0),
         "tie_weights": (bool, None),

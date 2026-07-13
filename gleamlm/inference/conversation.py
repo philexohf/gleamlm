@@ -9,6 +9,7 @@ import torch
 from gleamlm.inference.chatml import format_chatml
 from gleamlm.inference.generator import generate_tokens
 from gleamlm.types import PastKeyValueList
+from gleamlm.utils.torch_utils import safe_autocast
 
 
 class Conversation:
@@ -84,7 +85,7 @@ class Conversation:
 
         kv_sink: list[PastKeyValueList | None] = [None]
 
-        SENTENCE_ENDS = ("。", "！", "？", "；", "\n")
+        SENTENCE_ENDS = ("。", "！", "？", "；", "\n", ".", "!", "?")
         LOWER = self.lower_bound if self.lower_bound > 0 else 0
 
         generated_tokens: list[int] = []
@@ -147,11 +148,7 @@ class Conversation:
         if stopped_clean and im_end_id is not None:
             im_end_input = torch.tensor([[im_end_id]], dtype=torch.long, device=device)
             with torch.no_grad():
-                if self.use_amp:
-                    amp_device = "cuda" if torch.cuda.is_available() else "cpu"
-                    with torch.amp.autocast(amp_device, dtype=self.amp_dtype):  # type: ignore[attr-defined]
-                        _, self.past_kv = self.model(im_end_input, past_kv_list=self.past_kv)
-                else:
+                with safe_autocast(enabled=self.use_amp, dtype=self.amp_dtype or torch.bfloat16):
                     _, self.past_kv = self.model(im_end_input, past_kv_list=self.past_kv)
 
         self.messages.append(

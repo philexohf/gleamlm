@@ -20,6 +20,7 @@ from tqdm import tqdm
 from gleamlm.inference.chatml import format_chatml
 from gleamlm.inference.generate import generate_response
 from gleamlm.tokenizer.tokenizer import BBPETokenizer
+from gleamlm.utils.torch_utils import safe_autocast
 
 SYSTEM_PROMPTS = [
     "你是一个有帮助的AI助手。",
@@ -253,8 +254,7 @@ def train_one_epoch_sft(
         labels = labels.to(device)
         attention_mask = attention_mask.to(device)
 
-        amp_device = "cuda" if torch.cuda.is_available() else "cpu"
-        with torch.amp.autocast(amp_device):  # type: ignore[attr-defined]
+        with safe_autocast():
             logits, _ = model(input_ids, attention_mask=attention_mask)
             loss = F.cross_entropy(
                 logits.view(-1, logits.size(-1)),

@@ -20,6 +20,7 @@ from tqdm import tqdm
 from gleamlm.inference.chatml import format_chatml
 from gleamlm.inference.generate import generate_response
 from gleamlm.tokenizer.tokenizer import BBPETokenizer
+from gleamlm.utils.torch_utils import safe_autocast
 
 
 def dpad_collate(batch: list[dict[str, Any]]) -> dict[str, torch.Tensor]:
@@ -207,7 +208,7 @@ def get_reference_logps(
     """Compute chosen and rejected log-probs from frozen reference model."""
     ref_model.eval()
     amp_device = "cuda" if torch.cuda.is_available() else "cpu"
-    with torch.amp.autocast(amp_device):
+    with safe_autocast():
         c_logits, _ = ref_model(chosen_ids)
         r_logits, _ = ref_model(rejected_ids)
     ref_cho = compute_log_probs(c_logits.float(), chosen_ids, chosen_mask)
@@ -243,7 +244,7 @@ def train_one_epoch_dpo(
         )
 
         amp_device = "cuda" if torch.cuda.is_available() else "cpu"
-        with torch.amp.autocast(amp_device):  # type: ignore[attr-defined]
+        with safe_autocast():
             c_logits, _ = model(
                 chosen_ids,
                 attention_mask=(chosen_ids != batch["_pad_id"]).to(dtype=torch.long),

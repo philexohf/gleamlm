@@ -117,7 +117,7 @@ def interactive(
     top_k: int = 50,
     top_p: float = 0.9,
     repetition_penalty: float = 1.15,
-    penalty_window: int = 0,
+    penalty_window: int | None = 0,
     lower_bound: int = 0,
     device: str = "cuda",
     sft_mode: bool = False,
@@ -145,7 +145,7 @@ def interactive(
             top_k=top_k,
             top_p=top_p,
             repetition_penalty=repetition_penalty,
-            penalty_window=penalty_window if penalty_window > 0 else 50,
+                                                penalty_window=penalty_window if penalty_window is not None else 50,
             lower_bound=lower_bound,
         )
 
@@ -211,7 +211,7 @@ def main() -> None:
     parser.add_argument(
         "--penalty_window",
         type=int,
-        default=0,
+        default=None,
         help="repetition_penalty 滑动窗口大小（0=全部，推荐 50）",
     )
     parser.add_argument(

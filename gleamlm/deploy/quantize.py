@@ -60,19 +60,9 @@ def extract_config(checkpoint: dict) -> dict[str, Any]:
             "tie_weights": False,
             "use_flash_attn": cfg.get("use_flash_attn", False),
         }
-    return {
-        "vocab_size": 12002,
-        "d_model": 768,
-        "num_layers": 12,
-        "num_heads": 12,
-        "num_kv_heads": 6,
-        "d_ff": 2048,
-        "dropout": 0.0,
-        "max_seq_len": 2048,
-        "pad_token_id": 0,
-        "tie_weights": False,
-        "use_flash_attn": False,
-    }
+    raise ValueError(
+        "Checkpoint 缺少模型结构信息。请确保 checkpoint 包含 'args' 或 'config' 字段。"
+    )
 
 
 def quantize_to_fp16(input_path: str, output_path: str) -> None:
