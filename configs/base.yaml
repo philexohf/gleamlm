@@ -42,6 +42,7 @@ model:
   dropout: 0.1
   tie_weights: true
   use_flash_attn: false
+  use_qk_norm: true
 
 # ---- 数据路径 ----
 data:

@@ -27,6 +27,7 @@ model:
   dropout: 0.0
   tie_weights: true
   use_flash_attn: true
+  use_qk_norm: true
 
 data:
   data_dir: data/lite_data

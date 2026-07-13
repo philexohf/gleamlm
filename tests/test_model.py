@@ -4,6 +4,7 @@ import math
 
 import torch
 import torch.nn.functional as F
+from torch import nn
 
 from gleamlm.models.model import (
     DecoderBlock,
@@ -99,16 +100,17 @@ def test_rotate_half():
 
 
 def test_gqa_repeat_kv():
-    attn = GroupedQueryAttention(256, 8, 2, 128)
+    attn = GroupedQueryAttention(256, 8, 2)
     kv = torch.randn(2, 2, 10, 32)
     repeated = attn._repeat_kv(kv, 4)
     assert repeated.shape == (2, 8, 10, 32)
 
 
 def test_gqa_forward_shape():
-    attn = GroupedQueryAttention(256, 8, 2, 128)
+    attn = GroupedQueryAttention(256, 8, 2)
+    cos, sin = precompute_freqs_cis(32, 128)
     x = torch.randn(4, 16, 256)
-    out, weights, kv = attn(x)
+    out, weights, kv = attn(x, cos, sin)
     assert out.shape == (4, 16, 256)
     assert weights is not None
     assert weights.shape == (4, 8, 16, 16)
@@ -117,30 +119,33 @@ def test_gqa_forward_shape():
 
 
 def test_gqa_forward_flash():
-    attn = GroupedQueryAttention(256, 8, 2, 128, use_flash_attn=True)
+    attn = GroupedQueryAttention(256, 8, 2, use_flash_attn=True)
+    cos, sin = precompute_freqs_cis(32, 128)
     x = torch.randn(2, 16, 256)
-    out, weights, kv = attn(x)
+    out, weights, kv = attn(x, cos, sin)
     assert out.shape == (2, 16, 256)
     assert weights is None
     assert kv[0].shape == (2, 2, 16, 32)
 
 
 def test_gqa_kv_cache():
-    attn = GroupedQueryAttention(256, 8, 2, 128)
+    attn = GroupedQueryAttention(256, 8, 2)
+    cos, sin = precompute_freqs_cis(32, 128)
     x = torch.randn(1, 10, 256)
-    _, _, past_kv = attn(x)
+    _, _, past_kv = attn(x, cos, sin)
     assert past_kv[0].shape[2] == 10
     x2 = torch.randn(1, 1, 256)
-    _, _, new_kv = attn(x2, past_kv=past_kv)
+    _, _, new_kv = attn(x2, cos, sin, past_kv=past_kv)
     assert new_kv[0].shape[2] == 11
 
 
 def test_gqa_with_mask():
-    attn = GroupedQueryAttention(256, 8, 2, 128)
+    attn = GroupedQueryAttention(256, 8, 2)
+    cos, sin = precompute_freqs_cis(32, 128)
     x = torch.randn(2, 8, 256)
     mask = torch.full((1, 1, 8, 8), float("-inf"))
     mask = torch.triu(mask, diagonal=1)
-    out, weights, kv = attn(x, mask=mask)
+    out, weights, kv = attn(x, cos, sin, mask=mask)
     assert out.shape == (2, 8, 256)
     assert weights is not None
 
@@ -149,17 +154,19 @@ def test_gqa_with_mask():
 
 
 def test_decoder_block_shape():
-    block = DecoderBlock(256, 8, 2, 682, 128)
+    block = DecoderBlock(256, 8, 2, 682)
+    cos, sin = precompute_freqs_cis(32, 128)
     x = torch.randn(4, 16, 256)
-    out, kv = block(x)
+    out, kv = block(x, cos, sin)
     assert out.shape == (4, 16, 256)
     assert kv[0].shape == (4, 2, 16, 32)
 
 
 def test_decoder_block_residual():
-    block = DecoderBlock(256, 8, 2, 682, 128, dropout=0.0)
+    block = DecoderBlock(256, 8, 2, 682, dropout=0.0)
+    cos, sin = precompute_freqs_cis(32, 128)
     x = torch.randn(2, 8, 256)
-    out, _ = block(x)
+    out, _ = block(x, cos, sin)
     assert not torch.isnan(out).any()
 
 
@@ -325,18 +332,30 @@ def test_flash_attn_kv_cache():
 # QK-Norm
 
 
-def test_qk_norm_applied():
-    attn = GroupedQueryAttention(256, 8, 2, 128)
+def test_qk_norm_enabled():
+    attn = GroupedQueryAttention(256, 8, 2, use_qk_norm=True)
     x = torch.randn(2, 8, 256)
+    assert isinstance(attn.q_norm, RMSNorm)
+    assert isinstance(attn.k_norm, RMSNorm)
     Q = attn.W_q(x).view(2, 8, 8, 32).transpose(1, 2)
     K = attn.W_k(x).view(2, 8, 2, 32).transpose(1, 2)
     Q_normed = attn.q_norm(Q)
     K_normed = attn.k_norm(K)
     assert Q_normed.shape == Q.shape
     assert K_normed.shape == K.shape
-    # RMSNorm 确保输出是 float32 精度内的合理值
     assert not torch.isnan(Q_normed).any()
     assert not torch.isnan(K_normed).any()
+
+
+def test_qk_norm_disabled():
+    attn = GroupedQueryAttention(256, 8, 2, use_qk_norm=False)
+    assert isinstance(attn.q_norm, nn.Identity)
+    assert isinstance(attn.k_norm, nn.Identity)
+    cos, sin = precompute_freqs_cis(32, 128)
+    x = torch.randn(2, 8, 256)
+    out, weights, kv = attn(x, cos, sin)
+    assert out.shape == (2, 8, 256)
+    assert weights is not None
 
 
 # output 一致性验证

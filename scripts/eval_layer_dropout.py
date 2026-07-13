@@ -55,9 +55,9 @@ class LayerLimitedModel(nn.Module):
         x = self.original.emb_dropout(x)
 
         if past_kv_list is None:
-            causal_mask = self.original._create_causal_mask(seq_len, device)
+            attn_mask = self.original._create_attn_mask(seq_len, device)
         else:
-            causal_mask = None
+            attn_mask = None
 
         new_kv_list = []
         for i, layer in enumerate(self.original.layers):
@@ -67,7 +67,7 @@ class LayerLimitedModel(nn.Module):
                 new_kv_list.append(current_kv)
                 continue
             past_kv = past_kv_list[i] if past_kv_list is not None else None
-            x, current_kv = layer(x, causal_mask, past_kv)
+            x, current_kv = layer(x, attn_mask, past_kv)
             new_kv_list.append(current_kv)
 
         x = self.original.final_norm(x)

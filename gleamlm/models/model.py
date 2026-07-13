@@ -68,9 +68,9 @@ class GroupedQueryAttention(nn.Module):
         d_model: int,
         num_heads: int,
         num_kv_heads: int,
-        max_seq_len: int,
         dropout: float = 0.0,
         use_flash_attn: bool = False,
+        use_qk_norm: bool = True,
     ) -> None:
         super().__init__()
         assert d_model % num_heads == 0, "d_model 必须能被 num_heads 整除"
@@ -81,7 +81,6 @@ class GroupedQueryAttention(nn.Module):
         self.num_kv_heads = num_kv_heads
         self.head_dim = d_model // num_heads
         self.num_groups = num_heads // num_kv_heads
-        self.max_seq_len = max_seq_len
         self.use_flash_attn = use_flash_attn
         self.attn_dropout = dropout
 
@@ -90,14 +89,14 @@ class GroupedQueryAttention(nn.Module):
         self.W_v = nn.Linear(d_model, num_kv_heads * self.head_dim, bias=False)
         self.W_o = nn.Linear(num_heads * self.head_dim, d_model, bias=False)
 
-        self.q_norm = RMSNorm(self.head_dim)
-        self.k_norm = RMSNorm(self.head_dim)
+        if use_qk_norm:
+            self.q_norm = RMSNorm(self.head_dim)
+            self.k_norm = RMSNorm(self.head_dim)
+        else:
+            self.q_norm = nn.Identity()
+            self.k_norm = nn.Identity()
 
         self.dropout = nn.Dropout(dropout) if dropout > 0 else nn.Identity()
-
-        cos, sin = precompute_freqs_cis(self.head_dim, max_seq_len)
-        self.register_buffer("rope_cos", cos, persistent=False)
-        self.register_buffer("rope_sin", sin, persistent=False)
 
     def _repeat_kv(self, kv: torch.Tensor, num_groups: int) -> torch.Tensor:
         batch, kv_heads, seq_len, head_dim = kv.shape
@@ -105,7 +104,12 @@ class GroupedQueryAttention(nn.Module):
         return kv.reshape(batch, kv_heads * num_groups, seq_len, head_dim)
 
     def forward(
-        self, x: torch.Tensor, mask: torch.Tensor | None = None, past_kv: PastKeyValue | None = None
+        self,
+        x: torch.Tensor,
+        rope_cos: torch.Tensor,
+        rope_sin: torch.Tensor,
+        mask: torch.Tensor | None = None,
+        past_kv: PastKeyValue | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor | None, PastKeyValue]:
         batch_size, seq_len, _ = x.shape
         Q = self.W_q(x).view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
@@ -116,12 +120,7 @@ class GroupedQueryAttention(nn.Module):
         K = self.k_norm(K)
 
         offset = past_kv[0].size(2) if past_kv is not None else 0
-        needed = offset + seq_len
-        if needed > self.rope_cos.size(0):
-            cos, sin = precompute_freqs_cis(self.head_dim, needed)
-            self.rope_cos = cos.to(self.rope_cos.device)
-            self.rope_sin = sin.to(self.rope_sin.device)
-        Q, K = apply_rotary_emb(Q, K, self.rope_cos, self.rope_sin, offset)
+        Q, K = apply_rotary_emb(Q, K, rope_cos, rope_sin, offset)
 
         if past_kv is not None:
             past_k, past_v = past_kv
@@ -130,18 +129,14 @@ class GroupedQueryAttention(nn.Module):
 
         current_kv = (K, V)
 
-        if self.use_flash_attn and past_kv is None:
-            K_fa = K.unsqueeze(2).expand(-1, -1, self.num_groups, -1, -1)
-            K_fa = K_fa.reshape(
-                batch_size, self.num_kv_heads * self.num_groups, -1, self.head_dim
-            ).contiguous()
-            V_fa = V.unsqueeze(2).expand(-1, -1, self.num_groups, -1, -1)
-            V_fa = V_fa.reshape(
-                batch_size, self.num_kv_heads * self.num_groups, -1, self.head_dim
-            ).contiguous()
-
+        if self.use_flash_attn:
             output = F.scaled_dot_product_attention(
-                Q, K_fa, V_fa, dropout_p=self.attn_dropout if self.training else 0.0, is_causal=True
+                Q,
+                K,
+                V,
+                dropout_p=self.attn_dropout if self.training else 0.0,
+                is_causal=(past_kv is None),
+                enable_gqa=True,
             )
             output = output.transpose(1, 2).contiguous().view(batch_size, seq_len, -1)
             output = self.W_o(output)
@@ -187,24 +182,29 @@ class DecoderBlock(nn.Module):
         num_heads: int,
         num_kv_heads: int,
         d_ff: int,
-        max_seq_len: int,
         dropout: float = 0.0,
         use_flash_attn: bool = False,
+        use_qk_norm: bool = True,
     ) -> None:
         super().__init__()
         self.attn_norm = RMSNorm(d_model)
         self.attn = GroupedQueryAttention(
-            d_model, num_heads, num_kv_heads, max_seq_len, dropout, use_flash_attn
+            d_model, num_heads, num_kv_heads, dropout, use_flash_attn, use_qk_norm
         )
         self.ffn_norm = RMSNorm(d_model)
         self.ffn = SwiGLUFFN(d_model, d_ff, dropout)
 
     def forward(
-        self, x: torch.Tensor, mask: torch.Tensor | None = None, past_kv: PastKeyValue | None = None
+        self,
+        x: torch.Tensor,
+        rope_cos: torch.Tensor,
+        rope_sin: torch.Tensor,
+        mask: torch.Tensor | None = None,
+        past_kv: PastKeyValue | None = None,
     ) -> tuple[torch.Tensor, PastKeyValue]:
         residual = x
         x = self.attn_norm(x)
-        attn_out, _, current_kv = self.attn(x, mask, past_kv)
+        attn_out, _, current_kv = self.attn(x, rope_cos, rope_sin, mask, past_kv)
         x = residual + attn_out
         residual = x
         x = self.ffn_norm(x)
@@ -230,10 +230,12 @@ class GleamLMModel(nn.Module):
         tie_weights: bool = True,
         use_flash_attn: bool = False,
         use_gradient_checkpointing: bool = False,
+        use_qk_norm: bool = True,
     ) -> None:
         super().__init__()
         self.d_model = d_model
         self.num_layers = num_layers
+        self.head_dim = d_model // num_heads
         self.pad_token_id = pad_token_id
         self.max_seq_len = max_seq_len
         self.use_gradient_checkpointing = use_gradient_checkpointing
@@ -245,7 +247,7 @@ class GleamLMModel(nn.Module):
         self.layers = nn.ModuleList(
             [
                 DecoderBlock(
-                    d_model, num_heads, num_kv_heads, d_ff, max_seq_len, dropout, use_flash_attn
+                    d_model, num_heads, num_kv_heads, d_ff, dropout, use_flash_attn, use_qk_norm
                 )
                 for _ in range(num_layers)
             ]
@@ -257,6 +259,10 @@ class GleamLMModel(nn.Module):
 
         if tie_weights:
             self.lm_head.weight = self.token_embed.weight
+
+        cos, sin = precompute_freqs_cis(self.head_dim, max_seq_len * 4)
+        self.register_buffer("rope_cos", cos, persistent=False)
+        self.register_buffer("rope_sin", sin, persistent=False)
 
         self._init_weights()
 
@@ -273,8 +279,13 @@ class GleamLMModel(nn.Module):
         if self.lm_head.weight is not self.token_embed.weight:
             nn.init.normal_(self.lm_head.weight, mean=0.0, std=0.02)
 
-    def _create_causal_mask(self, seq_len: int, device: torch.device, offset: int = 0) -> torch.Tensor:
-        """创建因果注意力掩码。offset > 0 时处理 KV cache 场景下的前文偏移。"""
+    def _create_attn_mask(
+        self, seq_len: int, device: torch.device, offset: int = 0
+    ) -> torch.Tensor:
+        """构建注意力掩码。
+        offset=0（预填充）：返回下三角 causal mask，阻止 token 关注未来位置。
+        offset>0（增量解码）：返回全通 mask，当前 token 可关注所有历史 token。
+        """
         total = offset + seq_len
         mask = torch.triu(
             torch.full((seq_len, total), float("-inf"), device=device), diagonal=offset + 1
@@ -303,18 +314,23 @@ class GleamLMModel(nn.Module):
         else:
             offset = 0
 
-        causal_mask = self._create_causal_mask(seq_len, device, offset=offset)
+        attn_mask = self._create_attn_mask(seq_len, device, offset=offset)
 
         new_kv_list: PastKeyValueList = []
         for i, layer in enumerate(self.layers):
             past_kv = past_kv_list[i] if past_kv_list is not None else None
             if self.training and self.use_gradient_checkpointing:
                 x, current_kv = torch.utils.checkpoint.checkpoint(
-                    layer, x, causal_mask, past_kv,
+                    layer,
+                    x,
+                    self.rope_cos,
+                    self.rope_sin,
+                    attn_mask,
+                    past_kv,
                     use_reentrant=False,
                 )
             else:
-                x, current_kv = layer(x, causal_mask, past_kv)
+                x, current_kv = layer(x, self.rope_cos, self.rope_sin, attn_mask, past_kv)
             new_kv_list.append(current_kv)
 
         x = self.final_norm(x)

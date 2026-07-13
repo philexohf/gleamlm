@@ -27,6 +27,7 @@ model:
   dropout: 0.1
   tie_weights: true
   use_flash_attn: false
+  use_qk_norm: true
 
 data:
   tokenizer_path: ""            # 默认: {root}/gleamlm/tokenizer/checkpoints/bbpe_12k
