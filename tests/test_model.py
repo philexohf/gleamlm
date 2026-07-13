@@ -398,6 +398,30 @@ def test_model_device_consistency():
     assert logits.device == device
 
 
+# ---- Flash Attention + padding 回归 ----
+
+
+def test_flash_attn_with_attention_mask():
+    """attention_mask + Flash Attn 不应崩溃（Bug 1 回归防护）"""
+    model = GleamLMModel(
+        vocab_size=12002,
+        d_model=256,
+        num_layers=2,
+        num_heads=4,
+        num_kv_heads=2,
+        d_ff=682,
+        max_seq_len=128,
+        use_flash_attn=True,
+        pad_token_id=0,
+    )
+    model.eval()
+    input_ids = torch.tensor([[5, 3, 2, 0], [1, 4, 0, 0]])
+    attention_mask = torch.tensor([[1, 1, 1, 0], [1, 1, 0, 0]])
+    with torch.no_grad():
+        logits, _ = model(input_ids, attention_mask=attention_mask)
+    assert logits.shape == (2, 4, 12002)
+
+
 # ---- 因果掩码回归测试 ----
 
 

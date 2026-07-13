@@ -21,7 +21,10 @@ def sample_token(
             logits = logits.clone()
         window_ids = generated_ids[-penalty_window:] if penalty_window > 0 else generated_ids
         for gid in set(window_ids):
-            logits[..., gid] = logits[..., gid] / repetition_penalty
+            scores = logits[..., gid]
+            logits[..., gid] = torch.where(
+                scores < 0, scores * repetition_penalty, scores / repetition_penalty
+            )
 
     if temperature > 0 and temperature != 1.0:
         logits = logits / temperature

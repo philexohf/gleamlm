@@ -145,7 +145,7 @@ class GroupedQueryAttention(nn.Module):
                 K,
                 V,
                 dropout_p=self.attn_dropout if self.training else 0.0,
-                is_causal=(past_kv is None),
+                is_causal=(past_kv is None and mask is None),
                 attn_mask=None if mask is None else mask,
                 enable_gqa=True,
             )
@@ -315,6 +315,35 @@ class GleamLMModel(nn.Module):
             mask = mask.masked_fill(pad_mask, float("-inf"))
         return mask
 
+    def _resolve_attn_mask(
+        self,
+        seq_len: int,
+        device: torch.device,
+        offset: int,
+        attention_mask: torch.Tensor | None,
+        past_kv_list: PastKeyValueList | None,
+    ) -> torch.Tensor | None:
+        """决定是否创建注意力掩码，兼容 padding / flash / manual / chunked prefill。
+        """
+        if attention_mask is not None:
+            if attention_mask.eq(0).any():
+                # 有真实 padding → 合并因果 + padding mask
+                attn_mask = self._create_attn_mask(
+                    seq_len, device, offset=offset, attention_mask=attention_mask
+                )
+            elif not self._use_flash_attn:
+                attn_mask = self._create_attn_mask(seq_len, device, offset=offset)
+            else:
+                # FLASH 模式 + 全 1 mask → 走最优 is_causal 路径
+                attn_mask = None
+        elif self._use_flash_attn and not (past_kv_list is not None and seq_len > 1):
+            # 纯 FLASH 模式（非 chunked prefill）→ 无 mask
+            attn_mask = None
+        else:
+            # manual 模式或 chunked prefill → causal / attn mask
+            attn_mask = self._create_attn_mask(seq_len, device, offset=offset)
+        return attn_mask
+
     def forward(
         self,
         input_ids: torch.Tensor,
@@ -355,19 +384,9 @@ class GleamLMModel(nn.Module):
                 f"set a larger multiplier in GleamLMModel.__init__."
             )
 
-        if attention_mask is not None:
-            if attention_mask.eq(0).any():
-                attn_mask = self._create_attn_mask(
-                    seq_len, device, offset=offset, attention_mask=attention_mask
-                )
-            elif not self._use_flash_attn:
-                attn_mask = self._create_attn_mask(seq_len, device, offset=offset)
-            else:
-                attn_mask = None
-        elif self._use_flash_attn and not (past_kv_list is not None and seq_len > 1):
-            attn_mask = None
-        else:
-            attn_mask = self._create_attn_mask(seq_len, device, offset=offset)
+        attn_mask = self._resolve_attn_mask(
+            seq_len, device, offset, attention_mask, past_kv_list
+        )
 
         new_kv_list: PastKeyValueList = []
         for i, layer in enumerate(self.layers):

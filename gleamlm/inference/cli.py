@@ -145,7 +145,7 @@ def interactive(
             top_k=top_k,
             top_p=top_p,
             repetition_penalty=repetition_penalty,
-                                                penalty_window=penalty_window if penalty_window is not None else 50,
+            penalty_window=penalty_window if penalty_window is not None else 50,
             lower_bound=lower_bound,
         )
 
@@ -254,7 +254,7 @@ def main() -> None:
                 top_k=args.top_k,
                 top_p=args.top_p,
                 repetition_penalty=args.repetition_penalty,
-                penalty_window=args.penalty_window if args.penalty_window > 0 else 50,
+                penalty_window=args.penalty_window if args.penalty_window is not None else 50,
             )
             conv.append_user_message(args.prompt)
             generated: list[int] = []

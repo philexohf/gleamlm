@@ -128,10 +128,17 @@ class Conversation:
                 _stop_yielding = True
                 _buffer.clear()
 
+        _total_before_trim = len(generated_tokens)
         self.past_kv = kv_sink[0]
 
         if _stop_yielding and _clean_cutoff > 0:
             generated_tokens = generated_tokens[:_clean_cutoff]
+            removed = _total_before_trim - len(generated_tokens)
+            if removed > 0:
+                self.past_kv = [
+                    (k[:, :, :-removed], v[:, :, :-removed])
+                    for k, v in kv_sink[0]
+                ]
         elif _buffer and LOWER > 0:
             tail = self.tokenizer.decode(_buffer, skip_special=True)
             cutoff = -1

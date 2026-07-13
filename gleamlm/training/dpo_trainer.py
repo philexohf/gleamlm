@@ -207,7 +207,6 @@ def get_reference_logps(
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Compute chosen and rejected log-probs from frozen reference model."""
     ref_model.eval()
-    amp_device = "cuda" if torch.cuda.is_available() else "cpu"
     with safe_autocast():
         c_logits, _ = ref_model(chosen_ids)
         r_logits, _ = ref_model(rejected_ids)
@@ -243,7 +242,6 @@ def train_one_epoch_dpo(
             ref_model, chosen_ids, rejected_ids, chosen_mask, rejected_mask
         )
 
-        amp_device = "cuda" if torch.cuda.is_available() else "cpu"
         with safe_autocast():
             c_logits, _ = model(
                 chosen_ids,
