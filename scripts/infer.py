@@ -118,7 +118,6 @@ def interactive(
     top_k=50,
     top_p=0.9,
     repetition_penalty=1.1,
-    device="cuda",
     sft_mode=False,
 ):
     print("\n" + "=" * 60)
@@ -151,8 +150,7 @@ def interactive(
             top_k,
             top_p,
             repetition_penalty,
-            device,
-            sft_mode,
+            sft_mode=sft_mode,
         )
 
 
@@ -188,7 +186,6 @@ def main():
             args.top_k,
             args.top_p,
             args.repetition_penalty,
-            device,
             sft_mode=args.sft,
         )
     else:
@@ -200,7 +197,6 @@ def main():
             args.top_k,
             args.top_p,
             args.repetition_penalty,
-            device,
             sft_mode=args.sft,
         )
 
