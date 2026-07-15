@@ -59,6 +59,7 @@ AGENTS.md
 .pytest_cache/
 
 # Temporary files
+*.log
 temp_*
 infer_result.txt
 
