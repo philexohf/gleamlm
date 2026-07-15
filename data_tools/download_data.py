@@ -301,22 +301,6 @@ def download_qa(output_txt):
     return _extract_qa(archive_file, output_txt)
 
 
-def download_qa_alt(output_txt):
-    """备选：baike2018qa 百科问答"""
-
-    if os.path.exists(output_txt):
-        print(f"  问答文本已存在: {output_txt}")
-        return True
-
-    os.path.join(RAW_DIR, "baike2018qa.json.gz")
-
-    print("\n  === 手动获取指引 ===")
-    print("  请自行搜索 baike2018qa 数据集")
-    print(f"  下载后将 baike2018qa.json.gz 放到: {RAW_DIR}")
-    print("  然后重新运行: python data_tools/download_data.py --source qa_alt")
-    return False
-
-
 def _extract_qa(archive_file, output_txt):
     """从 webtext2019zh 提取纯文本（支持 JSONL 和 JSON 数组两种格式）"""
     print("  提取问答文本（title + content）...")
@@ -370,38 +354,13 @@ def _extract_qa(archive_file, output_txt):
     return True
 
 
-def _extract_qa_alt(archive_file, output_txt):
-    """从 baike2018qa.json.gz 提取纯文本"""
-    print("  提取百科问答文本（title + answer）...")
-
-    count = 0
-    with (
-        gzip.open(archive_file, "rt", encoding="utf-8") as fin,
-        open(output_txt, "w", encoding="utf-8") as fout,
-    ):
-        for line in fin:
-            try:
-                item = json.loads(line.strip())
-                title = item.get("title", "") or ""
-                answer = item.get("answer", "") or ""
-                if len(title) > 3 and len(answer) > 10:
-                    full_text = f"问题：{title} 回答：{answer}"
-                    fout.write(full_text + "\n")
-                    count += 1
-            except (json.JSONDecodeError, UnicodeDecodeError):
-                continue
-
-    print(f"  百科问答文本提取完成: {count} 条, 保存到 {output_txt}")
-    return True
-
-
 def main():
     parser = argparse.ArgumentParser(description="多源数据下载与提取")
     parser.add_argument(
         "--source",
         type=str,
         default="all",
-        choices=["all", "news", "baike", "qa", "qa_alt"],
+        choices=["all", "news", "baike", "qa"],
         help="下载指定数据源",
     )
     args = parser.parse_args()
@@ -410,7 +369,6 @@ def main():
         "news": (download_news, os.path.join(RAW_DIR, "news_raw.txt")),
         "baike": (download_baike, os.path.join(RAW_DIR, "baike_raw.txt")),
         "qa": (download_qa, os.path.join(RAW_DIR, "qa_raw.txt")),
-        "qa_alt": (download_qa_alt, os.path.join(RAW_DIR, "qa_raw.txt")),
     }
 
     if args.source == "all":
@@ -426,21 +384,8 @@ def main():
     print(f"输出目录: {RAW_DIR}")
     print()
     print("后续步骤：")
-    print("  # 1. 清洗文本（去噪 + 繁体转简体）")
-    print(
-        "  python data_tools/clean_text.py --input data/raw/news_raw.txt --output data/raw/news_clean.txt --convert_zh"
-    )
-    print(
-        "  python data_tools/clean_text.py --input data/raw/baike_raw.txt --output data/raw/baike_clean.txt --convert_zh"
-    )
-    print(
-        "  python data_tools/clean_text.py --input data/raw/qa_raw.txt --output data/raw/qa_clean.txt --convert_zh"
-    )
-    print()
-    print("  # 2. 合并 4 源数据 + 构建 train/valid/test 切分")
-    print(
-        "  python data_tools/build_dataset.py --input data/raw/news_clean.txt data/raw/baike_clean.txt data/raw/qa_clean.txt data/raw/wiki_clean.txt --output_dir data/nano_data"
-    )
+    print("  # 一键管道（清洗 → 去重 → 混合 → 切分）")
+    print("  python data_tools/prepare_data.py")
 
 
 if __name__ == "__main__":

@@ -15,14 +15,11 @@ import argparse
 import json
 import os
 import random
+import re
 import sys
 import time
 
-try:
-    from openai import OpenAI
-except ImportError:
-    print("Missing openai. Install: pip install openai", file=sys.stderr)
-    sys.exit(1)
+from data_tools._api_client import DEFAULT_MODEL, chat_completion, get_client
 
 SYSTEM_PROMPT = (
     "你是一个对话数据构造助手。给你一段单轮问答，请生成 1-2 个后续的追问答复，"
@@ -53,13 +50,10 @@ def build_prompt(instruction: str, output: str) -> str:
 
 
 def parse_response(raw: str) -> list[dict[str, str]]:
-    import re
-
     raw = raw.strip()
     if raw.startswith("```"):
         raw = re.sub(r"^```\w*\n?", "", raw)
         raw = re.sub(r"\n?```$", "", raw)
-
     try:
         data = json.loads(raw)
         fus = data.get("follow_ups", data)
@@ -72,31 +66,6 @@ def parse_response(raw: str) -> list[dict[str, str]]:
         return []
 
 
-def call_api(
-    client, instruction: str, output: str, model: str = "deepseek-chat"
-) -> list[dict[str, str]]:
-    for attempt in range(3):
-        try:
-            resp = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": build_prompt(instruction, output)},
-                ],
-                temperature=0.7,
-                max_tokens=1024,
-                response_format={"type": "json_object"},
-            )
-            raw = resp.choices[0].message.content.strip()
-            result = parse_response(raw)
-            if result:
-                return result
-        except Exception as e:
-            print(f"  [retry {attempt + 1}/3] {e}")
-            time.sleep(2**attempt)
-    return []
-
-
 def main():
     parser = argparse.ArgumentParser(
         description="Expand single-turn SFT to multi-turn via DeepSeek API"
@@ -105,7 +74,7 @@ def main():
         "--input", type=str, required=True, help="Single-turn SFT JSONL (instruction/output)"
     )
     parser.add_argument("--output", type=str, required=True, help="Output multi-turn JSONL")
-    parser.add_argument("--model", type=str, default="deepseek-chat")
+    parser.add_argument("--model", type=str, default=DEFAULT_MODEL)
     parser.add_argument(
         "--max_turns", type=int, default=2, help="Max follow-up turns per sample (1-2)"
     )
@@ -136,16 +105,28 @@ def main():
         samples = random.sample(samples, args.limit)
         print(f"Sampled {len(samples)} for processing")
 
-    client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
+    client = get_client(api_key)
 
     written = 0
     with open(args.output, "w", encoding="utf-8") as out:
         for i, s in enumerate(samples):
             instruction = s["instruction"]
-            output = s["output"]
+            output_str = s["output"]
             print(f"[{i + 1}/{len(samples)}] {instruction[:40]}...", end=" ", flush=True)
 
-            follow_ups = call_api(client, instruction, output, model=args.model)
+            messages = [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": build_prompt(instruction, output_str)},
+            ]
+            raw = chat_completion(
+                client,
+                args.model,
+                messages,
+                temperature=0.7,
+                max_tokens=1024,
+                extra_kwargs={"response_format": {"type": "json_object"}},
+            )
+            follow_ups = parse_response(raw) if raw else []
             if not follow_ups:
                 print("SKIP (no valid follow-ups)")
                 continue
@@ -153,15 +134,15 @@ def main():
             max_t = min(args.max_turns, len(follow_ups))
             turns = follow_ups[:max_t]
 
-            messages: list[dict[str, str]] = [
+            messages_out: list[dict[str, str]] = [
                 {"role": "user", "content": instruction},
-                {"role": "assistant", "content": output},
+                {"role": "assistant", "content": output_str},
             ]
             for t in turns:
-                messages.append({"role": "user", "content": t["user"]})
-                messages.append({"role": "assistant", "content": t["assistant"]})
+                messages_out.append({"role": "user", "content": t["user"]})
+                messages_out.append({"role": "assistant", "content": t["assistant"]})
 
-            item = {"messages": messages}
+            item = {"messages": messages_out}
             out.write(json.dumps(item, ensure_ascii=False) + "\n")
             written += 1
             print(f"OK (+{len(turns)} turns)")

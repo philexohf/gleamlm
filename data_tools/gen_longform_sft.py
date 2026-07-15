@@ -8,11 +8,6 @@ Usage:
     $env:DEEPSEEK_API_KEY = "sk-xxxx"
     python data_tools/gen_longform_sft.py --count 500 --output data/longform_sft.jsonl
     python data_tools/gen_longform_sft.py --input data/topics.txt --output data/longform_sft.jsonl
-
-Mixing suggestion (combine with short SFT data):
-    short QA (<100 tokens)  → 40% of training batch
-    medium QA (100-300)     → 35%
-    long-form (300-800)     → 25%
 """
 
 import argparse
@@ -21,11 +16,7 @@ import os
 import sys
 import time
 
-try:
-    from openai import OpenAI
-except ImportError:
-    print("Missing openai. Install: pip install openai", file=sys.stderr)
-    sys.exit(1)
+from data_tools._api_client import DEFAULT_MODEL, chat_completion, get_client
 
 LONG_FORM_TOPICS = [
     "人工智能的发展历史",
@@ -91,31 +82,6 @@ SYSTEM_PROMPT = (
 )
 
 
-def call_api(client, topic: str, model: str = "deepseek-chat") -> str:
-    for attempt in range(3):
-        try:
-            resp = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": f"请详细介绍：{topic}"},
-                ],
-                temperature=0.8,
-                max_tokens=2048,
-            )
-            answer = resp.choices[0].message.content.strip()
-            count = len(answer)
-            if len(answer) < 150:
-                print(f"  [retry] Too short ({count} chars): {topic[:40]}...")
-                time.sleep(1)
-                continue
-            return answer
-        except Exception as e:
-            print(f"  [retry {attempt + 1}/3] {e}")
-            time.sleep(2**attempt)
-    return ""
-
-
 def main():
     parser = argparse.ArgumentParser(description="Generate long-form SFT data via DeepSeek API")
     parser.add_argument(
@@ -126,7 +92,7 @@ def main():
     )
     parser.add_argument("--count", type=int, default=0, help="Number of topics to use (0 = all)")
     parser.add_argument("--output", type=str, required=True, help="Output JSONL file path")
-    parser.add_argument("--model", type=str, default="deepseek-chat", help="DeepSeek model name")
+    parser.add_argument("--model", type=str, default=DEFAULT_MODEL, help="DeepSeek model name")
     parser.add_argument(
         "--api_key", type=str, default=None, help="API key (default: $env:DEEPSEEK_API_KEY)"
     )
@@ -145,7 +111,7 @@ def main():
         topics = LONG_FORM_TOPICS[: args.count] if args.count else LONG_FORM_TOPICS
         print(f"Using {len(topics)} built-in topics")
 
-    client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
+    client = get_client(api_key)
 
     written = 0
     with open(args.output, "w", encoding="utf-8") as out:
@@ -154,12 +120,19 @@ def main():
             if not topic:
                 continue
             print(f"[{i + 1}/{len(topics)}] {topic[:60]}...", end=" ", flush=True)
-            answer = call_api(client, topic, model=args.model)
-            if answer:
+
+            messages = [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": f"请详细介绍：{topic}"},
+            ]
+            answer = chat_completion(client, args.model, messages, temperature=0.8, max_tokens=2048)
+            if answer and len(answer) >= 150:
                 item = {"instruction": topic, "output": answer}
                 out.write(json.dumps(item, ensure_ascii=False) + "\n")
                 written += 1
                 print(f"OK ({len(answer)} chars)")
+            elif answer:
+                print(f"SKIP (too short: {len(answer)} chars)")
             else:
                 print("FAILED")
             time.sleep(0.3)

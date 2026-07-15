@@ -24,7 +24,7 @@ import random
 import sys
 import time
 
-from openai import OpenAI
+from data_tools._api_client import DEFAULT_BASE_URL, DEFAULT_MODEL, chat_completion, get_client
 
 SCORING_SYSTEM_PROMPT = """你是一个专业的中文文本质量评估器。请根据以下标准对文本评分（1-5 分）：
 
@@ -46,42 +46,23 @@ def map_score(score: int) -> int:
     return 2
 
 
-def get_client(api_key: str, base_url: str) -> OpenAI:
-    return OpenAI(api_key=api_key, base_url=base_url)
-
-
-def call_api(client: OpenAI, model: str, text: str, max_retries: int = 3) -> int | None:
-    for attempt in range(max_retries):
+def score_text(client, model: str, text: str, max_retries: int = 3) -> int | None:
+    """用 API 对单条文本评分，返回 1-5 或 None。"""
+    messages = [
+        {"role": "system", "content": SCORING_SYSTEM_PROMPT},
+        {"role": "user", "content": text[:3000]},
+    ]
+    for _ in range(max_retries):
+        result = chat_completion(client, model, messages, temperature=0.0, max_tokens=4)
+        if result is None:
+            return None
         try:
-            response = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": SCORING_SYSTEM_PROMPT},
-                    {"role": "user", "content": text[:3000]},
-                ],
-                temperature=0.0,
-                max_tokens=4,
-            )
-            result = response.choices[0].message.content.strip()
             score = int("".join(c for c in result if c.isdigit()))
             if 1 <= score <= 5:
                 return score
             print(f"  Warning: invalid score '{result}', retrying...")
-        except Exception as e:
-            print(f"  API error (attempt {attempt + 1}/{max_retries}): {e}")
-            if attempt < max_retries - 1:
-                err_msg = str(e).lower()
-                if "429" in err_msg or "rate" in err_msg:
-                    time.sleep(5 * (2**attempt))
-                elif "insufficient" in err_msg or "balance" in err_msg:
-                    print("  余额不足，请充值。")
-                    return None
-                elif "content exists risk" in err_msg:
-                    return 1
-                else:
-                    time.sleep(2**attempt)
-            else:
-                return None
+        except ValueError:
+            print(f"  Warning: non-numeric result '{result}', retrying...")
     return None
 
 
@@ -122,7 +103,7 @@ def sample_lines(
 
 def label_samples(
     samples: list[str],
-    client: OpenAI,
+    client,
     model: str,
     output_path: str,
     delay: float = 0.3,
@@ -139,7 +120,7 @@ def label_samples(
     fail_count = 0
     for i, text in enumerate(samples):
         print(f"[{start_idx + i + 1}] ", end="", flush=True)
-        score = call_api(client, model, text)
+        score = score_text(client, model, text)
         if score is not None:
             results.append({"score": score, "text": text})
             print(f"score={score}")
@@ -217,7 +198,10 @@ def score_all(input_path: str, model_path: str, output_path: str, min_len: int =
             return None
         return results[0][1]
 
-    with open(input_path, encoding="utf-8") as fin, open(output_path, "w", encoding="utf-8") as fout:
+    with (
+        open(input_path, encoding="utf-8") as fin,
+        open(output_path, "w", encoding="utf-8") as fout,
+    ):
         for line in fin:
             stripped = line.strip()
             total += 1
@@ -265,12 +249,14 @@ def main() -> None:
     parser.add_argument("--resume", action="store_true", help="追加标注（跳过已标注文本）")
     parser.add_argument("--output", type=str, default=None, help="标注输出 JSON 路径")
     parser.add_argument("--api_key", type=str, default=None, help="DeepSeek API Key")
-    parser.add_argument("--base_url", type=str, default="https://api.deepseek.com")
-    parser.add_argument("--model", type=str, default="deepseek-chat")
+    parser.add_argument("--base_url", type=str, default=DEFAULT_BASE_URL)
+    parser.add_argument("--model", type=str, default=DEFAULT_MODEL)
     parser.add_argument("--delay", type=float, default=0.3, help="API 调用间隔秒数")
     parser.add_argument("--train", action="store_true", help="训 fastText 分类器")
     parser.add_argument("--score", action="store_true", help="全量数据评分")
-    parser.add_argument("--ft_model", type=str, default="data/quality_model.bin", help="分类器模型路径")
+    parser.add_argument(
+        "--ft_model", type=str, default="data/quality_model.bin", help="分类器模型路径"
+    )
     parser.add_argument("--score_out", type=str, default="data/train.score", help="评分输出路径")
     args = parser.parse_args()
 
