@@ -45,3 +45,9 @@ sft:
 dpo:
   max_seq_len: 512
   data_path: data/nano/dpo_data.jsonl
+
+data_sources:
+  - {name: wiki, type: text, ratio: 0.30}
+  - {name: baike, type: text, ratio: 0.12}
+  - {name: news, type: news, ratio: 0.43}
+  - {name: qa, type: qa, ratio: 0.15}

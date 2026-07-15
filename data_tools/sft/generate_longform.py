@@ -16,6 +16,10 @@ import os
 import sys
 import time
 
+_sys_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if _sys_root not in sys.path:
+    sys.path.insert(0, _sys_root)
+
 from data_tools.shared.api_client import DEFAULT_MODEL, chat_completion, get_client
 
 LONG_FORM_TOPICS = [

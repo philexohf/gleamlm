@@ -8,9 +8,9 @@
   step 5: 清理旧 token 缓存
 
 用法:
-    python data_tools/prepare_data.py
-    python data_tools/prepare_data.py --ratios 0.40 0.23 0.22 0.15
-    python data_tools/prepare_data.py --skip_exact_dedup --skip_simhash
+    python data_tools/pretrain/pipeline.py --variant nano
+    python data_tools/pretrain/pipeline.py --variant lite
+    python data_tools/pretrain/pipeline.py --variant pro --skip_simhash
 """
 
 import argparse
@@ -21,13 +21,7 @@ from gleamlm.preprocessing.build_dataset import stream_build
 from gleamlm.preprocessing.clean_text import clean_file
 from gleamlm.preprocessing.dedup_text import dedup_file
 from gleamlm.preprocessing.filter_qa import filter_qa
-
-SOURCES = [
-    {"name": "wiki", "type": "text", "ratio": 0.30},
-    {"name": "baike", "type": "text", "ratio": 0.12},
-    {"name": "news", "type": "news", "ratio": 0.43},
-    {"name": "qa", "type": "qa", "ratio": 0.15},
-]
+from gleamlm.utils.config import load_config
 
 
 def _raw_path(input_dir, name):
@@ -58,49 +52,57 @@ def compute_avg_chars(filepath):
 
 def main():
     parser = argparse.ArgumentParser(description="数据预处理一键管道")
-    parser.add_argument("--input", default="data/raw", help="原始数据目录")
-    parser.add_argument("--output", default="data/nano_data", help="输出目录")
     parser.add_argument(
-        "--ratios",
-        type=float,
-        nargs=4,
-        default=[s["ratio"] for s in SOURCES],
-        help="4 源字符配比（wiki baike news qa）",
+        "--variant",
+        choices=["nano", "lite", "pro"],
+        required=True,
+        help="模型变体（从 configs/{variant}.yaml 读取数据源配置）",
     )
+    parser.add_argument("--config_dir", default="configs", help="YAML 配置目录")
+    parser.add_argument("--input", default="data/raw", help="原始数据目录")
+    parser.add_argument("--output", default=None, help="输出目录（默认: data/{variant}_data）")
     # 跳过控制
-    parser.add_argument("--skip_exact_dedup", action="store_true", help="跳过 step1 精确去重")
+    parser.add_argument("--skip_exact_dedup", action="store_true")
     parser.add_argument("--skip_clean", action="store_true")
-    parser.add_argument("--skip_simhash", action="store_true", help="跳过 step3 模糊去重")
+    parser.add_argument("--skip_simhash", action="store_true")
     # 精确去重参数
     parser.add_argument("--exact_mode", default="exact", choices=["exact", "prefix"])
     parser.add_argument("--prefix_len", type=int, default=100)
     # SimHash 参数
-    parser.add_argument(
-        "--simhash_threshold", type=int, default=3, help="Hamming 距离阈值（默认3）"
-    )
-    parser.add_argument(
-        "--simhash_window", type=int, default=1000, help="SimHash 滑动窗口（默认1000）"
-    )
+    parser.add_argument("--simhash_threshold", type=int, default=3)
+    parser.add_argument("--simhash_window", type=int, default=1000)
     args = parser.parse_args()
 
-    for i, r in enumerate(args.ratios):
-        SOURCES[i]["ratio"] = r
+    config_path = os.path.join(args.config_dir, f"{args.variant}.yaml")
+    cfg = load_config(config_path, model_name=args.variant)
+
+    sources = (
+        list(cfg.data_sources._data) if hasattr(cfg.data_sources, "_data") else cfg.data_sources
+    )
+    if not sources:
+        print("ERROR: 未找到 data_sources 配置")
+        sys.exit(1)
+
+    data_dir = args.output or os.path.join("data", f"{args.variant}_data")
+    raw_dir = args.input
+    print(f"Variant: {args.variant}, sources: {[s['name'] for s in sources]}")
+    print(f"Input: {raw_dir}, Output: {data_dir}")
 
     # ──── step 1: 粗精确去重 ────
     if args.skip_exact_dedup:
         print("\n[1/5] 跳过精确去重（--skip_exact_dedup）")
     else:
         print("\n[1/5] 粗精确去重（MD5 全文去重）")
-        for s in SOURCES:
-            raw = _raw_path(args.input, s["name"])
-            deduped = _raw_dedup_path(args.input, s["name"])
+        for s in sources:
+            raw = _raw_path(raw_dir, s["name"])
+            deduped = _raw_dedup_path(raw_dir, s["name"])
             if not os.path.exists(raw):
                 print(f"  Skip {s['name']}: {raw} not found")
                 continue
             if os.path.exists(deduped) and os.path.getsize(deduped) > 0:
                 print(f"  Skip {s['name']}: {deduped} exists")
                 continue
-            mode = "prefix" if s["type"] == "news" else args.exact_mode
+            mode = "prefix" if s.get("type") == "news" else args.exact_mode
             print(f"  去重: {s['name']} (mode={mode})")
             dedup_file(raw, deduped, mode=mode, prefix_len=args.prefix_len)
 
@@ -109,11 +111,11 @@ def main():
         print("\n[2/5] 跳过清洗（--skip_clean）")
     else:
         print("\n[2/5] 基础清洗（去乱码、繁转简、过滤低质）")
-        for s in SOURCES:
-            src = _raw_dedup_path(args.input, s["name"])
+        for s in sources:
+            src = _raw_dedup_path(raw_dir, s["name"])
             if not os.path.exists(src):
-                src = _raw_path(args.input, s["name"])
-            clean = _clean_path(args.input, s["name"])
+                src = _raw_path(raw_dir, s["name"])
+            clean = _clean_path(raw_dir, s["name"])
             if not os.path.exists(src):
                 print(f"  Skip {s['name']}: no source found")
                 continue
@@ -127,7 +129,7 @@ def main():
                 min_len=30,
                 max_len=3000,
                 convert_zh=True,
-                min_zh_ratio=0.15 if s["name"] == "wiki" else 0.0,
+                min_zh_ratio=0.15 if s["name"] in ("wiki", "edu") else 0.0,
                 filter_ads=s["name"] == "news",
                 filter_wiki_junk=s["name"] == "wiki",
             )
@@ -137,11 +139,11 @@ def main():
         print("\n[3/5] 跳过模糊去重（--skip_simhash）")
     else:
         print("\n[3/5] SimHash 模糊去重 / QA过滤")
-        for s in SOURCES:
-            src = _clean_path(args.input, s["name"])
+        for s in sources:
+            src = _clean_path(raw_dir, s["name"])
             if not os.path.exists(src):
-                src = _final_path(args.input, s["name"])
-            final = _final_path(args.input, s["name"])
+                src = _final_path(raw_dir, s["name"])
+            final = _final_path(raw_dir, s["name"])
             if not os.path.exists(src):
                 print(f"  Skip {s['name']}: {src} not found")
                 continue
@@ -149,7 +151,7 @@ def main():
                 print(f"  Skip {s['name']}: {final} exists")
                 continue
 
-            if s["type"] == "qa":
+            if s.get("type") == "qa":
                 print(f"  QA过滤: {s['name']}")
                 filter_qa(src, final)
             else:
@@ -168,13 +170,13 @@ def main():
     # ──── step 4: 字符加权配比 → 多源混合切分 ────
     print("\n[4/5] 多源混合切分")
     input_files: list[str] = []
-    target_ratios = [s["ratio"] for s in SOURCES]
+    target_ratios = [s.get("ratio", 0) for s in sources]
 
     print("  扫描各源行均字符...")
     avg_chars_list = []
-    for s in SOURCES:
-        final = _final_path(args.input, s["name"])
-        clean = _clean_path(args.input, s["name"])
+    for s in sources:
+        final = _final_path(raw_dir, s["name"])
+        clean = _clean_path(raw_dir, s["name"])
         fpath = final if os.path.exists(final) else clean
         if not os.path.exists(fpath):
             print(f"    WARNING: {s['name']} 源文件不存在，跳过")
@@ -187,7 +189,7 @@ def main():
         print(f"    {s['name']}: ~{avg_c:.0f} 字/行")
 
     effective = []
-    for i, s in enumerate(SOURCES):
+    for i in range(len(sources)):
         if avg_chars_list[i] > 0:
             effective.append(target_ratios[i] / avg_chars_list[i])
         else:
@@ -198,7 +200,7 @@ def main():
 
     valid_files: list[str] = []
     valid_ratios: list[float] = []
-    for i, s in enumerate(SOURCES):
+    for i, s in enumerate(sources):
         if input_files[i] and effective[i] > 0:
             valid_files.append(input_files[i])
             valid_ratios.append(effective[i])
@@ -210,14 +212,14 @@ def main():
             valid_files.append(input_files[i])
             valid_ratios.append(0.0001)
 
-    if len(valid_files) < 2:
-        print("ERROR: 有效数据源不足 2 个")
+    if len(valid_files) < 1:
+        print("ERROR: 有效数据源为 0")
         sys.exit(1)
 
     stream_build(
         input_paths=valid_files,
-        output_dir=args.output,
-        ratios=valid_ratios,
+        output_dir=data_dir,
+        ratios=valid_ratios if valid_ratios else None,
         train_ratio=0.9,
         valid_ratio=0.05,
     )
@@ -225,7 +227,7 @@ def main():
     # ──── step 5: 清理旧 token 缓存 ────
     print("\n[5/5] 清理旧 token 缓存")
     for split in ("train", "valid", "test"):
-        cache = os.path.join(args.output, f"{split}_ids.npy")
+        cache = os.path.join(data_dir, f"{split}_ids.npy")
         if os.path.exists(cache):
             os.remove(cache)
             print(f"  Removed: {cache}")

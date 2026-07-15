@@ -97,6 +97,10 @@ ignore = [
 "tests/verify_flash_attn.py" = ["E741"]  # loss loop variable
 "data_tools/pretrain/extract_parquet.py" = ["F401", "B018"]  # availability probe
 "data_tools/pretrain/pipeline.py" = ["B007"]  # enumerate src iteration
+"data_tools/sft/generate.py" = ["E402"]  # sys.path before data_tools imports
+"data_tools/sft/generate_longform.py" = ["E402"]  # sys.path before data_tools imports
+"data_tools/sft/generate_multiturn.py" = ["E402"]  # sys.path before data_tools imports
+"data_tools/pretrain/score.py" = ["E402"]  # sys.path before data_tools imports
 "gleamlm/utils/config.py" = ["N806"]  # NO_PREFIX convention
 
 [tool.ruff.lint.isort]

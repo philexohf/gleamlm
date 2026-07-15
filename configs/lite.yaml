@@ -46,3 +46,10 @@ sft:
 dpo:
   max_seq_len: 2048
   data_path: data/lite/dpo_data.jsonl
+
+data_sources:
+  - {name: wiki, type: text, ratio: 0.25}
+  - {name: baike, type: text, ratio: 0.10}
+  - {name: news, type: news, ratio: 0.35}
+  - {name: qa, type: qa, ratio: 0.15}
+  - {name: edu, type: text, ratio: 0.15}

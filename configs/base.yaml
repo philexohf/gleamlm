@@ -52,6 +52,9 @@ data:
   ids_prefix: ""                # 预分词文件前缀，空字符串表示无前缀
   load_checkpoint: null         # 断点续训 checkpoint 路径，如 checkpoints/checkpoint_epoch_3.pt
 
+# ---- 预训练数据源 ----
+data_sources: []                # 各变体覆盖：{name, type, ratio, file}
+
 # ---- 高级 ----
 advanced:
   z_loss_weight: 0.0            # lite 覆盖为 1e-4
