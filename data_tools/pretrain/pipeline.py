@@ -11,6 +11,7 @@
 用法:
     python data_tools/pretrain/pipeline.py
     python data_tools/pretrain/pipeline.py --skip_simhash
+    python data_tools/pretrain/pipeline.py --sources wiki baike
 """
 
 import argparse
@@ -58,11 +59,23 @@ def main():
     parser.add_argument("--exact_mode", default="exact", choices=["exact", "prefix"])
     parser.add_argument("--prefix_len", type=int, default=100)
     parser.add_argument("--simhash_threshold", type=int, default=3)
+    parser.add_argument(
+        "--sources", nargs="+", default=None,
+        help="只处理指定的源 (edu/news/wiki/baike/qa)，默认全部",
+    )
     args = parser.parse_args()
 
     raw_dir = args.input
     threshold = args.simhash_threshold
-    names = [s["name"] for s in SOURCES]
+    sources = SOURCES
+    if args.sources:
+        valid = {s["name"] for s in SOURCES}
+        unknown = set(args.sources) - valid
+        if unknown:
+            print(f"ERROR: unknown sources: {unknown}")
+            return
+        sources = [s for s in SOURCES if s["name"] in args.sources]
+    names = [s["name"] for s in sources]
     print(f"Sources: {names}")
 
     # ──── step 1: 粗精确去重 ────
@@ -70,7 +83,7 @@ def main():
         print("\n[1/4] 跳过精确去重（--skip_exact_dedup）")
     else:
         print("\n[1/4] 粗精确去重（MD5 全文去重）")
-        for s in SOURCES:
+        for s in sources:
             raw = _raw_path(raw_dir, s["name"])
             deduped = _raw_dedup_path(raw_dir, s["name"])
             if not os.path.exists(raw):
@@ -88,7 +101,7 @@ def main():
         print("\n[2/4] 跳过清洗（--skip_clean）")
     else:
         print(f"\n[2/4] 基础清洗（min_zh_ratio={MIN_Zh_RATIO}, 去乱码、繁转简、过滤低质）")
-        for s in SOURCES:
+        for s in sources:
             src = _raw_dedup_path(raw_dir, s["name"])
             if not os.path.exists(src):
                 src = _raw_path(raw_dir, s["name"])
@@ -117,7 +130,7 @@ def main():
         print("\n[3/4] 跳过 SimHash 去重（--skip_simhash）")
     else:
         print("\n[3/4] SimHash 逐源去重 / QA过滤")
-        for s in SOURCES:
+        for s in sources:
             src = _clean_path(raw_dir, s["name"])
             if not os.path.exists(src):
                 src = _final_path(raw_dir, s["name"])
@@ -156,7 +169,7 @@ def main():
         snapshot: dict[str, set[int]] = {
             name: fps_set.copy() for name, fps_set in source_fingerprints.items()
         }
-        for s in SOURCES:
+        for s in sources:
             final = _final_path(raw_dir, s["name"])
             if not os.path.exists(final):
                 continue

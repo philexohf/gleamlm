@@ -43,6 +43,44 @@ def hamming_distance(a: int, b: int) -> int:
     return (a ^ b).bit_count()
 
 
+class SimHashIndex:
+    """SimHash LSH index. 4 band × 16 bit, each band acts as a hash table key.
+    对于 Hamming 距离 ≤ 3 的指纹，至少 1 个 band 会完全匹配 (Recall 100%)."""
+
+    def __init__(self, num_bands: int = 4, bits: int = 64):
+        self.num_bands = num_bands
+        self.band_bits = bits // num_bands
+        self.mask = (1 << self.band_bits) - 1
+        self.tables: list[dict[int, set[int]]] = [{} for _ in range(num_bands)]
+        self._size = 0
+
+    def add(self, fp: int) -> None:
+        for band, table in enumerate(self.tables):
+            key = (fp >> (band * self.band_bits)) & self.mask
+            bucket = table.get(key)
+            if bucket is None:
+                table[key] = {fp}
+            else:
+                bucket.add(fp)
+        self._size += 1
+
+    def add_all(self, fingerprints: set[int]) -> None:
+        for fp in fingerprints:
+            self.add(fp)
+
+    def find_candidates(self, fp: int) -> set[int]:
+        candidates: set[int] = set()
+        for band, table in enumerate(self.tables):
+            key = (fp >> (band * self.band_bits)) & self.mask
+            bucket = table.get(key)
+            if bucket is not None:
+                candidates.update(bucket)
+        return candidates
+
+    def __len__(self) -> int:
+        return self._size
+
+
 def dedup_file(
     input_path: str,
     output_path: str,
@@ -56,6 +94,12 @@ def dedup_file(
     deduped = 0
     seen: set[str] = set()
     fingerprints: set[int] = set(existing_fingerprints) if existing_fingerprints else set()
+
+    index: SimHashIndex | None = None
+    if mode == "simhash":
+        index = SimHashIndex()
+        if fingerprints:
+            index.add_all(fingerprints)
 
     print(f"Dedup: {input_path}")
     if mode == "simhash":
@@ -76,10 +120,12 @@ def dedup_file(
 
             if mode == "simhash":
                 fp = simhash(text)
-                if _is_similar(fp, fingerprints, simhash_threshold):
+                candidates = index.find_candidates(fp)  # type: ignore[union-attr]
+                if any(hamming_distance(fp, c) <= simhash_threshold for c in candidates):
                     deduped += 1
                     continue
                 fingerprints.add(fp)
+                index.add(fp)  # type: ignore[union-attr]
                 fout.write(text + "\n")
                 kept += 1
 
