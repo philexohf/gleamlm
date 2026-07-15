@@ -8,13 +8,13 @@
     pip install fasttext-wheel openai
 
     # 首次标注
-    python data_tools/score_quality.py --input data/lite_data/train.txt --sample 5000
+    python data_tools/pretrain/score.py --input data/lite_data/train.txt --sample 5000
 
     # 断点续标（追加到已有标注，跳过已标注的文本）
-    python data_tools/score_quality.py --input data/lite_data/train.txt --sample 5000 --resume
+    python data_tools/pretrain/score.py --input data/lite_data/train.txt --sample 5000 --resume
 
     # 训分类器 + 全量评分
-    python data_tools/score_quality.py --input data/lite_data/train.txt --train --score
+    python data_tools/pretrain/score.py --input data/lite_data/train.txt --train --score
 """
 
 import argparse

@@ -4,11 +4,11 @@
 
 用法:
   # 单轮：用基座模型生成 rejected
-  python data_tools/gen_dpo_rejected.py --format single \
+  python data_tools/dpo/generate_rejected.py --format single \
       --sft_data data/sft_data.jsonl --model_path checkpoints/best_model.pt --output data/dpo_data.jsonl
 
   # 多轮：用 SFT 模型生成 rejected
-  python data_tools/gen_dpo_rejected.py --format multi \
+  python data_tools/dpo/generate_rejected.py --format multi \
       --input data/multiturn_sft.jsonl --model checkpoints/sft/sft_best.pt --output data/dpo_multiturn.jsonl
 """
 

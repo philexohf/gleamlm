@@ -2,12 +2,12 @@
 
 用法:
     # 硬编码模板模式（生成 10000 条，无需 API）
-    python data_tools/gen_sft.py --mode hardcoded --output data/sft_data.jsonl
+    python data_tools/sft/generate.py hardcoded --count 10000 --output data/sft_data.jsonl
 
     # API 蒸馏模式
     set DEEPSEEK_API_KEY=sk-xxxx
-    python data_tools/gen_sft.py --mode api --output data/sft_api.jsonl
-    python data_tools/gen_sft.py --mode api --output data/sft_api_new.jsonl --variants_per_seed 2
+    python data_tools/sft/generate.py api --output data/sft_api.jsonl
+    python data_tools/sft/generate.py api --output data/sft_api_new.jsonl --variants_per_seed 2
 """
 
 import argparse

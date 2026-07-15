@@ -5,7 +5,7 @@ Reads single-turn JSONL (instruction/output) and uses the DeepSeek API to genera
 
 Usage:
     $env:DEEPSEEK_API_KEY = "sk-xxxx"
-    python data_tools/gen_multiturn_sft.py --input data/sft_data.jsonl --output data/multiturn_sft.jsonl
+    python data_tools/sft/generate_multiturn.py --input data/sft_data.jsonl --output data/multiturn_sft.jsonl
 
 The output format is compatible with the multi-turn SFTDataset:
     {"messages": [{"role":"user","content":"..."}, {"role":"assistant","content":"..."}, ...]}

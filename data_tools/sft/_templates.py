@@ -1,8 +1,8 @@
 """生成 10000 条 SFT 数据：A类4000 + B类3000 + C类3000
 
 用法:
-    python data_tools/gen_sft.py --mode hardcoded --output data/sft_data.jsonl
-    python data_tools/gen_sft.py --mode api --api_key sk-xxx --output data/sft_api.jsonl
+    python data_tools/sft/generate.py hardcoded --output data/sft_data.jsonl
+    python data_tools/sft/generate.py api --api_key sk-xxx --output data/sft_api.jsonl
 """
 
 import random

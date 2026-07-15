@@ -6,8 +6,8 @@ the typical 50-150 token QA window.
 
 Usage:
     $env:DEEPSEEK_API_KEY = "sk-xxxx"
-    python data_tools/gen_longform_sft.py --count 500 --output data/longform_sft.jsonl
-    python data_tools/gen_longform_sft.py --input data/topics.txt --output data/longform_sft.jsonl
+    python data_tools/sft/generate_longform.py --count 500 --output data/longform_sft.jsonl
+    python data_tools/sft/generate_longform.py --input data/topics.txt --output data/longform_sft.jsonl
 """
 
 import argparse

@@ -6,8 +6,8 @@
   --mode all      : 两种清理都执行（默认）
 
 用法:
-  python data_tools/clean_sft.py --input data/sft_data.jsonl --output data/sft_data_clean.jsonl
-  python data_tools/clean_sft.py --input data/sft_api_new.jsonl --output clean.jsonl --mode markdown
+  python data_tools/sft/clean_format.py --input data/sft_data.jsonl --output data/sft_data_clean.jsonl
+  python data_tools/sft/clean_format.py --input data/sft_api_new.jsonl --output clean.jsonl --mode markdown
 """
 
 import argparse
