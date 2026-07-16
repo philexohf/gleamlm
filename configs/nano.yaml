@@ -36,8 +36,8 @@ data:
   ids_prefix: ""
 
 advanced:
-  z_loss_weight: 0.0
-  bf16: false                   # nano 用 fp32
+  z_loss_weight: 0.0001
+  bf16: true                   # nano 用 bf16 防 FP16 溢出
 
 sft:
   max_seq_len: 512

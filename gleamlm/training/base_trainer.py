@@ -202,7 +202,7 @@ def train_one_epoch(
     amp_dtype = torch.bfloat16 if getattr(args, "bf16", False) else torch.float16
 
     pbar = (
-        tqdm(train_loader, desc=f"Epoch {epoch}", mininterval=5, miniters=50)
+        tqdm(train_loader, desc=f"Epoch {epoch}", mininterval=5)
         if args.local_rank == 0
         else train_loader
     )
@@ -214,10 +214,10 @@ def train_one_epoch(
 
         with safe_autocast(enabled=True, dtype=amp_dtype):
             logits, _ = model(input_ids, attention_mask=attention_mask)
-            ce_loss = criterion(logits.view(-1, args.vocab_size), target_ids.view(-1))
+            ce_loss = criterion(logits.reshape(-1, args.vocab_size), target_ids.reshape(-1))
             raw_ce = F.cross_entropy(
-                logits.view(-1, args.vocab_size),
-                target_ids.view(-1),
+                logits.reshape(-1, args.vocab_size),
+                target_ids.reshape(-1),
                 ignore_index=pad_id,
                 label_smoothing=0.0,
             )

@@ -137,15 +137,19 @@ class GroupedQueryAttention(nn.Module):
 
         current_kv = (K, V)
 
-        if self.use_flash_attn:
+        if self.use_flash_attn and past_kv is None:
+            K_fa = K.unsqueeze(2).expand(-1, -1, self.num_groups, -1, -1)
+            K_fa = K_fa.reshape(
+                batch_size, self.num_kv_heads * self.num_groups, -1, self.head_dim
+            ).contiguous()
+            V_fa = V.unsqueeze(2).expand(-1, -1, self.num_groups, -1, -1)
+            V_fa = V_fa.reshape(
+                batch_size, self.num_kv_heads * self.num_groups, -1, self.head_dim
+            ).contiguous()
+
             output = F.scaled_dot_product_attention(
-                Q,
-                K,
-                V,
+                Q, K_fa, V_fa, is_causal=True,
                 dropout_p=self.attn_dropout if self.training else 0.0,
-                is_causal=(past_kv is None and mask is None),
-                attn_mask=None if mask is None else mask,
-                enable_gqa=True,
             )
             output = output.transpose(1, 2).contiguous().view(batch_size, seq_len, -1)
             output = self.W_o(output)

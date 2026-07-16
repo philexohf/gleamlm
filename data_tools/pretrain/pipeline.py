@@ -16,6 +16,7 @@
 
 import argparse
 import os
+import pickle
 
 from gleamlm.preprocessing.clean_text import clean_file
 from gleamlm.preprocessing.dedup_text import dedup_file, normalize, simhash
@@ -48,7 +49,23 @@ def _final_path(input_dir, name):
     return os.path.join(input_dir, f"{name}_dedup.txt")
 
 
+def _fps_path(input_dir, name):
+    return os.path.join(input_dir, f"{name}_dedup.fps")
+
+
+def _save_fingerprints(filepath: str, fps: set[int]) -> None:
+    with open(filepath, "wb") as f:
+        pickle.dump(fps, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+
 def _load_fingerprints(filepath: str) -> set[int]:
+    fps_file = filepath.replace("_dedup.txt", "_dedup.fps")
+    if os.path.exists(fps_file) and os.path.getsize(fps_file) > 0:
+        with open(fps_file, "rb") as f:
+            fps = pickle.load(f)
+        print(f"  Loaded {len(fps):,} fingerprints from {os.path.basename(fps_file)}", flush=True)
+        return fps
+
     fps: set[int] = set()
     size_mb = os.path.getsize(filepath) / 1e6
     print(f"  Loading fingerprints from {os.path.basename(filepath)} ({size_mb:.0f} MB)...", flush=True)
@@ -60,6 +77,7 @@ def _load_fingerprints(filepath: str) -> set[int]:
             if text:
                 fps.add(simhash(text))
     print(f"    Done: {len(fps):,} fingerprints loaded", flush=True)
+    _save_fingerprints(fps_file, fps)
     return fps
 
 
@@ -71,6 +89,8 @@ def main():
     parser.add_argument("--skip_exact_dedup", action="store_true")
     parser.add_argument("--skip_clean", action="store_true")
     parser.add_argument("--skip_simhash", action="store_true")
+    parser.add_argument("--cross_dedup", action="store_true",
+                        help="启用跨源 SimHash 全局去重（默认跳过）")
     parser.add_argument("--exact_mode", default="exact", choices=["exact", "prefix"])
     parser.add_argument("--prefix_len", type=int, default=100)
     parser.add_argument("--simhash_threshold", type=int, default=3)
@@ -159,6 +179,7 @@ def main():
                     source_fingerprints[s["name"]] = fps
                     print(f"  Skip {s['name']}: {final} exists ({len(fps):,} fingerprints loaded)")
                 else:
+                    source_fingerprints[s["name"]] = set()
                     print(f"  Skip {s['name']}: {final} exists")
                 continue
 
@@ -175,6 +196,7 @@ def main():
                     simhash_threshold=threshold,
                 )
                 source_fingerprints[s["name"]] = fps
+                _save_fingerprints(_fps_path(raw_dir, s["name"]), fps)
 
         processed = sum(1 for v in source_fingerprints.values() if v)
         total_fps = sum(len(v) for v in source_fingerprints.values())
@@ -183,6 +205,8 @@ def main():
     # ──── step 4: 跨源 SimHash 全局去重 ────
     if args.skip_simhash:
         print("\n[4/4] 跳过跨源去重（--skip_simhash）")
+    elif not args.cross_dedup:
+        print("\n[4/4] 跳过跨源去重（默认跳过，启用: --cross_dedup）")
     else:
         print("\n[4/4] 跨源 SimHash 全局去重")
         # 冻结 Step 3 指纹快照，所有源基于同一基准去重
