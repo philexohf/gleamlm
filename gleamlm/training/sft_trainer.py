@@ -247,7 +247,7 @@ def train_one_epoch_sft(
     total_loss = 0.0
     num_batches = 0
 
-    pbar = tqdm(train_loader, desc=f"SFT Epoch {epoch}", mininterval=3, miniters=20)
+    pbar = tqdm(train_loader, desc=f"SFT Epoch {epoch}", mininterval=3)
 
     for batch_idx, (input_ids, labels, attention_mask) in enumerate(pbar):
         input_ids = input_ids.to(device)

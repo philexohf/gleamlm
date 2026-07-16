@@ -63,7 +63,7 @@ def _compute_raw_loss(
     n_batches = 0
     criterion = nn.CrossEntropyLoss(reduction="sum", ignore_index=pad_token_id)
 
-    pbar = tqdm(data_loader, desc="Eval", mininterval=5, miniters=50)
+    pbar = tqdm(data_loader, desc="Eval", mininterval=5)
     for input_ids, target_ids, attention_mask in pbar:
         if max_batches and n_batches >= max_batches:
             break
