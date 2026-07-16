@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import contextlib
 import os
 import random
 import sys
@@ -63,7 +62,7 @@ class LMDataset(Dataset):
 
                 print(
                     f"Tokenizing {split} data ({total_chars / 1e9:.2f}B chars, "
-                    f"{n_chunks} chunks)..."
+                    f"~{n_chunks} chunks)..."
                 )
                 sys.stdout.flush()
                 # 预分配 numpy 数组，避免 Python list 的 28 字节/元素 OOM
@@ -71,20 +70,24 @@ class LMDataset(Dataset):
                 estimated = int(total_chars * 2.0)
                 all_ids = np.empty(estimated, dtype=np.uint32)
                 pos = 0
-                status_path = os.path.join(data_dir, f".tokenizing_{split}")
-                for i in tqdm(
-                    range(0, total_chars, chunk_size), desc=f"  {split}", file=sys.stdout
-                ):
-                    chunk = text[i : i + chunk_size]
+                pos_c = 0
+                pbar = tqdm(total=total_chars, desc=f"  {split}", unit="chars")
+                while pos_c < total_chars:
+                    end_c = min(pos_c + chunk_size, total_chars)
+                    if end_c < total_chars:
+                        nl = text.rfind("\n", pos_c, end_c)
+                        if nl >= 0:
+                            end_c = nl + 1
+                    chunk = text[pos_c:end_c]
                     ids = tokenizer.encode(chunk, add_bos=False, add_eos=False)
                     n = len(ids)
                     if pos + n > len(all_ids):
                         all_ids = np.resize(all_ids, len(all_ids) * 2)
                     all_ids[pos : pos + n] = ids
                     pos += n
-                    if (i // chunk_size) % 10 == 0:
-                        with open(status_path, "w") as sf:
-                            sf.write(f"{i + chunk_size}/{total_chars}")
+                    pbar.update(end_c - pos_c)
+                    pos_c = end_c
+                pbar.close()
 
                 all_ids = all_ids[:pos]
                 print(f"  Done: {pos} tokens")
@@ -92,9 +95,6 @@ class LMDataset(Dataset):
                 np.save(ids_file, all_ids)
                 del all_ids, text
                 print(f"  Saved to {ids_file}")
-
-                with contextlib.suppress(OSError):
-                    os.remove(status_path)
 
             if dist.is_available() and dist.is_initialized():
                 dist.barrier()

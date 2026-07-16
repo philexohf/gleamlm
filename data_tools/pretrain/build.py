@@ -24,7 +24,11 @@ def compute_avg_chars(filepath):
     return total / max(1, lines)
 
 
-def _final_path(raw_dir, name):
+def _resolve_path(raw_dir: str, name: str) -> str:
+    for suffix in ("_dedup.txt", "_trunc.txt", "_clean.txt"):
+        path = os.path.join(raw_dir, f"{name}{suffix}")
+        if os.path.exists(path) and os.path.getsize(path) > 0:
+            return path
     return os.path.join(raw_dir, f"{name}_dedup.txt")
 
 
@@ -64,7 +68,7 @@ def main():
     print("  扫描各源行均字符...")
     avg_chars_list = []
     for s in sources:
-        fpath = _final_path(raw_dir, s["name"])
+        fpath = _resolve_path(raw_dir, s["name"])
         if not os.path.exists(fpath):
             print(f"    WARNING: {s['name']} 源文件不存在，跳过")
             avg_chars_list.append(0)
