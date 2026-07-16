@@ -200,12 +200,12 @@ def main() -> None:
         # Filter out empty slots + rebuild valid ratios (ratios unchanged, using same order)
         final_files = []
         final_ratios = []
-        ratio_idx = 0
+        valid_idx = 0
         for f in sampled_files:
             if f:
                 final_files.append(f)
-                final_ratios.append(valid_ratios[ratio_idx] if ratio_idx < len(valid_ratios) else 0)
-            ratio_idx += 1
+                final_ratios.append(valid_ratios[valid_idx] if valid_idx < len(valid_ratios) else 0)
+                valid_idx += 1
         if not final_files:
             print("ERROR: 采样后无有效数据")
             sys.exit(1)

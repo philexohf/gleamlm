@@ -61,10 +61,14 @@ def _save_fingerprints(filepath: str, fps: set[int]) -> None:
 def _load_fingerprints(filepath: str) -> set[int]:
     fps_file = filepath.replace("_dedup.txt", "_dedup.fps")
     if os.path.exists(fps_file) and os.path.getsize(fps_file) > 0:
-        with open(fps_file, "rb") as f:
-            fps = pickle.load(f)
-        print(f"  Loaded {len(fps):,} fingerprints from {os.path.basename(fps_file)}", flush=True)
-        return fps
+        try:
+            with open(fps_file, "rb") as f:
+                fps = pickle.load(f)
+            print(f"  Loaded {len(fps):,} fingerprints from {os.path.basename(fps_file)}", flush=True)
+            return fps
+        except Exception:
+            print(f"  WARNING: corrupted fingerprint cache, regenerating...", flush=True)
+            os.remove(fps_file)
 
     fps: set[int] = set()
     size_mb = os.path.getsize(filepath) / 1e6

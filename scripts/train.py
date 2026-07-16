@@ -186,6 +186,7 @@ def main():
         pad_token_id=tokenizer.pad_id,
         tie_weights=getattr(args, "tie_weights", True),
         use_flash_attn=getattr(args, "use_flash_attn", False),
+        use_qk_norm=getattr(args, "use_qk_norm", True),
         use_gradient_checkpointing=getattr(args, "use_gradient_checkpointing", False),
     ).to(device)
 

@@ -58,14 +58,14 @@ def main():
     data_path = cli_args.data_path or getattr(args, "data_path", "")
     save_dir = cli_args.save_dir or os.path.join(args.checkpoint_dir, "sft")
 
-    lr = args.lr
-    epochs = args.epochs
-    batch_size = args.batch_size
-    accumulate_grad = args.accumulate_grad
-    max_seq_len = args.max_seq_len
-    warmup_ratio = args.warmup_ratio
-    weight_decay = args.weight_decay
-    inject_system_ratio = getattr(args, "inject_system_ratio", 0.2)
+    lr = args.sft_lr
+    epochs = args.sft_epochs
+    batch_size = args.sft_batch_size
+    accumulate_grad = args.sft_accumulate_grad
+    max_seq_len = args.sft_max_seq_len
+    warmup_ratio = args.sft_warmup_ratio
+    weight_decay = args.sft_weight_decay
+    inject_system_ratio = getattr(args, "sft_inject_system_ratio", 0.2)
     clip_grad = getattr(args, "clip_grad", 1.0)
 
     set_seed(42)
@@ -95,6 +95,7 @@ def main():
         pad_token_id=tokenizer.pad_id,
         tie_weights=getattr(args, "tie_weights", True),
         use_flash_attn=getattr(args, "use_flash_attn", False),
+        use_qk_norm=getattr(args, "use_qk_norm", True),
     ).to(device)
 
     checkpoint = torch.load(model_path, map_location=device, weights_only=False)

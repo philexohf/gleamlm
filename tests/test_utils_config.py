@@ -223,8 +223,8 @@ def test_load_config_real_nano():
     assert cfg.model.num_layers == 12
     assert cfg.model.num_heads == 8
     assert cfg.model.num_kv_heads == 4
-    assert cfg.training.epochs == 5
-    assert cfg.advanced.bf16 is False
+    assert cfg.training.epochs == 1
+    assert cfg.advanced.bf16 is True
 
 
 # 配置校验

@@ -59,14 +59,14 @@ def main():
     data_path = cli_args.data_path or getattr(args, "data_path", "")
     output_dir = cli_args.output_dir or os.path.join(args.checkpoint_dir, "dpo")
 
-    lr = args.lr
-    beta = args.beta
-    epochs = args.epochs
-    batch_size = args.batch_size
-    accumulate_grad = args.accumulate_grad
-    max_seq_len = args.max_seq_len
-    warmup_ratio = getattr(args, "warmup_ratio", 0.02)
-    min_lr_ratio = getattr(args, "min_lr_ratio", 0.05)
+    lr = args.dpo_lr
+    beta = args.dpo_beta
+    epochs = args.dpo_epochs
+    batch_size = args.dpo_batch_size
+    accumulate_grad = args.dpo_accumulate_grad
+    max_seq_len = args.dpo_max_seq_len
+    warmup_ratio = getattr(args, "dpo_warmup_ratio", 0.02)
+    min_lr_ratio = getattr(args, "dpo_min_lr_ratio", 0.05)
     clip_grad = getattr(args, "clip_grad", 1.0)
 
     set_seed(42)
@@ -110,6 +110,7 @@ def main():
             "dropout": args.dropout,
             "max_seq_len": max_seq_len,
             "pad_token_id": 0,
+            "use_qk_norm": getattr(args, "use_qk_norm", True),
         }
 
     flash_attn = getattr(args, "use_flash_attn", False)

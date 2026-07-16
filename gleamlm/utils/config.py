@@ -12,7 +12,7 @@ import yaml
 
 DEFAULT_TOKENIZER_PATH = str(files("gleamlm") / "tokenizer" / "checkpoints" / "bbpe_12k")
 
-_NO_PREFIX_SECTIONS: set[str] = {"model", "training", "data", "advanced", "lr", "sft", "dpo"}
+_NO_PREFIX_SECTIONS: set[str] = {"model", "training", "data", "advanced", "lr"}
 
 
 def _deep_merge(base: dict, override: dict) -> dict:

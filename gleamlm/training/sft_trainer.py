@@ -257,8 +257,8 @@ def train_one_epoch_sft(
         with safe_autocast():
             logits, _ = model(input_ids, attention_mask=attention_mask)
             loss = F.cross_entropy(
-                logits.view(-1, logits.size(-1)),
-                labels.view(-1),
+                logits.reshape(-1, logits.size(-1)),
+                labels.reshape(-1),
                 ignore_index=-100,
             )
 
