@@ -104,7 +104,7 @@ def test_smoke_train(variant):
 
         model.train()
         losses = []
-        for step, (input_ids, target_ids, _attn_mask) in enumerate(dataloader):
+        for step, (input_ids, target_ids) in enumerate(dataloader):
             if step >= 20:
                 break
             input_ids = input_ids.to(device)

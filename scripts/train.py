@@ -2,7 +2,8 @@
 
 用法:
     python scripts/train.py --variant nano
-    python scripts/train.py --variant lite --load_checkpoint checkpoints/lite/checkpoint_epoch_1.pt
+    python scripts/train.py --variant lite --epochs 3 --lr 0.001
+    python scripts/train.py --variant nano --load_checkpoint checkpoints/nano/checkpoint_epoch_1.pt
 """
 
 import argparse
@@ -36,7 +37,7 @@ from gleamlm.training.base_trainer import (
     train_one_epoch,
     wrap_for_distributed,
 )
-from gleamlm.utils.config import load_config_as_args
+from gleamlm.utils.config import cfg_to_namespace, load_config
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _ROOT_DIR = os.path.dirname(_SCRIPT_DIR)
@@ -50,16 +51,38 @@ def main():
     parser.add_argument(
         "--config_dir", type=str, default=os.path.join(_ROOT_DIR, "configs"), help="YAML 配置目录"
     )
+    parser.add_argument("--epochs", type=int, default=None, help="覆写训练轮数")
+    parser.add_argument("--lr", type=float, default=None, help="覆写学习率")
+    parser.add_argument("--batch_size", type=int, default=None, help="覆写 batch size")
+    parser.add_argument("--accumulate_grad", type=int, default=None, help="覆写梯度累积步数")
+    parser.add_argument("--max_seq_len", type=int, default=None, help="覆写序列最大长度")
+    parser.add_argument("--warmup_ratio", type=float, default=None, help="覆写 warmup 比例")
+    parser.add_argument("--max_train_chars", type=int, default=None, help="覆写训练字符上限")
     parser.add_argument(
         "--load_checkpoint", type=str, default=None, help="断点续训 checkpoint 路径"
     )
     parser.add_argument("--data_dir", type=str, default=None, help="覆写数据目录")
     parser.add_argument("--checkpoint_dir", type=str, default=None, help="覆写 checkpoint 输出目录")
 
-    cli_args, _ = parser.parse_known_args()
+    cli_args = parser.parse_args()
     config_path = os.path.join(cli_args.config_dir, f"{cli_args.variant}.yaml")
-    args = load_config_as_args(config_path, model_name=cli_args.variant, cli_overrides=True)
+    cfg = load_config(config_path)
+    args = cfg_to_namespace(cfg, _ROOT_DIR)
 
+    if cli_args.epochs is not None:
+        args.epochs = cli_args.epochs
+    if cli_args.lr is not None:
+        args.lr = cli_args.lr
+    if cli_args.batch_size is not None:
+        args.batch_size = cli_args.batch_size
+    if cli_args.accumulate_grad is not None:
+        args.accumulate_grad = cli_args.accumulate_grad
+    if cli_args.max_seq_len is not None:
+        args.max_seq_len = cli_args.max_seq_len
+    if cli_args.warmup_ratio is not None:
+        args.warmup_ratio = cli_args.warmup_ratio
+    if cli_args.max_train_chars is not None:
+        args.max_train_chars = cli_args.max_train_chars
     if cli_args.load_checkpoint:
         args.load_checkpoint = cli_args.load_checkpoint
     if cli_args.data_dir:
@@ -86,9 +109,7 @@ def main():
     variant_name = cli_args.variant.upper()
     if args.local_rank == 0:
         print("=" * 60)
-        print(
-            f"GleamLM-{variant_name} {getattr(args, 'd_model', '?')}d x {getattr(args, 'num_layers', '?')}L 训练"
-        )
+        print(f"GleamLM-{variant_name} {args.d_model}d x {args.num_layers}L 训练")
         print("=" * 60)
         print(
             f"  d_model={args.d_model}, layers={args.num_layers}, "
@@ -96,14 +117,12 @@ def main():
             f"seq_len={args.max_seq_len}"
         )
         print(
-            f"  lr={args.lr:.0e}, type={getattr(args, 'type', 'cosine')}, "
+            f"  lr={args.lr:.0e}, type={args.type}, "
             f"batch={args.batch_size}, accum={args.accumulate_grad}, "
             f"epochs={args.epochs}"
         )
         print(
-            f"  Flash Attn: {getattr(args, 'use_flash_attn', False)}, "
-            f"BF16: {getattr(args, 'bf16', False)}, "
-            f"Z-Loss: {getattr(args, 'z_loss_weight', 0)}"
+            f"  Flash Attn: {args.use_flash_attn}, BF16: {args.bf16}, Z-Loss: {args.z_loss_weight}"
         )
         print(f"  Data: {args.data_dir}")
         print(f"  Checkpoint: {args.checkpoint_dir}")
@@ -124,17 +143,17 @@ def main():
         tokenizer,
         args.max_seq_len,
         "train",
-        max_chars=getattr(args, "max_train_chars", 1_200_000_000),
-        ids_prefix=getattr(args, "ids_prefix", ""),
+        max_chars=args.max_train_chars,
+        ids_prefix=args.ids_prefix,
     )
     val_dataset = LMDataset(
         args.data_dir,
         tokenizer,
         args.max_seq_len,
         "valid",
-        max_chars=getattr(args, "max_train_chars", None),
+        max_chars=args.max_train_chars,
         augment=False,
-        ids_prefix=getattr(args, "ids_prefix", ""),
+        ids_prefix=args.ids_prefix,
     )
 
     if args.world_size > 1:
@@ -184,10 +203,10 @@ def main():
         dropout=args.dropout,
         max_seq_len=args.max_seq_len,
         pad_token_id=tokenizer.pad_id,
-        tie_weights=getattr(args, "tie_weights", True),
-        use_flash_attn=getattr(args, "use_flash_attn", False),
-        use_qk_norm=getattr(args, "use_qk_norm", True),
-        use_gradient_checkpointing=getattr(args, "use_gradient_checkpointing", False),
+        tie_weights=args.tie_weights,
+        use_flash_attn=args.use_flash_attn,
+        use_qk_norm=args.use_qk_norm,
+        use_gradient_checkpointing=args.use_gradient_checkpointing,
     ).to(device)
 
     if args.local_rank == 0:

@@ -20,7 +20,7 @@ from gleamlm.training.sft_trainer import (
     evaluate_sft,
     train_one_epoch_sft,
 )
-from gleamlm.utils.config import DEFAULT_TOKENIZER_PATH, load_config_as_args
+from gleamlm.utils.config import DEFAULT_TOKENIZER_PATH, cfg_to_namespace, load_config
 from gleamlm.utils.torch_utils import get_lr_cosine
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -35,6 +35,11 @@ def main():
     parser.add_argument(
         "--config_dir", type=str, default=os.path.join(_ROOT_DIR, "configs"), help="YAML 配置目录"
     )
+    parser.add_argument("--epochs", type=int, default=None, help="覆写训练轮数")
+    parser.add_argument("--lr", type=float, default=None, help="覆写学习率")
+    parser.add_argument("--batch_size", type=int, default=None, help="覆写 batch size")
+    parser.add_argument("--accumulate_grad", type=int, default=None, help="覆写梯度累积步数")
+    parser.add_argument("--max_seq_len", type=int, default=None, help="覆写序列长度")
     parser.add_argument("--data_path", type=str, default=None, help="覆写 SFT 数据路径")
     parser.add_argument(
         "--model_path",
@@ -51,22 +56,26 @@ def main():
     cli_args = parser.parse_args()
 
     config_path = os.path.join(cli_args.config_dir, f"{cli_args.variant}.yaml")
-    args = load_config_as_args(config_path, model_name=cli_args.variant, cli_overrides=True)
+    cfg = load_config(config_path)
+    args = cfg_to_namespace(cfg, _ROOT_DIR)
 
-    # 从配置读取所有参数（sft 块已加入 NO_PREFIX，自动展平到 namespace）
     model_path = cli_args.model_path or os.path.join(args.checkpoint_dir, "best_model.pt")
-    data_path = cli_args.data_path or getattr(args, "data_path", "")
+    data_path = cli_args.data_path or args.sft_data_path
     save_dir = cli_args.save_dir or os.path.join(args.checkpoint_dir, "sft")
 
-    lr = args.sft_lr
-    epochs = args.sft_epochs
-    batch_size = args.sft_batch_size
-    accumulate_grad = args.sft_accumulate_grad
-    max_seq_len = args.sft_max_seq_len
+    lr = cli_args.lr if cli_args.lr is not None else args.sft_lr
+    epochs = cli_args.epochs if cli_args.epochs is not None else args.sft_epochs
+    batch_size = cli_args.batch_size if cli_args.batch_size is not None else args.sft_batch_size
+    accumulate_grad = (
+        cli_args.accumulate_grad
+        if cli_args.accumulate_grad is not None
+        else args.sft_accumulate_grad
+    )
+    max_seq_len = cli_args.max_seq_len if cli_args.max_seq_len is not None else args.sft_max_seq_len
     warmup_ratio = args.sft_warmup_ratio
     weight_decay = args.sft_weight_decay
-    inject_system_ratio = getattr(args, "sft_inject_system_ratio", 0.2)
-    clip_grad = getattr(args, "clip_grad", 1.0)
+    inject_system_ratio = args.sft_inject_system_ratio
+    clip_grad = args.clip_grad
 
     set_seed(42)
 
@@ -93,9 +102,9 @@ def main():
         dropout=args.dropout,
         max_seq_len=max_seq_len,
         pad_token_id=tokenizer.pad_id,
-        tie_weights=getattr(args, "tie_weights", True),
-        use_flash_attn=getattr(args, "use_flash_attn", False),
-        use_qk_norm=getattr(args, "use_qk_norm", True),
+        tie_weights=args.tie_weights,
+        use_flash_attn=args.use_flash_attn,
+        use_qk_norm=args.use_qk_norm,
     ).to(device)
 
     checkpoint = torch.load(model_path, map_location=device, weights_only=False)
@@ -169,7 +178,6 @@ def main():
     if not cli_args.resume:
         global_step = 0
 
-    # 构造供 train_one_epoch_sft 使用的简化 namespace
     train_ns = argparse.Namespace(
         epochs=epochs,
         batch_size=batch_size,

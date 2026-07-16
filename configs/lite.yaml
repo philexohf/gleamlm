@@ -31,9 +31,9 @@ model:
 
 data:
   data_dir: data/lite/pretrain
-  tokenizer_path: ""            # 默认: {root}/gleamlm/tokenizer/checkpoints/bbpe_12k
-  checkpoint_dir: ""            # 默认: {root}/checkpoints/lite
-  ids_prefix: ""                # 用 12K 词表
+  tokenizer_path: gleamlm/tokenizer/checkpoints/bbpe_12k
+  checkpoint_dir: checkpoints/lite
+  ids_prefix: ""
 
 advanced:
   z_loss_weight: 0.0001

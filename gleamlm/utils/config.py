@@ -1,9 +1,8 @@
-"""GleamLM YAML + CLI 配置加载器"""
+"""GleamLM YAML 配置加载器"""
 
 from __future__ import annotations
 
 import argparse
-import contextlib
 import os
 from importlib.resources import files
 from typing import Any
@@ -12,11 +11,8 @@ import yaml
 
 DEFAULT_TOKENIZER_PATH = str(files("gleamlm") / "tokenizer" / "checkpoints" / "bbpe_12k")
 
-_NO_PREFIX_SECTIONS: set[str] = {"model", "training", "data", "advanced", "lr"}
-
 
 def _deep_merge(base: dict, override: dict) -> dict:
-    """递归合并两个 dict，override 优先。"""
     result = base.copy()
     for key, value in override.items():
         if key in result and isinstance(result[key], dict) and isinstance(value, dict):
@@ -27,8 +23,6 @@ def _deep_merge(base: dict, override: dict) -> dict:
 
 
 class _DictWrapper:
-    """将嵌套 dict 包装为属性访问风格。cfg.training.epochs"""
-
     def __init__(self, data: dict) -> None:
         object.__setattr__(self, "_data", data)
 
@@ -60,7 +54,6 @@ class _DictWrapper:
 
 
 def load_yaml(path: str) -> dict:
-    """递归加载 YAML 文件，自动解析 extends 继承。"""
     path = os.path.abspath(path)
     base_dir = os.path.dirname(path)
 
@@ -75,67 +68,12 @@ def load_yaml(path: str) -> dict:
     return data
 
 
-def _resolve_paths(cfg_dict: dict, model_name: str) -> None:
-    """自动补全 data 块下的空路径 (基于 model_name 变体)。"""
-    d = cfg_dict.setdefault("data", {})
-    if not d.get("data_dir"):
-        d["data_dir"] = os.path.join(os.getcwd(), "data", model_name, "pretrain")
-    if not d.get("tokenizer_path"):
-        d["tokenizer_path"] = DEFAULT_TOKENIZER_PATH
-    if not d.get("checkpoint_dir"):
-        d["checkpoint_dir"] = os.path.join(os.getcwd(), "checkpoints", model_name)
+def resolve_relative_path(base_root: str, path: str) -> str:
+    if not path or os.path.isabs(path):
+        return path
+    return os.path.normpath(os.path.join(base_root, path))
 
 
-def _parse_cli_overrides(cfg_dict: dict) -> dict:
-    """将 sys.argv 解析为命令行覆盖。支持 --training.epochs 10 和 --epochs 10"""
-    parser = argparse.ArgumentParser(add_help=False)
-
-    NO_PREFIX: set[str] = _NO_PREFIX_SECTIONS
-
-    def flatten(d: dict, prefix: str = "") -> None:
-        for k, v in d.items():
-            full_key = f"{prefix}.{k}" if prefix else k
-            if isinstance(v, dict):
-                flatten(v, full_key)
-            else:
-                arg_type = str if isinstance(v, bool) else (type(v) if v is not None else str)
-                parser.add_argument(f"--{full_key}", type=arg_type, default=None)
-                if prefix in NO_PREFIX:
-                    try:
-                        parser.add_argument(f"--{k}", type=arg_type, default=None, dest=full_key)
-                    except argparse.ArgumentError:
-                        pass
-
-    flatten(cfg_dict)
-
-    known, _ = parser.parse_known_args()
-    overrides = {k: v for k, v in vars(known).items() if v is not None}
-    return overrides
-
-
-def _apply_overrides(cfg_dict: dict, overrides: dict) -> None:
-    """将扁平 override dict 写入嵌套 cfg_dict。"""
-    for key, value in overrides.items():
-        parts = key.split(".")
-        d = cfg_dict
-        for p in parts[:-1]:
-            if p not in d or not isinstance(d[p], dict):
-                d[p] = {}
-            d = d[p]
-        if isinstance(value, str):
-            current = d.get(parts[-1])
-            if isinstance(current, bool):
-                value = value.lower() in ("true", "1", "yes")
-            elif isinstance(current, int):
-                with contextlib.suppress(ValueError):
-                    value = int(value)
-            elif isinstance(current, float):
-                with contextlib.suppress(ValueError):
-                    value = float(value)
-        d[parts[-1]] = value
-
-
-# 配置校验规则
 _CONFIG_VALIDATORS = {
     "model": {
         "d_model": (int, lambda v: v >= 64),
@@ -172,7 +110,6 @@ _CONFIG_VALIDATORS = {
 
 
 def _validate_config(cfg_dict: dict) -> None:
-    """校验加载后的配置，类型和值范围检查，不符合则抛出 ValueError。"""
     errors = []
     for section, fields in _CONFIG_VALIDATORS.items():
         sec = cfg_dict.get(section, {})
@@ -193,71 +130,81 @@ def _validate_config(cfg_dict: dict) -> None:
         raise ValueError("配置校验失败:\n" + "\n".join(f"  {e}" for e in errors))
 
 
-def load_config(
-    config_file: str, model_name: str | None = None, cli_overrides: bool = False
-) -> _DictWrapper:
-    """加载配置文件，返回 _DictWrapper 属性访问对象。"""
+def load_config(config_file: str) -> _DictWrapper:
     cfg_dict = load_yaml(config_file)
-
-    if model_name is None:
-        basename = os.path.splitext(os.path.basename(config_file))[0]
-        model_name = basename
-
-    _resolve_paths(cfg_dict, model_name)
     _validate_config(cfg_dict)
-
-    if cli_overrides:
-        overrides = _parse_cli_overrides(cfg_dict)
-        _apply_overrides(cfg_dict, overrides)
-        _validate_config(cfg_dict)
-
     return _DictWrapper(cfg_dict)
 
 
-def to_namespace(cfg: _DictWrapper) -> argparse.Namespace:
-    """将 DictWrapper 配置转为 argparse.Namespace。"""
-    NO_PREFIX: set[str] = _NO_PREFIX_SECTIONS
-
-    def _flatten_prefix(d: dict, prefix: str) -> dict:
-        result: dict = {}
-        for k, v in d.items():
-            full = f"{prefix}_{k}" if prefix else k
-            if isinstance(v, dict):
-                result.update(_flatten_prefix(v, full))
-            else:
-                result[full] = v
-        return result
-
-    result: dict = {}
-    import warnings
-
-    for section_name, section_data in cfg._data.items():
-        if isinstance(section_data, dict):
-            if section_name in NO_PREFIX:
-                for k, v in section_data.items():
-                    if isinstance(v, dict):
-                        for k2, v2 in v.items():
-                            result.setdefault(k2, v2)
-                    else:
-                        result.setdefault(k, v)
-            else:
-                prefixed = _flatten_prefix(section_data, section_name)
-                for k in prefixed:
-                    if k in result:
-                        warnings.warn(
-                            f"[to_namespace] 键冲突: '{k}' 从 prefixed section 覆盖已存在的键",
-                            stacklevel=2,
-                        )
-                result.update(prefixed)
-        else:
-            result[section_name] = section_data
-
-    return argparse.Namespace(**result)
-
-
-def load_config_as_args(
-    config_file: str, model_name: str | None = None, cli_overrides: bool = False
-) -> argparse.Namespace:
-    """一站式加载 YAML 配置并转为 argparse.Namespace"""
-    cfg = load_config(config_file, model_name, cli_overrides)
-    return to_namespace(cfg)
+def cfg_to_namespace(cfg: _DictWrapper, root_dir: str) -> argparse.Namespace:
+    c = cfg
+    return argparse.Namespace(
+        # ── model ──
+        d_model=c.model.d_model,
+        num_layers=c.model.num_layers,
+        num_heads=c.model.num_heads,
+        num_kv_heads=c.model.num_kv_heads,
+        d_ff=c.model.d_ff,
+        max_seq_len=c.model.max_seq_len,
+        vocab_size=c.model.vocab_size,
+        dropout=c.model.dropout,
+        tie_weights=c.model.tie_weights,
+        use_flash_attn=getattr(c.model, "use_flash_attn", False),
+        use_qk_norm=getattr(c.model, "use_qk_norm", True),
+        use_gradient_checkpointing=getattr(c.model, "use_gradient_checkpointing", False),
+        # ── training ──
+        seed=c.training.seed,
+        epochs=c.training.epochs,
+        batch_size=c.training.batch_size,
+        accumulate_grad=c.training.accumulate_grad,
+        clip_grad=c.training.clip_grad,
+        weight_decay=c.training.weight_decay,
+        label_smoothing=c.training.label_smoothing,
+        log_interval=c.training.log_interval,
+        eval_interval=c.training.eval_interval,
+        save_interval=c.training.save_interval,
+        max_train_chars=c.training.max_train_chars,
+        # ── lr ──
+        lr=c.lr.lr,
+        type=c.lr.type,
+        warmup_ratio=c.lr.warmup_ratio,
+        min_lr_ratio=c.lr.min_lr_ratio,
+        stable_ratio=getattr(c.lr, "stable_ratio", 0.0),
+        # ── data (paths resolved) ──
+        data_dir=resolve_relative_path(root_dir, c.data.data_dir),
+        tokenizer_path=resolve_relative_path(root_dir, c.data.tokenizer_path),
+        checkpoint_dir=resolve_relative_path(root_dir, c.data.checkpoint_dir),
+        ids_prefix=c.data.ids_prefix,
+        load_checkpoint=getattr(c.data, "load_checkpoint", None),
+        # ── advanced ──
+        z_loss_weight=c.advanced.z_loss_weight,
+        bf16=c.advanced.bf16,
+        pin_memory=c.advanced.pin_memory,
+        num_workers=c.advanced.num_workers,
+        # ── optimizer (prefixed) ──
+        optimizer_type=c.optimizer.type,
+        optimizer_betas=c.optimizer.betas,
+        optimizer_eps=c.optimizer.eps,
+        # ── sft (prefixed) ──
+        sft_epochs=c.sft.epochs,
+        sft_batch_size=c.sft.batch_size,
+        sft_accumulate_grad=c.sft.accumulate_grad,
+        sft_lr=c.sft.lr,
+        sft_warmup_ratio=c.sft.warmup_ratio,
+        sft_weight_decay=c.sft.weight_decay,
+        sft_max_seq_len=c.sft.max_seq_len,
+        sft_data_path=c.sft.data_path,
+        sft_inject_system_ratio=getattr(c.sft, "inject_system_ratio", 0.2),
+        # ── dpo (prefixed) ──
+        dpo_epochs=c.dpo.epochs,
+        dpo_batch_size=c.dpo.batch_size,
+        dpo_accumulate_grad=c.dpo.accumulate_grad,
+        dpo_lr=c.dpo.lr,
+        dpo_beta=c.dpo.beta,
+        dpo_max_seq_len=c.dpo.max_seq_len,
+        dpo_warmup_ratio=getattr(c.dpo, "warmup_ratio", 0.02),
+        dpo_min_lr_ratio=getattr(c.dpo, "min_lr_ratio", 0.05),
+        dpo_data_path=c.dpo.data_path,
+        # ── distributed (prefixed) ──
+        distributed_backend=c.distributed.backend,
+    )

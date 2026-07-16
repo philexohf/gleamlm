@@ -46,11 +46,11 @@ model:
 
 # ---- 数据路径 ----
 data:
-  data_dir: ""                  # 运行时由 config loader 自动解析为 {root}/data/nano_data
-  tokenizer_path: ""            # 运行时由 config loader 自动解析为 {root}/gleamlm/tokenizer/checkpoints/bbpe_12k
-  checkpoint_dir: ""            # 运行时由 config loader 自动解析为 {model_dir}/checkpoints
-  ids_prefix: ""                # 预分词文件前缀，空字符串表示无前缀
-  load_checkpoint: null         # 断点续训 checkpoint 路径，如 checkpoints/checkpoint_epoch_3.pt
+  data_dir: ""
+  tokenizer_path: ""
+  checkpoint_dir: ""
+  ids_prefix: ""
+  load_checkpoint: null
 
 # ---- 预训练数据源 ----
 data_sources: []                # 各变体覆盖：{name, type, ratio, file}

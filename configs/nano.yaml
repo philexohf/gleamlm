@@ -31,8 +31,9 @@ model:
   use_qk_norm: true
 
 data:
-  tokenizer_path: ""            # 默认: {root}/gleamlm/tokenizer/checkpoints/bbpe_12k
-  checkpoint_dir: ""            # 默认: {root}/checkpoints/nano
+  data_dir: data/nano/pretrain
+  tokenizer_path: gleamlm/tokenizer/checkpoints/bbpe_12k
+  checkpoint_dir: checkpoints/nano
   ids_prefix: ""
 
 advanced:

@@ -21,7 +21,7 @@ from gleamlm.training.dpo_trainer import (
     evaluate_dpo,
     train_one_epoch_dpo,
 )
-from gleamlm.utils.config import DEFAULT_TOKENIZER_PATH, load_config_as_args
+from gleamlm.utils.config import DEFAULT_TOKENIZER_PATH, cfg_to_namespace, load_config
 from gleamlm.utils.torch_utils import get_lr_cosine
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -36,6 +36,12 @@ def main():
     parser.add_argument(
         "--config_dir", type=str, default=os.path.join(_ROOT_DIR, "configs"), help="YAML 配置目录"
     )
+    parser.add_argument("--epochs", type=int, default=None, help="覆写训练轮数")
+    parser.add_argument("--lr", type=float, default=None, help="覆写学习率")
+    parser.add_argument("--beta", type=float, default=None, help="覆写 DPO beta")
+    parser.add_argument("--batch_size", type=int, default=None, help="覆写 batch size")
+    parser.add_argument("--accumulate_grad", type=int, default=None, help="覆写梯度累积步数")
+    parser.add_argument("--max_seq_len", type=int, default=None, help="覆写序列长度")
     parser.add_argument("--data_path", type=str, default=None, help="覆写 DPO 数据路径")
     parser.add_argument(
         "--model_path",
@@ -52,22 +58,26 @@ def main():
     cli_args = parser.parse_args()
 
     config_path = os.path.join(cli_args.config_dir, f"{cli_args.variant}.yaml")
-    args = load_config_as_args(config_path, model_name=cli_args.variant, cli_overrides=True)
+    cfg = load_config(config_path)
+    args = cfg_to_namespace(cfg, _ROOT_DIR)
 
-    # 从配置读取所有参数（dpo 块已加入 NO_PREFIX，自动展平到 namespace）
     model_path = cli_args.model_path or os.path.join(args.checkpoint_dir, "sft", "sft_best.pt")
-    data_path = cli_args.data_path or getattr(args, "data_path", "")
+    data_path = cli_args.data_path or args.dpo_data_path
     output_dir = cli_args.output_dir or os.path.join(args.checkpoint_dir, "dpo")
 
-    lr = args.dpo_lr
-    beta = args.dpo_beta
-    epochs = args.dpo_epochs
-    batch_size = args.dpo_batch_size
-    accumulate_grad = args.dpo_accumulate_grad
-    max_seq_len = args.dpo_max_seq_len
-    warmup_ratio = getattr(args, "dpo_warmup_ratio", 0.02)
-    min_lr_ratio = getattr(args, "dpo_min_lr_ratio", 0.05)
-    clip_grad = getattr(args, "clip_grad", 1.0)
+    lr = cli_args.lr if cli_args.lr is not None else args.dpo_lr
+    beta = cli_args.beta if cli_args.beta is not None else args.dpo_beta
+    epochs = cli_args.epochs if cli_args.epochs is not None else args.dpo_epochs
+    batch_size = cli_args.batch_size if cli_args.batch_size is not None else args.dpo_batch_size
+    accumulate_grad = (
+        cli_args.accumulate_grad
+        if cli_args.accumulate_grad is not None
+        else args.dpo_accumulate_grad
+    )
+    max_seq_len = cli_args.max_seq_len if cli_args.max_seq_len is not None else args.dpo_max_seq_len
+    warmup_ratio = args.dpo_warmup_ratio
+    min_lr_ratio = args.dpo_min_lr_ratio
+    clip_grad = args.clip_grad
 
     set_seed(42)
 
@@ -110,10 +120,10 @@ def main():
             "dropout": args.dropout,
             "max_seq_len": max_seq_len,
             "pad_token_id": 0,
-            "use_qk_norm": getattr(args, "use_qk_norm", True),
+            "use_qk_norm": args.use_qk_norm,
         }
 
-    flash_attn = getattr(args, "use_flash_attn", False)
+    flash_attn = args.use_flash_attn
 
     policy_model = GleamLMModel(
         **model_kwargs,

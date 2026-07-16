@@ -30,6 +30,9 @@ model:
   use_gradient_checkpointing: true
 
 data:
+  data_dir: data/pro/pretrain
+  tokenizer_path: gleamlm/tokenizer/checkpoints/bbpe_12k
+  checkpoint_dir: checkpoints/pro
   ids_prefix: ""
 
 advanced:
