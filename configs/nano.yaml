@@ -8,7 +8,7 @@ training:
   epochs: 5
   batch_size: 8
   accumulate_grad: 8
-  max_train_chars: 1200000000
+  max_train_chars: 5300000000
 
 lr:
   type: cosine
