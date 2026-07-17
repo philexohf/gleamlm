@@ -32,12 +32,12 @@ dependencies = [
 
 [project.optional-dependencies]
 train = [
-    "tensorboard>=2.14",
+    "tensorboard>=2.21",
 ]
 dev = [
     "pytest",
     "pytest-cov",
-    "tensorboard>=2.14",
+    "tensorboard>=2.21",
     "ruff>=0.15",
     "mypy>=2.0",
     "pre-commit>=4.0",
