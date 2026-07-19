@@ -29,10 +29,10 @@ def set_seed(seed: int) -> None:
     torch.cuda.manual_seed_all(seed)
 
 
-def create_scaler() -> torch.amp.GradScaler | torch.cuda.amp.GradScaler:  # pyright: ignore[reportDeprecated]
+def create_scaler() -> torch.amp.GradScaler | torch.cuda.amp.GradScaler:  # type: ignore[name-defined]  # pyright: ignore[reportDeprecated]
     """AMP GradScaler with CPU fallback (compatible with PyTorch 1.x / 2.x)."""
     if hasattr(torch.amp, "GradScaler"):
-        return torch.amp.GradScaler("cuda" if torch.cuda.is_available() else "cpu")  # type: ignore[name-defined]
+        return torch.amp.GradScaler("cuda" if torch.cuda.is_available() else "cpu")
     return torch.cuda.amp.GradScaler()  # pyright: ignore[reportDeprecated]
 
 
@@ -134,9 +134,9 @@ def save_checkpoint(
     state_dict = {
         "epoch": epoch,
         "global_step": global_step,
-        "model_state_dict": model.module.state_dict() if world_size > 1 else model.state_dict(),
+        "model_state_dict": model.module.state_dict() if world_size > 1 else model.state_dict(),  # type: ignore[union-attr]
         "optimizer_state_dict": optimizer.state_dict(),
-        "scheduler_state_dict": scheduler.state_dict(),
+        "scheduler_state_dict": scheduler.state_dict(),  # type: ignore[no-untyped-call]
         "scaler_state_dict": scaler.state_dict(),
         **(extra or {}),
     }
@@ -155,7 +155,7 @@ def load_checkpoint(
     """Returns {start_epoch, global_step, best_val_loss}."""
     checkpoint = torch.load(path, map_location=device, weights_only=False)
     if world_size > 1:
-        model.module.load_state_dict(checkpoint["model_state_dict"])
+        model.module.load_state_dict(checkpoint["model_state_dict"])  # type: ignore[union-attr]
     else:
         model.load_state_dict(checkpoint["model_state_dict"])
     if "optimizer_state_dict" in checkpoint:
@@ -231,7 +231,7 @@ def train_one_epoch(
             train_loader
         )
         sync_context = (
-            model.no_sync() if (not is_accum_step and args.world_size > 1) else nullcontext()
+            model.no_sync() if (not is_accum_step and args.world_size > 1) else nullcontext()  # type: ignore[operator]
         )
         with sync_context:
             scaler.scale(loss).backward()

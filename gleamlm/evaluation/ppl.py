@@ -126,7 +126,9 @@ def evaluate_ppl(
         import torch.distributed as dist
         from torch.utils.data.distributed import DistributedSampler
 
-        sampler = DistributedSampler(ds, num_replicas=world_size, rank=local_rank)
+        sampler: DistributedSampler = DistributedSampler(
+            ds, num_replicas=world_size, rank=local_rank
+        )
         dl = DataLoader(
             ds,
             batch_size=batch_size,
@@ -145,7 +147,7 @@ def evaluate_ppl(
     result = compute_ppl(model, dl, torch.device(device), tokenizer.pad_id, max_batches)
     result.dataset_name = dataset
 
-    total, _ = model.get_num_params()
+    total, _ = model.get_num_params()  # type: ignore[operator]
     result.model_params_m = total / 1e6
 
     if world_size > 1:
@@ -154,7 +156,7 @@ def evaluate_ppl(
         tokens_t = torch.tensor([result.tokens], device=device)
         dist.all_reduce(loss_t, op=dist.ReduceOp.SUM)
         dist.all_reduce(tokens_t, op=dist.ReduceOp.SUM)
-        result.tokens = tokens_t.item()
+        result.tokens = int(tokens_t.item())
         result.loss = loss_t.item() / max(1, result.tokens)
         result.ppl = math.exp(result.loss)
 

@@ -19,6 +19,7 @@ from tqdm import tqdm
 
 from gleamlm.inference.chatml import format_chatml
 from gleamlm.inference.generate import generate_response
+from gleamlm.models.model import GleamLMModel
 from gleamlm.tokenizer.tokenizer import BBPETokenizer
 from gleamlm.utils.torch_utils import safe_autocast
 
@@ -254,7 +255,7 @@ def train_one_epoch_dpo(
         loss = loss / args.accumulate_grad
         world_size = getattr(args, "world_size", 1)
         is_accum = (batch_idx + 1) % args.accumulate_grad == 0 or (batch_idx + 1) == len(dataloader)
-        sync_ctx = model.no_sync() if (not is_accum and world_size > 1) else nullcontext()
+        sync_ctx = model.no_sync() if (not is_accum and world_size > 1) else nullcontext()  # type: ignore[operator]
         with sync_ctx:
             scaler.scale(loss).backward()
 
@@ -276,7 +277,7 @@ def train_one_epoch_dpo(
     return total_loss / max(n_batches, 1)
 
 
-def evaluate_dpo(model: torch.nn.Module, tokenizer: BBPETokenizer) -> None:
+def evaluate_dpo(model: GleamLMModel, tokenizer: BBPETokenizer) -> None:
     eval_prompts = [
         "你好，请介绍一下你自己。",
         "什么是机器学习？",

@@ -96,7 +96,7 @@ def main() -> None:
         print(f"\n{'=' * 60}")
         print("Knowledge Probe")
         print(f"{'=' * 60}")
-        result = evaluate_knowledge(model, tokenizer, device=args.device)
+        result = evaluate_knowledge(model, tokenizer, device=args.device)  # type: ignore[assignment]
         all_results["knowledge"] = result.to_dict()
 
     # CEVAL
@@ -108,7 +108,7 @@ def main() -> None:
         print(f"CEVAL ({ceval_dir})")
         print(f"{'=' * 60}")
         try:
-            result = evaluate_ceval(model, tokenizer, ceval_dir, device=args.device)
+            result = evaluate_ceval(model, tokenizer, ceval_dir, device=args.device)  # type: ignore[assignment]
             all_results["ceval"] = result.to_dict()
         except FileNotFoundError as e:
             print(f"  Skipped: {e}")
@@ -122,7 +122,7 @@ def main() -> None:
         print(f"CMMLU ({cmmlu_dir})")
         print(f"{'=' * 60}")
         try:
-            result = evaluate_cmmlu(model, tokenizer, cmmlu_dir, device=args.device)
+            result = evaluate_cmmlu(model, tokenizer, cmmlu_dir, device=args.device)  # type: ignore[assignment]
             all_results["cmmlu"] = result.to_dict()
         except FileNotFoundError as e:
             print(f"  Skipped: {e}")

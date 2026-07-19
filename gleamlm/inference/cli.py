@@ -17,7 +17,7 @@ import torch
 
 if sys.platform == "win32":
     with contextlib.suppress(Exception):
-        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
 
 from gleamlm import load_model_for_inference
 from gleamlm.inference.chatml import format_chatml
@@ -73,7 +73,7 @@ def generate(
 
     last_chunk = prompt
     for chunk in streamer.generate_text(
-        model,
+        model,  # type: ignore[arg-type]
         prompt,
         max_new_tokens,
         temperature,

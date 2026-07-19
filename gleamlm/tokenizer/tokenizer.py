@@ -108,7 +108,9 @@ class BBPETokenizer:
         # 构建 pair → 出现位置的索引（用 dict/set 实现 O(1) 增删）
         print("    Building pair index...", end=" ", flush=True)
         t_idx = time.time()
-        pair_to_positions = defaultdict(dict)  # pair -> {(wid,pos): True}
+        pair_to_positions: dict[tuple[int, int], dict[tuple[int, int], bool]] = defaultdict(
+            dict
+        )  # pair -> {(wid,pos): True}
         for wid, seq in enumerate(byte_sequences):
             for i in range(len(seq) - 1):
                 pair = (seq[i], seq[i + 1])
@@ -118,7 +120,7 @@ class BBPETokenizer:
         # 初始化最大堆：(-count, pair)，用于 O(log P) 找最频繁 pair
         print("    Building max-heap...", end=" ", flush=True)
         t_heap = time.time()
-        heap = []
+        heap: list[tuple[int, tuple[int, int]]] = []
         for pair, positions in pair_to_positions.items():
             heapq.heappush(heap, (-len(positions), pair))
         print(f"done ({time.time() - t_heap:.1f}s)")
@@ -165,14 +167,14 @@ class BBPETokenizer:
             # 更新受影响的序列
             affected = pair_to_positions.pop(best_pair)
             # 按 word_idx 分组，从后往前更新避免索引偏移
-            by_word = defaultdict(list)
+            by_word: dict[int, list[int]] = defaultdict(list)
             for wid, pos in affected:
                 by_word[wid].append(pos)
 
-            for wid, positions in by_word.items():
+            for wid, pos_list in by_word.items():
                 seq = byte_sequences[wid]
-                positions.sort(reverse=True)  # 从后往前
-                for pos in positions:
+                pos_list.sort(reverse=True)  # 从后往前
+                for pos in pos_list:
                     if pos >= len(seq) - 1:
                         continue
                     if (seq[pos], seq[pos + 1]) != best_pair:
@@ -336,7 +338,7 @@ class BBPETokenizer:
             self._special_regex = None
             return
         escaped = [re.escape(t) for t in sorted(self.special_tokens.keys(), key=len, reverse=True)]
-        self._special_regex = re.compile("(" + "|".join(escaped) + ")")
+        self._special_regex: re.Pattern[str] | None = re.compile("(" + "|".join(escaped) + ")")  # type: ignore[assignment,no-redef]
 
     def encode(self, text: str, add_bos: bool = False, add_eos: bool = False) -> list[int]:
         """文本 → token ID 序列

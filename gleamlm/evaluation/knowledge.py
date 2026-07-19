@@ -109,7 +109,7 @@ def _simple_generate(
             temperature=temperature,
             top_k=top_k,
             top_p=0.0,
-            stop_ids=stop_ids,  # type: ignore[arg-type]
+            stop_ids=stop_ids,
             amp_dtype=torch.bfloat16 if torch.cuda.is_available() else None,
         )
     )

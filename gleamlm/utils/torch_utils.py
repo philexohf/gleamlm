@@ -66,7 +66,7 @@ def safe_autocast(
         dtype == torch.bfloat16
         and hasattr(torch, "cpu")
         and callable(getattr(torch.cpu, "is_bf16_supported", None))
-        and torch.cpu.is_bf16_supported()
+        and torch.cpu.is_bf16_supported()  # type: ignore[attr-defined]
     ):
         with torch.amp.autocast("cpu", dtype=torch.bfloat16):  # type: ignore[attr-defined]
             yield

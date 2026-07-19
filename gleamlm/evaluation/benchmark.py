@@ -79,12 +79,12 @@ def _mc_generate(
     return chr(ord("A") + best_idx) if best_idx < 4 else str(best_idx)
 
 
-def _load_ceval(data_dir: str) -> list[dict]:
+def _load_ceval(data_dir: str) -> list[dict[str, Any]]:
     """加载 CEVAL 数据集。支持单文件 ceval.json 或按学科拆分。"""
     ceval_file = os.path.join(data_dir, "ceval.json")
     if os.path.exists(ceval_file):
         with open(ceval_file, encoding="utf-8") as f:
-            return json.load(f)
+            return json.load(f)  # type: ignore[no-any-return]
 
     # 按学科拆分：ceval/high_school_math.json, etc.
     items = []
@@ -138,8 +138,8 @@ def evaluate_ceval(
         items = items[:max_samples]
 
     model.eval()
-    subject_correct = {}
-    subject_total = {}
+    subject_correct: dict[str, int] = {}
+    subject_total: dict[str, int] = {}
     total_correct = 0
 
     for item in items:

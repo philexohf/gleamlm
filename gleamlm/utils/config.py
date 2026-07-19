@@ -46,19 +46,19 @@ class _DictWrapper:
             return _DictWrapper(v)
         return v
 
-    def to_dict(self) -> dict:
-        return self._data.copy()
+    def to_dict(self) -> dict[str, Any]:
+        return self._data.copy()  # type: ignore[no-any-return]
 
     def __repr__(self) -> str:
         return f"Config({self._data})"
 
 
-def load_yaml(path: str) -> dict:
+def load_yaml(path: str) -> dict[str, Any]:
     path = os.path.abspath(path)
     base_dir = os.path.dirname(path)
 
     with open(path, encoding="utf-8") as f:
-        data = yaml.safe_load(f)
+        data: dict[str, Any] = yaml.safe_load(f)
 
     if "extends" in data:
         parent_path = os.path.join(base_dir, data.pop("extends"))
@@ -74,7 +74,7 @@ def resolve_relative_path(base_root: str, path: str) -> str:
     return os.path.normpath(os.path.join(base_root, path))
 
 
-_CONFIG_VALIDATORS = {
+_CONFIG_VALIDATORS: dict[str, dict[str, tuple[type, Any]]] = {
     "model": {
         "d_model": (int, lambda v: v >= 64),
         "num_layers": (int, lambda v: 1 <= v <= 256),
@@ -114,8 +114,8 @@ _CONFIG_VALIDATORS = {
 }
 
 
-def _validate_config(cfg_dict: dict) -> None:
-    errors = []
+def _validate_config(cfg_dict: dict[str, Any]) -> None:
+    errors: list[str] = []
     for section, fields in _CONFIG_VALIDATORS.items():
         sec = cfg_dict.get(section, {})
         if not isinstance(sec, dict):

@@ -19,6 +19,7 @@ from tqdm import tqdm
 
 from gleamlm.inference.chatml import format_chatml
 from gleamlm.inference.generate import generate_response
+from gleamlm.models.model import GleamLMModel
 from gleamlm.tokenizer.tokenizer import BBPETokenizer
 from gleamlm.utils.torch_utils import safe_autocast
 
@@ -261,7 +262,7 @@ def train_one_epoch_sft(
         is_accum = (batch_idx + 1) % args.accumulate_grad == 0 or (batch_idx + 1) == len(
             train_loader
         )
-        sync_ctx = model.no_sync() if (not is_accum and world_size > 1) else nullcontext()
+        sync_ctx = model.no_sync() if (not is_accum and world_size > 1) else nullcontext()  # type: ignore[operator]
         with sync_ctx:
             scaler.scale(loss).backward()
 
@@ -290,7 +291,7 @@ def train_one_epoch_sft(
 
 
 def evaluate_sft(
-    model: torch.nn.Module,
+    model: GleamLMModel,
     tokenizer: BBPETokenizer,
     test_prompts: list[str],
 ) -> list[tuple[str, str]]:

@@ -49,7 +49,7 @@ def generate_response(
             top_k=top_k,
             top_p=top_p,
             repetition_penalty=repetition_penalty,
-            stop_ids=stop_ids,  # type: ignore[arg-type]
+            stop_ids=stop_ids,
         )
     ):
         generated_tokens.append(token_id)

@@ -74,13 +74,10 @@ class GroupedQueryAttention(nn.Module):
     ) -> None:
         super().__init__()
         if d_model % num_heads != 0:
-            raise ValueError(
-                f"d_model ({d_model}) must be divisible by num_heads ({num_heads})"
-            )
+            raise ValueError(f"d_model ({d_model}) must be divisible by num_heads ({num_heads})")
         if num_heads % num_kv_heads != 0:
             raise ValueError(
-                f"num_heads ({num_heads}) must be divisible by "
-                f"num_kv_heads ({num_kv_heads})"
+                f"num_heads ({num_heads}) must be divisible by num_kv_heads ({num_kv_heads})"
             )
 
         self.d_model = d_model
@@ -100,8 +97,8 @@ class GroupedQueryAttention(nn.Module):
             self.q_norm = RMSNorm(self.head_dim)
             self.k_norm = RMSNorm(self.head_dim)
         else:
-            self.q_norm = nn.Identity()
-            self.k_norm = nn.Identity()
+            self.q_norm = nn.Identity()  # type: ignore[assignment]
+            self.k_norm = nn.Identity()  # type: ignore[assignment]
 
         self.dropout = nn.Dropout(dropout) if dropout > 0 else nn.Identity()
 
@@ -148,7 +145,10 @@ class GroupedQueryAttention(nn.Module):
             ).contiguous()
 
             output = F.scaled_dot_product_attention(
-                Q, K_fa, V_fa, is_causal=True,
+                Q,
+                K_fa,
+                V_fa,
+                is_causal=True,
                 dropout_p=self.attn_dropout if self.training else 0.0,
             )
             output = output.transpose(1, 2).contiguous().view(batch_size, seq_len, -1)
@@ -183,7 +183,7 @@ class SwiGLUFFN(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         gate = F.silu(self.W_gate(x))
         up = self.W_up(x)
-        return self.dropout(self.W_down(gate * up))
+        return self.dropout(self.W_down(gate * up))  # type: ignore[no-any-return]
 
 
 class DecoderBlock(nn.Module):
@@ -295,7 +295,9 @@ class GleamLMModel(nn.Module):
         if self.lm_head.weight is not self.token_embed.weight:
             nn.init.normal_(self.lm_head.weight, mean=0.0, std=0.02)
 
-    def _create_causal_mask(self, seq_len: int, device: torch.device, offset: int = 0) -> torch.Tensor:
+    def _create_causal_mask(
+        self, seq_len: int, device: torch.device, offset: int = 0
+    ) -> torch.Tensor:
         """创建因果注意力掩码。offset > 0 时处理 KV cache 场景下的前文偏移。"""
         total = offset + seq_len
         mask = torch.triu(
@@ -313,9 +315,7 @@ class GleamLMModel(nn.Module):
 
         if past_kv_list is not None:
             if not isinstance(past_kv_list, list):
-                raise ValueError(
-                    f"past_kv_list must be a list, got {type(past_kv_list)}"
-                )
+                raise ValueError(f"past_kv_list must be a list, got {type(past_kv_list)}")
             if not past_kv_list:
                 offset = 0
             else:
@@ -328,15 +328,16 @@ class GleamLMModel(nn.Module):
             offset = 0
 
         total_len = offset + seq_len
-        if total_len > self.rope_cos.size(0):
+        if total_len > self.rope_cos.size(0):  # type: ignore[operator]
             raise ValueError(
                 f"Sequence length {total_len} exceeds pre-allocated RoPE cache "
-                f"({self.rope_cos.size(0)}). Increase max_seq_len in config or "
+                f"({self.rope_cos.size(0)}). Increase max_seq_len in config or "  # type: ignore[operator]
                 f"set a larger multiplier in GleamLMModel.__init__."
             )
 
         attn_mask = self._create_causal_mask(
-            seq_len, device,
+            seq_len,
+            device,
             offset=offset,
         )
 

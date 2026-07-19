@@ -8,6 +8,7 @@ import torch
 
 from gleamlm.inference.chatml import format_chatml
 from gleamlm.inference.generator import generate_tokens
+from gleamlm.tokenizer.tokenizer import BBPETokenizer
 from gleamlm.types import PastKeyValueList
 from gleamlm.utils.torch_utils import safe_autocast
 
@@ -23,7 +24,7 @@ class Conversation:
     def __init__(
         self,
         model: torch.nn.Module,
-        tokenizer,
+        tokenizer: BBPETokenizer,
         system_prompt: str = "",
         *,
         max_new_tokens: int = 256,
@@ -132,7 +133,7 @@ class Conversation:
             generated_tokens = generated_tokens[:clean_cutoff]
             removed = total_before_trim - len(generated_tokens)
             if removed > 0:
-                self.past_kv = [(k[:, :, :-removed], v[:, :, :-removed]) for k, v in kv_sink[0]]
+                self.past_kv = [(k[:, :, :-removed], v[:, :, :-removed]) for k, v in kv_sink[0]]  # type: ignore[union-attr]
         elif buffer and LOWER > 0:
             buffer_len = len(buffer)
             tail = self.tokenizer.decode(buffer, skip_special=True)
@@ -147,7 +148,7 @@ class Conversation:
                     generated_tokens = generated_tokens[: -len(buffer)] + clean_ids
                 removed = buffer_len - len(clean_ids)
                 if removed > 0:
-                    self.past_kv = [(k[:, :, :-removed], v[:, :, :-removed]) for k, v in kv_sink[0]]
+                    self.past_kv = [(k[:, :, :-removed], v[:, :, :-removed]) for k, v in kv_sink[0]]  # type: ignore[union-attr]
 
         stopped_clean = len(generated_tokens) < self.max_new_tokens
 
