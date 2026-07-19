@@ -16,7 +16,7 @@
 ## Tokenizer
 
 - **BBPE (Byte-Level BPE)**: Works on UTF-8 byte sequences; 256 base tokens + BPE merges. Self-developed, zero dependencies.
-- **ChatML tokens**: `<|im_start|>`, `<|im_end|>`, `<|endoftext|>` — special tokens for chat format. Registered as single IDs (12000, 12001).
+- **ChatML tokens**: `<|im_start|>`, `<|im_end|>`, `<|endoftext|>` — special tokens for chat format and document boundaries. Registered at fixed IDs 0-2, with `<|buffer1|>`-`<|buffer10|>` at IDs 3-12 for future extensions.
 - **CJK pre-tokenization**: Each Chinese character is a separate token unit; non-CJK kept as contiguous segments.
 
 ## Architecture Philosophy

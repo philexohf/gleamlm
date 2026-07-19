@@ -90,16 +90,17 @@ def _bernoulli_sample(
             out_path = os.path.join(tmp_dir, f"{s['name']}.txt")
             sampled_files.append(out_path)
             probs.append(prob)
-            print(f"    {s['name']}: {prob*100:.0f}% sampling rate")
+            print(f"    {s['name']}: {prob * 100:.0f}% sampling rate")
 
     print("  Bernoulli 采样中...")
     for i, s in enumerate(sources):
         if not input_files[i] or probs[i] >= 0.95:
             continue
         in_count, out_count = 0, 0
-        with open(input_files[i], encoding="utf-8") as fin, open(
-            sampled_files[i], "w", encoding="utf-8"
-        ) as fout:
+        with (
+            open(input_files[i], encoding="utf-8") as fin,
+            open(sampled_files[i], "w", encoding="utf-8") as fout,
+        ):
             for line in fin:
                 in_count += 1
                 if random.random() < probs[i]:
@@ -107,7 +108,9 @@ def _bernoulli_sample(
                     out_count += 1
                 if in_count % 500000 == 0:
                     rate = 100 * out_count / max(1, in_count)
-                    print(f"    {s['name']}: {in_count:,} → {out_count:,} ({rate:.0f}%)", flush=True)
+                    print(
+                        f"    {s['name']}: {in_count:,} → {out_count:,} ({rate:.0f}%)", flush=True
+                    )
         actual = 100 * out_count / max(1, in_count)
         print(f"    {s['name']}: finished {out_count:,} lines ({actual:.1f}%)")
 
@@ -125,11 +128,13 @@ def main() -> None:
     parser.add_argument("--config_dir", default="configs", help="YAML 配置目录")
     parser.add_argument("--input", default="data/raw", help="已处理数据目录（*_dedup.txt）")
     parser.add_argument("--output", default=None, help="输出目录（默认: data/{variant}/pretrain）")
-    parser.add_argument("--max_chars", type=int, default=None, help="混合数据总字符数上限（Bernoulli 采样后混合）")
+    parser.add_argument(
+        "--max_chars", type=int, default=None, help="混合数据总字符数上限（Bernoulli 采样后混合）"
+    )
     args = parser.parse_args()
 
     config_path = os.path.join(args.config_dir, f"{args.variant}.yaml")
-    cfg = load_config(config_path, model_name=args.variant)
+    cfg = load_config(config_path)
 
     sources = (
         list(cfg.data_sources._data) if hasattr(cfg.data_sources, "_data") else cfg.data_sources

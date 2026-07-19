@@ -33,7 +33,7 @@ def generate_response(
     stop_ids = {
         tokenizer.eos_id,
         tokenizer.pad_id,
-        tokenizer.special_tokens.get("<|im_end|>"),
+        tokenizer.im_end_id,
     }
     stop_ids.discard(None)
     assert None not in stop_ids  # type guard for mypy
@@ -53,13 +53,12 @@ def generate_response(
         )
     ):
         generated_tokens.append(token_id)
-        # Periodic <|endoftext|> check on decoded text
         if (i + 1) % 4 == 0:
             draft = tokenizer.decode(generated_tokens, skip_special=False)
-            if "<|endoftext|>" in draft:
+            if tokenizer.eos_token and tokenizer.eos_token in draft:
                 break
 
     response = tokenizer.decode(generated_tokens, skip_special=False)
-    if "<|endoftext|>" in response:
-        response = response.split("<|endoftext|>")[0]
+    if tokenizer.eos_token and tokenizer.eos_token in response:
+        response = response.split(tokenizer.eos_token)[0]
     return response

@@ -1,6 +1,6 @@
 """构建训练数据集（流式版本）。
 
-将多个清洗后的文本文件按配比交织合并，用 <|endoftext|> 分隔文档，
+将多个清洗后的文本文件按配比交织合并，用 <|im_start|> ... <|im_end|> 包裹每个文档，
 然后切分为 train/valid/test。支持 GB 级大文件，无需全量读入内存。
 """
 
@@ -31,8 +31,6 @@ def stream_split(
     for p, r in zip(input_paths, ratios, strict=True):
         print(f"  {os.path.basename(p)}: {r * 100:.0f}%")
 
-    separator = "\n<|endoftext|>\n"
-
     random.seed(42)
 
     train_f = valid_f = test_f = None
@@ -46,7 +44,6 @@ def stream_split(
 
         train_lines = valid_lines = test_lines = 0
         total = 0
-        first_line: dict[TextIO, bool] = {train_f: True, valid_f: True, test_f: True}
 
         active = len(readers)
         source_counts = [0] * len(readers)
@@ -93,11 +90,7 @@ def stream_split(
                         target = test_f
                         test_lines += 1
 
-                    if not first_line[target]:
-                        target.write(separator)
-                    else:
-                        first_line[target] = False
-                    target.write(line_text)
+                    target.write(f"<|im_start|>{line_text}<|im_end|>\n")
 
             if total % (buf_size * 5) < buf_size:
                 print(f"\r  Processed {total:,} lines", end="", flush=True)

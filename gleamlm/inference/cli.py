@@ -64,7 +64,7 @@ def generate(
             add_generation_prompt=True,
         )
         if stop_token is None:
-            stop_token = "<|im_end|>"
+            stop_token = tokenizer.eos_token
 
     print(f"\n{'=' * 60}")
     print(f"Prompt: {prompt}")

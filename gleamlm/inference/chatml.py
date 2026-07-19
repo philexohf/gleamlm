@@ -9,9 +9,7 @@ def format_chatml(
 ) -> str:
     parts: list[str] = []
     for msg in messages:
-        parts.append(
-            f"<|im_start|><|{msg['role']}|>\n{msg['content']}<|im_end|>\n"
-        )
+        parts.append(f"<|im_start|>{msg['role']}\n{msg['content']}<|im_end|>\n")
     if add_generation_prompt:
-        parts.append("<|im_start|><|assistant|>\n")
+        parts.append("<|im_start|>assistant\n")
     return "".join(parts)

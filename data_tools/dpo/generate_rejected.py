@@ -20,6 +20,7 @@ import sys
 import torch
 
 from gleamlm import load_model_for_inference
+from gleamlm.inference.chatml import format_chatml
 from gleamlm.inference.generator import generate_tokens
 from gleamlm.tokenizer.tokenizer import BBPETokenizer
 from gleamlm.utils.config import DEFAULT_TOKENIZER_PATH
@@ -28,9 +29,11 @@ from gleamlm.utils.config import DEFAULT_TOKENIZER_PATH
 def generate_rejected_single(
     model, tokenizer, instruction: str, max_new_tokens=256, temperature=0.8, top_k=50, top_p=0.9
 ) -> str:
-    """单轮：用模型生成一次回答作为 rejected。"""
     device = next(model.parameters()).device
-    prompt_text = f"<|im_start|><|user|>\n{instruction}<|im_end|>\n<|im_start|><|assistant|>\n"
+    prompt_text = format_chatml(
+        [{"role": "user", "content": instruction}],
+        add_generation_prompt=True,
+    )
     prompt_ids = tokenizer.encode(prompt_text, add_bos=False, add_eos=False)
 
     generated: list[int] = []
@@ -49,8 +52,8 @@ def generate_rejected_single(
         generated.append(token_id)
 
     response = tokenizer.decode(generated, skip_special=True)
-    if "<|endoftext|>" in response:
-        response = response.split("<|endoftext|>")[0]
+    if tokenizer.eos_token and tokenizer.eos_token in response:
+        response = response.split(tokenizer.eos_token)[0]
     return response
 
 
@@ -66,14 +69,11 @@ def last_assistant_turn(
 
 
 def build_prompt(context: list[dict[str, str]], tokenizer) -> list[int]:
-    """多轮对话上下文 → token IDs。"""
-    parts: list[str] = []
-    for msg in context:
-        role = msg["role"]
-        content = msg["content"]
-        parts.append(f"<|im_start|><|{role}|>\n{content}<|im_end|>\n")
-    parts.append("<|im_start|><|assistant|>\n")
-    return tokenizer.encode("".join(parts), add_bos=False, add_eos=False)
+    return tokenizer.encode(
+        format_chatml(context, add_generation_prompt=True),
+        add_bos=False,
+        add_eos=False,
+    )
 
 
 def generate_rejected_multi(
@@ -85,10 +85,9 @@ def generate_rejected_multi(
     top_k=50,
     top_p=0.9,
 ) -> str:
-    """多轮：基于完整对话上下文重新生成最后一轮 assistant 回答。"""
     device = next(model.parameters()).device
     prompt_ids = build_prompt(context, tokenizer)
-    im_end_id = tokenizer.special_tokens.get("<|im_end|>")
+    im_end_id = tokenizer.im_end_id
     stop_ids: set[int] = {tokenizer.eos_id, tokenizer.pad_id}
     if im_end_id is not None:
         stop_ids.add(im_end_id)

@@ -157,9 +157,9 @@ def build_tokenizer():
     # 方案 B：从 SmolLM2 加载并 resize（仅用于快速测试架构，token 语义不正确！）
     print("⚠️  未找到 GleamLM tokenizer，使用 SmolLM2 作为占位（仅测试用）")
     tokenizer = AutoTokenizer.from_pretrained("HuggingFaceTB/SmolLM2-135M")
-    tokenizer.pad_token = "<pad>"
+    tokenizer.pad_token = "<|endoftext|>"
     tokenizer.bos_token = "<|im_start|>"
-    tokenizer.eos_token = "<|endoftext|>"
+    tokenizer.eos_token = "<|im_end|>"
     tokenizer.model_max_length = 2048
     tokenizer.init_kwargs["model_max_length"] = 2048
     return tokenizer

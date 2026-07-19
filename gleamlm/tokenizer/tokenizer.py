@@ -24,32 +24,55 @@ def _pre_tokenize_re(text: str) -> list[str]:
 
 # （当前预分词完全由正则 _PRE_TOKENIZE_RE 完成）
 
+# 特殊 token：注册顺序 = ID（锁定不变）
+_SPECIAL_TOKENS = [
+    "<|endoftext|>",
+    "<|im_start|>",
+    "<|im_end|>",
+    "<|buffer1|>",
+    "<|buffer2|>",
+    "<|buffer3|>",
+    "<|buffer4|>",
+    "<|buffer5|>",
+    "<|buffer6|>",
+    "<|buffer7|>",
+    "<|buffer8|>",
+    "<|buffer9|>",
+    "<|buffer10|>",
+]
+_NUM_SPECIAL_TOKENS = len(_SPECIAL_TOKENS)
+
 
 # BBPE Tokenizer
 class BBPETokenizer:
     """Byte-Level BPE 分词器"""
 
     def __init__(self) -> None:
-        # 256 字节基座
-        self.id_to_byte: dict[int, bytes] = {i: bytes([i]) for i in range(256)}
+        self.id_to_byte: dict[int, bytes] = {}
 
-        # BPE 合并规则: (id_a, id_b) -> merged_id
         self.merges: dict[tuple[int, int], int] = {}
-        # 反向: merged_id -> (id_a, id_b)
         self.merge_pairs: dict[int, tuple[int, int]] = {}
 
-        # 特殊 token 映射
         self.special_tokens: dict[str, int] = {}
         self.id_to_special: dict[int, str] = {}
 
-        # 下一个可用 token ID（256 之后）
-        self._next_id = 256
+        self._next_id = 0
 
-        # 预分词方法（C 级字符类正则）
         self._pre_tokenize_fn = _pre_tokenize_re
-
-        # 特殊 token 切分正则（_add_special_tokens 或 load 后构建）
         self._special_regex = None
+
+        self._add_special_tokens()
+
+        for i in range(256):
+            self.id_to_byte[self._next_id] = bytes([i])
+            self._next_id += 1
+
+    @property
+    def _byte_offset(self) -> int:
+        return len(self.special_tokens)
+
+    def _offset_raw_bytes(self, raw: list[int]) -> list[int]:
+        return [b + self._byte_offset for b in raw]
 
     # 训练
 
@@ -79,16 +102,8 @@ class BBPETokenizer:
         total_pairs = sum(len(seq) - 1 for seq in byte_sequences if len(seq) > 1)
         print(f"  Collected {len(byte_sequences):,} words, {total_pairs:,} initial pairs")
 
-        # 先注册特殊 token 以获取实际数量，再回退 _next_id 给 BPE 训练
-        tokenizer._add_special_tokens()
-        SPECIAL_COUNT = len(tokenizer.special_tokens)
-        tokenizer._next_id = 256
-        tokenizer.special_tokens.clear()
-        tokenizer.id_to_special.clear()
-        tokenizer.id_to_byte = {i: bytes([i]) for i in range(256)}
-
-        n_merges = vocab_size - 256 - SPECIAL_COUNT
-        print(f"  Step 2/3: Training {n_merges} BPE merges ({SPECIAL_COUNT} special tokens reserved)...")
+        n_merges = vocab_size - tokenizer._next_id
+        print(f"  Step 2/3: Training {n_merges} BPE merges...")
 
         # 构建 pair → 出现位置的索引（用 dict/set 实现 O(1) 增删）
         print("    Building pair index...", end=" ", flush=True)
@@ -220,10 +235,6 @@ class BBPETokenizer:
 
         print(f"\n  Trained {len(tokenizer.merges)} merges, vocab_size={tokenizer._next_id}")
 
-        tokenizer._add_special_tokens()
-
-        print(f"  Step 3/3: Injected special tokens, final vocab={tokenizer._next_id}")
-
         if save_dir:
             tokenizer.save(save_dir)
 
@@ -269,7 +280,7 @@ class BBPETokenizer:
                     for word in words:
                         byte_seq = list(word.encode("utf-8"))
                         if byte_seq:
-                            byte_sequences.append(byte_seq)
+                            byte_sequences.append(self._offset_raw_bytes(byte_seq))
                             file_words += 1
 
                     pct = 100 * (quotas[i] - text_remaining) / quotas[i]
@@ -289,47 +300,33 @@ class BBPETokenizer:
         return self._pre_tokenize_fn(text)
 
     def _add_special_tokens(self) -> None:
-        """注入特殊 token 到词表末尾"""
         if self.special_tokens:
-            return  # 已注册，幂等
+            return
 
-        specials = [
-            "<|endoftext|>",
-            "<|im_start|>",
-            "<|im_end|>",
-            "<pad>",
-            "<unk>",
-            "<s>",
-            "</s>",
-            "<|user|>",
-            "<|assistant|>",
-            "<|system|>",
-        ]
-        for token in specials:
+        for token in _SPECIAL_TOKENS:
             if token not in self.special_tokens:
                 tid = self._next_id
                 self.special_tokens[token] = tid
                 self.id_to_special[tid] = token
-                # 写入 id_to_byte 供 decode() 还原
                 self.id_to_byte[tid] = token.encode("utf-8")
                 self._next_id += 1
 
         self._set_aliases()
-
-        # 构建特殊 token 切分正则（按长度降序，确保最长匹配优先）
         self._build_special_regex()
 
     def _set_aliases(self) -> None:
-        """设置常用特殊 token 别名"""
-        self.pad_token = "<pad>"
-        self.unk_token = "<unk>"
-        self.bos_token = "<s>"
-        self.eos_token = "</s>"
+        self.pad_token = "<|endoftext|>"
+        self.unk_token = "<|endoftext|>"
+        self.bos_token = "<|im_start|>"
+        self.eos_token = "<|im_end|>"
 
-        self.pad_id = self.special_tokens.get("<pad>", 0)
-        self.unk_id = self.special_tokens.get("<unk>", 1)
-        self.bos_id = self.special_tokens.get("<s>", 2)
-        self.eos_id = self.special_tokens.get("</s>", 3)
+        self.pad_id = self.special_tokens.get("<|endoftext|>", 0)
+        self.unk_id = self.special_tokens.get("<|endoftext|>", 0)
+        self.bos_id = self.special_tokens.get("<|im_start|>", 1)
+        self.eos_id = self.special_tokens.get("<|im_end|>", 2)
+
+        self.im_start_id = self.special_tokens.get("<|im_start|>", 1)
+        self.im_end_id = self.special_tokens.get("<|im_end|>", 2)
 
     # 编码 / 解码
 
@@ -368,7 +365,7 @@ class BBPETokenizer:
                 words = self._pre_tokenize(part)
                 for word in words:
                     byte_seq = list(word.encode("utf-8"))
-                    ids.extend(self._apply_bpe_to_bytes(byte_seq))
+                    ids.extend(self._apply_bpe_to_bytes(self._offset_raw_bytes(byte_seq)))
 
         if add_eos:
             ids.append(self.eos_id)

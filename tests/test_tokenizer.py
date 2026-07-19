@@ -35,7 +35,8 @@ def test_encode_decode_mixed(tokenizer):
 
 
 def test_special_tokens_single_id(tokenizer):
-    for tok in ["<|im_start|>", "<|im_end|>", "<|endoftext|>", "<pad>", "<unk>", "<s>", "</s>"]:
+    specials = ["<|im_start|>", "<|im_end|>", "<|endoftext|>"]
+    for tok in specials:
         assert tok in tokenizer.special_tokens, f"Missing: {tok}"
         encoded = tokenizer.encode(tok, add_bos=False, add_eos=False)
         assert len(encoded) == 1, f"'{tok}' should be 1 token, got {len(encoded)}"
@@ -53,12 +54,10 @@ def test_encode_empty_string(tokenizer):
 
 
 def test_chatml_format(tokenizer):
-    """ChatML 特殊 token 可正确编码"""
-    prompt = "<|im_start|><|user|>\n你好<|im_end|>\n<|im_start|><|assistant|>\n"
+    prompt = "<|im_start|>user\n你好<|im_end|>\n<|im_start|>assistant\n"
     ids = tokenizer.encode(prompt)
     decoded = tokenizer.decode(ids)
     assert "你好" in decoded
-    # 每个特殊 token 应为 1 个 ID
     assert tokenizer.special_tokens["<|im_start|>"] in ids
     assert tokenizer.special_tokens["<|im_end|>"] in ids
 
@@ -95,7 +94,7 @@ def test_train_tokenizer_small():
         )
 
         assert trained.get_vocab_size() >= 500
-        assert len(trained.special_tokens) >= 7
+        assert len(trained.special_tokens) >= 13
 
         test_cases = ["你好，世界！", "人工智能", "Hello World"]
         for text in test_cases:
@@ -103,7 +102,8 @@ def test_train_tokenizer_small():
             decoded = trained.decode(ids)
             assert decoded == text, f"Round-trip failed: '{text}' → '{decoded}'"
 
-        for tok in ["<|im_start|>", "<|im_end|>", "<|endoftext|>", "<pad>", "<unk>", "<s>", "</s>"]:
+        specials = ["<|im_start|>", "<|im_end|>", "<|endoftext|>"]
+        for tok in specials:
             assert tok in trained.special_tokens
             encoded = trained.encode(tok, add_bos=False, add_eos=False)
             assert len(encoded) == 1, f"'{tok}' should be 1 token, got {len(encoded)}"
@@ -196,8 +196,8 @@ def test_encode_decode_very_long(tokenizer):
 
 
 def test_encode_decode_special_token_adjacent(tokenizer):
-    text = "<|im_start|><|user|>"
+    text = "<|im_start|><|im_end|>"
     ids = tokenizer.encode(text, add_bos=False, add_eos=False)
     assert len(ids) == 2
     assert ids[0] == tokenizer.special_tokens["<|im_start|>"]
-    assert ids[1] == tokenizer.special_tokens["<|user|>"]
+    assert ids[1] == tokenizer.special_tokens["<|im_end|>"]

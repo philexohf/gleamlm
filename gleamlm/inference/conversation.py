@@ -65,15 +65,13 @@ class Conversation:
 
     def stream_response(self) -> Iterator[int]:
         device = next(self.model.parameters()).device
-        im_end_id = self.tokenizer.special_tokens.get("<|im_end|>")
+        im_end_id = self.tokenizer.im_end_id
         stop_ids: set[int] = {self.tokenizer.eos_id, self.tokenizer.pad_id}
         if im_end_id is not None:
             stop_ids.add(im_end_id)
 
         if self.past_kv is None:
-            prompt_text = format_chatml(
-                self.messages, add_generation_prompt=True
-            )
+            prompt_text = format_chatml(self.messages, add_generation_prompt=True)
         else:
             last_user = self.messages[-1]["content"]
             prompt_text = format_chatml(
@@ -122,8 +120,7 @@ class Conversation:
             tail = self.tokenizer.decode(buffer, skip_special=True)
 
             if tail and tail[-1] in sentence_ends:
-                for t in buffer:
-                    yield t
+                yield from buffer
                 clean_cutoff = len(generated_tokens)
                 stop_yielding = True
                 buffer.clear()
@@ -135,10 +132,7 @@ class Conversation:
             generated_tokens = generated_tokens[:clean_cutoff]
             removed = total_before_trim - len(generated_tokens)
             if removed > 0:
-                self.past_kv = [
-                    (k[:, :, :-removed], v[:, :, :-removed])
-                    for k, v in kv_sink[0]
-                ]
+                self.past_kv = [(k[:, :, :-removed], v[:, :, :-removed]) for k, v in kv_sink[0]]
         elif buffer and LOWER > 0:
             buffer_len = len(buffer)
             tail = self.tokenizer.decode(buffer, skip_special=True)
@@ -153,21 +147,23 @@ class Conversation:
                     generated_tokens = generated_tokens[: -len(buffer)] + clean_ids
                 removed = buffer_len - len(clean_ids)
                 if removed > 0:
-                    self.past_kv = [
-                        (k[:, :, :-removed], v[:, :, :-removed])
-                        for k, v in kv_sink[0]
-                    ]
+                    self.past_kv = [(k[:, :, :-removed], v[:, :, :-removed]) for k, v in kv_sink[0]]
 
         stopped_clean = len(generated_tokens) < self.max_new_tokens
 
         if stopped_clean and im_end_id is not None:
             im_end_input = torch.tensor([[im_end_id]], dtype=torch.long, device=device)
-            with torch.no_grad():
-                with safe_autocast(enabled=self.use_amp, dtype=self.amp_dtype or torch.bfloat16):
-                    _, self.past_kv = self.model(im_end_input, past_kv_list=self.past_kv)
+            with (
+                torch.no_grad(),
+                safe_autocast(enabled=self.use_amp, dtype=self.amp_dtype or torch.bfloat16),
+            ):
+                _, self.past_kv = self.model(im_end_input, past_kv_list=self.past_kv)
 
         self.messages.append(
-            {"role": "assistant", "content": self.tokenizer.decode(generated_tokens, skip_special=True)}
+            {
+                "role": "assistant",
+                "content": self.tokenizer.decode(generated_tokens, skip_special=True),
+            }
         )
 
     def get_history(self) -> list[dict[str, str]]:

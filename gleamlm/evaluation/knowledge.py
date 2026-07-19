@@ -96,7 +96,7 @@ def _simple_generate(
 
     stop_ids = {
         tokenizer.eos_id,
-        tokenizer.special_tokens.get("<|im_end|>"),
+        tokenizer.im_end_id,
     }
     stop_ids.discard(None)
 

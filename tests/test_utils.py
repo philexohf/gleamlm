@@ -9,7 +9,6 @@ from gleamlm.training.dpo_trainer import compute_log_probs, dpo_loss
 from gleamlm.utils.checkpoint import assert_same_architecture
 from gleamlm.utils.torch_utils import get_lr_cosine, get_lr_wsd
 
-
 # ---- LR 调度 ----
 
 
@@ -30,17 +29,23 @@ def test_lr_cosine_midpoint():
 
 
 def test_lr_wsd_warmup():
-    lr = get_lr_wsd(step=5, total_steps=1000, warmup_ratio=0.02, stable_ratio=0.8, min_lr_ratio=0.05)
+    lr = get_lr_wsd(
+        step=5, total_steps=1000, warmup_ratio=0.02, stable_ratio=0.8, min_lr_ratio=0.05
+    )
     assert lr == 5 / 20  # step=5, warmup_steps=20
 
 
 def test_lr_wsd_stable():
-    lr = get_lr_wsd(step=400, total_steps=1000, warmup_ratio=0.02, stable_ratio=0.8, min_lr_ratio=0.05)
+    lr = get_lr_wsd(
+        step=400, total_steps=1000, warmup_ratio=0.02, stable_ratio=0.8, min_lr_ratio=0.05
+    )
     assert lr == 1.0
 
 
 def test_lr_wsd_decay_end():
-    lr = get_lr_wsd(step=999, total_steps=1000, warmup_ratio=0.02, stable_ratio=0.8, min_lr_ratio=0.05)
+    lr = get_lr_wsd(
+        step=999, total_steps=1000, warmup_ratio=0.02, stable_ratio=0.8, min_lr_ratio=0.05
+    )
     assert abs(lr - 0.05) < 1e-4
 
 
@@ -62,14 +67,18 @@ def test_dpo_loss_chosen_preferred():
     """policy 偏好 chosen 时 loss 应低于 policy 偏好 rejected"""
     # policy prefers chosen: p_cho > r_cho, p_rej = r_rej → term > 0 → low loss
     loss_correct = dpo_loss(
-        torch.tensor([0.0]), torch.tensor([-2.0]),
-        torch.tensor([-5.0]), torch.tensor([-2.0]),
+        torch.tensor([0.0]),
+        torch.tensor([-2.0]),
+        torch.tensor([-5.0]),
+        torch.tensor([-2.0]),
         beta=1.0,
     )
     # policy prefers rejected: p_rej > r_rej, p_cho = r_cho → term < 0 → high loss
     loss_wrong = dpo_loss(
-        torch.tensor([-5.0]), torch.tensor([0.0]),
-        torch.tensor([-5.0]), torch.tensor([-2.0]),
+        torch.tensor([-5.0]),
+        torch.tensor([0.0]),
+        torch.tensor([-5.0]),
+        torch.tensor([-2.0]),
         beta=1.0,
     )
     assert loss_correct.item() < loss_wrong.item()
@@ -78,13 +87,17 @@ def test_dpo_loss_chosen_preferred():
 def test_dpo_loss_beta_effect():
     """更大的 beta 放大偏好信号，使正确模型的 loss 更低"""
     loss_low_beta = dpo_loss(
-        torch.tensor([0.0]), torch.tensor([-2.0]),
-        torch.tensor([-5.0]), torch.tensor([-2.0]),
+        torch.tensor([0.0]),
+        torch.tensor([-2.0]),
+        torch.tensor([-5.0]),
+        torch.tensor([-2.0]),
         beta=0.1,
     )
     loss_high_beta = dpo_loss(
-        torch.tensor([0.0]), torch.tensor([-2.0]),
-        torch.tensor([-5.0]), torch.tensor([-2.0]),
+        torch.tensor([0.0]),
+        torch.tensor([-2.0]),
+        torch.tensor([-5.0]),
+        torch.tensor([-2.0]),
         beta=1.0,
     )
     assert loss_high_beta.item() < loss_low_beta.item()
@@ -117,25 +130,21 @@ def test_compute_log_probs_mask():
 
 def test_chatml_single_message():
     result = format_chatml([{"role": "user", "content": "hi"}])
-    assert result == "<|im_start|><|user|>\nhi<|im_end|>\n"
+    assert result == "<|im_start|>user\nhi<|im_end|>\n"
 
 
 def test_chatml_with_generation_prompt():
-    result = format_chatml([{"role": "system", "content": "Be helpful."}], add_generation_prompt=True)
-    assert result == (
-        "<|im_start|><|system|>\nBe helpful.<|im_end|>\n"
-        "<|im_start|><|assistant|>\n"
+    result = format_chatml(
+        [{"role": "system", "content": "Be helpful."}], add_generation_prompt=True
     )
+    assert result == ("<|im_start|>system\nBe helpful.<|im_end|>\n<|im_start|>assistant\n")
 
 
 def test_chatml_multi_turn():
     result = format_chatml(
         [{"role": "user", "content": "Q"}, {"role": "assistant", "content": "A"}]
     )
-    assert result == (
-        "<|im_start|><|user|>\nQ<|im_end|>\n"
-        "<|im_start|><|assistant|>\nA<|im_end|>\n"
-    )
+    assert result == ("<|im_start|>user\nQ<|im_end|>\n<|im_start|>assistant\nA<|im_end|>\n")
 
 
 # ---- assert_same_architecture ----
@@ -143,11 +152,14 @@ def test_chatml_multi_turn():
 
 def test_assert_same_architecture_match():
     # 不应抛出异常
-    assert_same_architecture({"vocab_size": 12002, "d_model": 512}, {"vocab_size": 12002, "d_model": 512})
+    assert_same_architecture(
+        {"vocab_size": 12002, "d_model": 512}, {"vocab_size": 12002, "d_model": 512}
+    )
 
 
 def test_assert_same_architecture_mismatch():
     import pytest
+
     with pytest.raises(ValueError):
         assert_same_architecture({"vocab_size": 12002}, {"vocab_size": 999})
 

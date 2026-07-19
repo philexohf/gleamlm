@@ -425,7 +425,7 @@ python scripts/sft.py --variant nano --resume checkpoints/nano/sft/sft_epoch_1.p
 | 预计耗时 | ~55 分钟 | 单卡 12GB |
 | 续训 | `--resume PATH` | 从 checkpoint 恢复 optimizer/scheduler/scaler 状态续训 |
 
-- **ChatML + loss mask**：V4 BBPE 已原生支持 `<|im_start|>`（token_id=12000）、`<|im_end|>`（token_id=12001），无需格式绕过
+- **ChatML + loss mask**：BBPE 原生支持 `<|im_start|>`（ID=1）、`<|im_end|>`（ID=2），无需格式绕过
 - **评估方式**：对比微调前后对同一 prompt 的生成质量，检验是否从"续写"转为"直接回答"
 
 **SFT 训练结果**（lr=5e-6, epochs=3）：

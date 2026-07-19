@@ -58,16 +58,24 @@ class TextStreamer:
                 new_text = decoded_text[len(total_decoded) :]
                 total_decoded = decoded_text
 
-                if stop_on_endoftext and "<|endoftext|>" in new_text:
-                    yield new_text.split("<|endoftext|>")[0]
+                if (
+                    stop_on_endoftext
+                    and self.tokenizer.eos_token
+                    and self.tokenizer.eos_token in new_text
+                ):
+                    yield new_text.split(self.tokenizer.eos_token)[0]
                     return
                 if new_text:
                     yield new_text
 
         if byte_buffer:
             final_text = byte_buffer.decode("utf-8", errors="replace")
-            if stop_on_endoftext and "<|endoftext|>" in final_text:
-                final_text = final_text.split("<|endoftext|>")[0]
+            if (
+                stop_on_endoftext
+                and self.tokenizer.eos_token
+                and self.tokenizer.eos_token in final_text
+            ):
+                final_text = final_text.split(self.tokenizer.eos_token)[0]
             yield final_text
 
 
