@@ -18,9 +18,7 @@ import argparse
 import os
 import pickle
 
-from gleamlm.preprocessing.clean_text import clean_file
-from gleamlm.preprocessing.dedup_text import dedup_file, normalize, simhash
-from gleamlm.preprocessing.filter_qa import filter_qa
+from gleamlm.preprocess import clean_file, dedup_file, filter_qa, normalize, simhash
 
 SOURCES = [
     {"name": "edu", "type": "text"},
@@ -64,15 +62,20 @@ def _load_fingerprints(filepath: str) -> set[int]:
         try:
             with open(fps_file, "rb") as f:
                 fps = pickle.load(f)
-            print(f"  Loaded {len(fps):,} fingerprints from {os.path.basename(fps_file)}", flush=True)
+            print(
+                f"  Loaded {len(fps):,} fingerprints from {os.path.basename(fps_file)}", flush=True
+            )
             return fps
         except Exception:
-            print(f"  WARNING: corrupted fingerprint cache, regenerating...", flush=True)
+            print("  WARNING: corrupted fingerprint cache, regenerating...", flush=True)
             os.remove(fps_file)
 
     fps: set[int] = set()
     size_mb = os.path.getsize(filepath) / 1e6
-    print(f"  Loading fingerprints from {os.path.basename(filepath)} ({size_mb:.0f} MB)...", flush=True)
+    print(
+        f"  Loading fingerprints from {os.path.basename(filepath)} ({size_mb:.0f} MB)...",
+        flush=True,
+    )
     with open(filepath, encoding="utf-8") as f:
         for i, line in enumerate(f, 1):
             if i % 200000 == 0:
@@ -93,13 +96,16 @@ def main():
     parser.add_argument("--skip_exact_dedup", action="store_true")
     parser.add_argument("--skip_clean", action="store_true")
     parser.add_argument("--skip_simhash", action="store_true")
-    parser.add_argument("--cross_dedup", action="store_true",
-                        help="启用跨源 SimHash 全局去重（默认跳过）")
+    parser.add_argument(
+        "--cross_dedup", action="store_true", help="启用跨源 SimHash 全局去重（默认跳过）"
+    )
     parser.add_argument("--exact_mode", default="exact", choices=["exact", "prefix"])
     parser.add_argument("--prefix_len", type=int, default=100)
     parser.add_argument("--simhash_threshold", type=int, default=3)
     parser.add_argument(
-        "--sources", nargs="+", default=None,
+        "--sources",
+        nargs="+",
+        default=None,
         help="只处理指定的源 (edu/news/wiki/baike/qa)，默认全部",
     )
     args = parser.parse_args()

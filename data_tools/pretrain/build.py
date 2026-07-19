@@ -14,7 +14,7 @@ import random
 import shutil
 import sys
 
-from gleamlm.preprocessing.mix_split import stream_split
+from gleamlm.preprocess import stream_split
 from gleamlm.utils.config import load_config
 
 SAMPLE_LINES = 100_000
