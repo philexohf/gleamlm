@@ -198,6 +198,9 @@ python data_tools/pretrain/run_pipeline.py \
     --max-chars 6130000000
 ```
 
+> **数据管线预处理数据**：已上传 ModelScope：[LLM-Pretrain-Data](https://www.modelscope.cn/datasets/philexohf/LLM-Pretrain-Data)，数据下载后，放入本地 `data/nano/pretrain` 文件夹。复现训练可直接下载该数据集，无需重复执行数据管线。
+
+
 ### 1. 预训练
 
 ```bash
@@ -308,7 +311,7 @@ Nano 与 Lite 同为四源（含 [Chinese FineWeb Edu](https://huggingface.co/da
 | 百度百科 (baike) | 6% | ~145 |
 
 > Nano 实际训练数据 4.47B tokens（train 文本 ≈4.6B 字符；train+valid+test ≈5.2B 字符），训练 1 epoch。
-> 配比由 `python data_tools/pretrain/run_pipeline.py --variant nano` 按字符占比做 Bernoulli 采样混合（news/wiki/baike 稀缺源全量吃满）；`configs/nano.yaml` 的 `training.max_train_chars` 。
+> 配比由 `python data_tools/pretrain/run_pipeline.py --variant nano` 按字符占比做 Bernoulli 采样混合（news/wiki/baike 稀缺源全量吃满）。
 > Lite 数据文件与 Nano 共用，由 `python data_tools/pretrain/run_pipeline.py --variant lite` 生成。
 
 ---
