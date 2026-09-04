@@ -3,14 +3,14 @@
 大模型预训练数据必须切成固定长度 block:
   GPT-2 论文做法: 把整个文档流拼接成一个超长 token 序列，
   然后滑窗切成 [0:1024], [1024:2048], ... 边界可以跨文档。
-  (因为语言模型 loss 只依赖前文，跨文档边界不破坏学习)
+  (语言模型 loss 只依赖前文，跨文档边界不影响训练)
 
 两种输入格式（与 gleamlm.data.pack 统一）:
   A. 工业格式 .bin/.idx（推荐）: 一次预处理、多次复用，mmap 零内存加载。
      --data data/processed/wiki_zh   （gleamlm.data.pack 的输出前缀）
      tokenize_and_group 自动识别并走 IndexedMMapDataset（手写读取器，
      与 Megatron IndexedDataset 同格式，不依赖 megatron-core）
-  B. 文本 .txt（教学/小数据）: 每次训练现场 tokenize，纯 Python 逐行
+  B. 文本 .txt（小数据场景）: 每次训练现场 tokenize，纯 Python 逐行
      处理（零 datasets 依赖，与预处理引擎同范式）。
 
 本实现步骤（B 分支）:
@@ -22,8 +22,8 @@
 为什么预训练统一用工业 mmap 格式？
   - tokenize 是最贵的步骤（BBPE 24K 几 GB 语料要数小时），一次预处理两轨共用
   - np.memmap 随机访问任意文档，内存占用 ≈ 0，TB 级语料也能训
-  - 这是工业事实标准（Megatron/NeMo 同款 .bin/.idx），面试必考
-  - 手写读取器本身就是学习点: mmap + 索引 = 工业数据管道核心
+  - 工业事实标准（Megatron/NeMo 同款 .bin/.idx）
+  - 手写读取器即工业数据管道核心: mmap + 索引
 """
 
 import bisect
@@ -46,7 +46,7 @@ _DTYPE_CODE_UINT16 = 8
 
 
 class IndexedMMapDataset(TorchDataset):
-    """手写 .bin/.idx 读取器 — 工业 mmap 数据格式原理（面试点）。
+    """手写 .bin/.idx 读取器 — 工业 mmap 数据格式。
 
     与 megatron.core.datasets.indexed_dataset.IndexedDataset 完全同格式，
     但实现完全手写（纯 numpy/struct），零第三方依赖：
@@ -168,11 +168,11 @@ def _read_text_lines(data_path: str | list[str]) -> list[str]:
 
 
 class _TextTokenizeDataset(TorchDataset):
-    """txt 教学分支 — 纯 Python 逐行 tokenize + 固定长度 block（零 datasets）。
+    """txt 分支 — 纯 Python 逐行 tokenize + 固定长度 block（零 datasets）。
 
     与原 datasets 版语义一致: 过滤短文本（≤ seq_len 丢弃），
     每行截取 ids[:seq_len] / ids[1:seq_len+1]（label shift 一步）。
-    单进程急切加载（教学/小数据场景，无需多进程）。
+    单进程急切加载（小数据场景，无需多进程）。
     """
 
     def __init__(self, data_path, tokenizer, seq_len, text_key="text", num_proc=8):
@@ -214,7 +214,7 @@ def tokenize_and_group(
     data_path 为 .bin/.idx 前缀（如 data/processed/wiki_zh）时:
       走 IndexedMMapDataset（mmap 零内存，与 Megatron/工业轨共用一份数据）
     data_path 为 .txt 路径/目录/文件列表时:
-      走纯 Python 逐行 tokenize（教学/小数据场景，零 datasets 依赖）
+      走纯 Python 逐行 tokenize（小数据场景，零 datasets 依赖）
 
     返回值均支持 len()/getitem()/DataLoader，元素为
     {"input_ids", "labels"}（labels 为 shift 一步）。

@@ -1,6 +1,6 @@
 """文本 → Megatron .bin/.idx (mmap) 格式 — 零 HuggingFace 依赖。
 
-学习要点（与 `gleamlm.data.dataset.tokenize_and_group` 对比）:
+与 `gleamlm.data.dataset.tokenize_and_group` 对比:
   1. tokenize_and_group: 文本 → 内存 Dataset（一次性加载进 RAM）
   2. 本模块:         文本 → .bin (token ids 连续写入) + .idx (索引)，
                      训练时用 np.memmap 随机访问任意文档，内存占用 ≈ 0。
@@ -66,7 +66,7 @@ def get_tokenizer(name: str, tokenizer_path: str | None = None):
     """获取 tokenizer。
 
     bbpe — 项目自研 BBPE（零 HuggingFace 依赖），默认选项。
-    gpt2 — GPT-2 BPE，需安装 transformers（仅教学用，懒加载）。
+    gpt2 — GPT-2 BPE，需安装 transformers（示例用，懒加载）。
     """
     if name == "gpt2":
         from transformers import GPT2TokenizerFast
@@ -123,7 +123,7 @@ def write_indexed_dataset(prefix: str, docs_tokens: list[list[int]], vocab_size:
     手写 .bin/.idx 生成 — 对应 megatron.core.datasets.indexed_dataset.IndexedDatasetBuilder
     （0.16 版 header 布局，两轨通用）。
 
-    格式要点（面试点）:
+    格式说明:
       - .bin 是纯二进制 token 流，训练时 np.memmap 直接映射，不占进程内存
       - .idx 让数据集支持 O(1) 随机访问任意文档（pointer + length 查表）
       - 这也是"为什么工业预训练不用 HF datasets/parquet"的底层原因之一:
@@ -131,7 +131,7 @@ def write_indexed_dataset(prefix: str, docs_tokens: list[list[int]], vocab_size:
       - 每文档=一序列（与 megatron IndexedDataset 的"序列"概念对齐），
         因此 document_indices = [0, 1, ..., N]（含前导 0）
 
-    docs_tokens 已是 token 列表（小数据集 / 教学）。TB 级语料请用
+    docs_tokens 已是 token 列表（小数据集 / 实验）。TB 级语料请用
     build_indexed_dataset（流式，避免整库驻留内存）。
     """
     with open(prefix + ".bin", "wb") as f:
@@ -250,7 +250,7 @@ def verify_indexed_dataset(prefix, n_docs, sample=8, tokenizer=None, source=None
 
 
 def verify(prefix: str, docs_tokens: list[list[int]]) -> None:
-    """自读回验证（面试点: 写完必须验证，工业数据管线同样如此）。"""
+    """写后自读回验证（写完必须验证，工业数据管线同样如此）。"""
     try:
         from megatron.core.datasets.indexed_dataset import IndexedDataset
 

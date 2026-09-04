@@ -14,7 +14,7 @@
       --output-prefix data/processed/wiki_zh
 
   # 单卡（--data 传 .bin/.idx 前缀，自动识别 mmap 格式；
-  #      也可以传 .txt 文本，教学/小数据场景自动走 HF datasets）
+  #      也可以传 .txt 文本，小数据场景自动走 HF datasets）
   python manual/pretrain.py --model configs/nano.yaml --data data/processed/wiki_zh
   python manual/pretrain.py --model configs/nano.yaml --data ./data.txt --resume ./checkpoints/step_1000.pt
 

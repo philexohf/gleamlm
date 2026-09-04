@@ -151,7 +151,7 @@ def sample_with_logprobs(
 ) -> tuple[torch.Tensor, list[float]]:
     """自回归采样并记录每个生成 token 的 logprob (no_grad)。
 
-    教学点: 采样分布 = softmax(logits / T)。T=0 退化为贪心 (argmax)，
+    采样分布 = softmax(logits / T)。T=0 退化为贪心 (argmax)，
     T 越大分布越平 → 探索更强。采样时的 logprob 是 reward 的一部分，
     必须 detach (它描述"旧策略"对这条轨迹的置信度)。
     """

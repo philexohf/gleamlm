@@ -1,14 +1,14 @@
 """
-Megatron-Core 预训练 — 最小训练循环（学习工业级预训练框架）。
+Megatron-Core 预训练 — 最小训练循环（对照工业级预训练框架）。
 
-学习要点（全程与手写轨 `manual/pretrain.py` 对比）:
+全程与手写轨 `manual/pretrain.py` 对比:
   1. 并行方式:      手写轨把 DDP 写在代码里；Megatron 把 TP/PP/DP 做成配置，
                     `parallel_state.initialize_model_parallel` 一行完成并行初始化
   2. 模型:          手写轨用 GleamLMModel；Megatron 用自家 GPTModel 族
                     （含 tensor parallel 的列/行切分 Linear，与手写模型不通用）
   3. 数据:          手写轨内存 Dataset；Megatron 用 .bin/.idx mmap（见 data_tools/pretrain/run_pipeline.py）
   4. 优化器:        生产用 get_megatron_optimizer（distributed optimizer，
-                    与 ZeRO-2 同思路的优化器状态分片）；本脚本用 torch 原生便于教学
+                    与 ZeRO-2 同思路的优化器状态分片）；本脚本用 torch 原生实现
   5. checkpoint:    手写轨单文件；Megatron 生产按 rank 分片多文件
 
 用法（Linux / WSL2，megatron-core 已安装）:
@@ -78,7 +78,7 @@ from torch.utils.data import DataLoader, Dataset
 from megatron.core import parallel_state
 from megatron.core.transformer import TransformerConfig
 
-# 以下为学习脚本的最小依赖集；生产预训练请使用官方 pretrain_gpt.py
+# 以下为示例脚本的最小依赖集；生产预训练请使用官方 pretrain_gpt.py
 # from megatron.core.models.gpt.gpt_model import GPTModel  ← 延迟导入（见 build_model）
 
 
@@ -474,7 +474,7 @@ def main():
     step, start_epoch = 0, 0
     consumed_micro = 0
     total_loss = 0.0
-    # resume/保存仅支持 TP=PP=1（数据并行规模）: 该脚本为单机学习轨；
+    # resume/保存仅支持 TP=PP=1（数据并行规模）: 该脚本为单机示例；
     # TP/PP 切分下模型分片、须用官方 dist_checkpointing
     if args.load:
         if not os.path.exists(args.load):

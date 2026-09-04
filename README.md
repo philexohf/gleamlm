@@ -20,7 +20,7 @@ GleamLM 是一套从零实现的 LLM 工程实践项目，基于 PyTorch 原生�
 
 - **推理部署**：KV Cache 流式推理、模型量化、ONNX 导出、vLLM 高性能部署，以及 API 服务化；
 
-- **模型评测**：基于 lm-evaluation-harness 官方框架评测 CEVAL、CMMLU、MMLU 等主流中文/英文能力（不自写评测器）；安装：`pip install -e ".[eval]"`。
+- **模型评测**：基于 lm-evaluation-harness 官方框架评测 CEVAL、CMMLU、MMLU 等主流中文/英文能力；安装：`pip install -e ".[eval]"`。
 
 ---
 
@@ -88,10 +88,10 @@ GleamLM 面向大语言模型预训练与后训练工程师，目标是理解原
 | 维度 | 512 | 768 | 768 | 1024 |
 | 词表 | 12,002 | 12,002 | 12,002 | 24,002 |
 | 查询头 / KV 头 | 8 / 4 | 12 / 6 | 12 / 6 | 16 / 8 |
-| 数据量 | 6.13B chars | 6.13B chars | — | — |
+| 数据量 | 4.47B tokens | 4.47B tokens | — | — |
 | 显存需求 | 单卡 12GB | 单卡 12GB | 单卡 16GB+ | 多卡 |
 
-> **Lite 设计原则**：测试证实 12 层是中文生成的硬阈值，且事实知识全部存于 FFN。因此保持 12 层不动，d_model 扩至 768，d_ff 按 SwiGLU 标准公式扩至 2048（3.4× FFN 容量），词表复用 Nano 的 12K。
+> **Lite 设计原则**：测试证实 12 层是中文生成的阈值，且事实知识全部存于 FFN。因此保持 12 层不动，d_model 扩至 768，d_ff 按 SwiGLU 标准公式扩至 2048（3.4× FFN 容量），词表复用 Nano 的 12K。
 
 ---
 
@@ -239,7 +239,7 @@ python manual/dpo.py --variant nano \
 消费 DPO 产物，学生采样 → 教师对 `prompt+completion` 打分 → 序列级 reverse KL。
 
 ```bash
-# 教师：本地 HF 模型（唯一方式），如 Qwen3-0.6B（打分 ~0.03s/次）
+# 教师：本地 HF 模型，如 Qwen3-0.6B（打分 ~0.03s/次）
 python manual/opd.py \
     --model checkpoints/nano/dpo/dpo_best.pt \
     --data data/nano/opd_prompts.jsonl \
@@ -253,9 +253,6 @@ python manual/opd.py \
 > （教师对每条续写恒定"惊讶"，`log_pi_T` 系统性偏低，优势失真）。BBPE 与 Qwen 的
 > `<|im_start|>`/`<|im_end|>` 标签文本一致，同一字符串在两边编码为各自的 special id，
 > 序列级跨 tokenizer 精确性不受影响。
-
-> **历史**：`api`（DeepSeek）与 `ollama` 教师已移除。DeepSeek 兼容端点不返回完整预填 assistant 的逐 token logprob（打分链断裂）；ollama 8B 打分慢（~10s/次）且偶发 timeout。本地 HF 0.6B（`transformers` 直接加载）打分快且稳定，为唯一教师方式。
-
 
 ### 5. 强化对齐（可选步骤）— PPO / GRPO
 
@@ -310,12 +307,12 @@ Nano 与 Lite 同为四源（含 [Chinese FineWeb Edu](https://huggingface.co/da
 | 中文维基 (wiki) | 12% | ~123 |
 | 百度百科 (baike) | 6% | ~145 |
 
-> Nano 字符预算 6.13B（`configs/nano.yaml` 的 `training.max_train_chars`），训练 1 epoch。
-> 配比与预算由 `python data_tools/pretrain/run_pipeline.py --variant nano` 自动读取，按字符占比做 Bernoulli 采样 + 字符预算混合（edu 采样 ~21%，news/wiki/baike 采样率 ~100% 全量吃满）。
+> Nano 实际训练数据 4.47B tokens（train 文本 ≈4.6B 字符；train+valid+test ≈5.2B 字符），训练 1 epoch。
+> 配比由 `python data_tools/pretrain/run_pipeline.py --variant nano` 按字符占比做 Bernoulli 采样混合（news/wiki/baike 稀缺源全量吃满）；`configs/nano.yaml` 的 `training.max_train_chars` 预算现已调至 6.13B（现有产物按旧预算生成，按新预算重新打包可扩容）。
 
 ### GleamLM-Lite 四源配比
 
-Lite 与 Nano 使用同一数据配比（edu 55% + 三源全量吃满），字符预算同样 6.13B：
+Lite 与 Nano 使用同一数据配比（edu 55% + 三源全量吃满），并与 Nano 共用同一份数据产物（`data/lite/pretrain` 与 `data/nano/pretrain` 文件一致，train 4.47B tokens）：
 
 | 数据源 | 字符配比 |
 |--------|:---:|
@@ -324,7 +321,7 @@ Lite 与 Nano 使用同一数据配比（edu 55% + 三源全量吃满），字�
 | 中文维基 | 12% |
 | 百度百科 | 6% |
 
-> 配比与字符预算（6.13B）由 `python data_tools/pretrain/run_pipeline.py --variant lite` 自动读取。
+> 数据文件与 Nano 共用，由 `python data_tools/pretrain/run_pipeline.py --variant nano` 生成（`--variant lite` 读取同一配比与 `max_train_chars` 预算）。
 
 ---
 
@@ -366,7 +363,7 @@ Lite 与 Nano 使用同一数据配比（edu 55% + 三源全量吃满），字�
 
 ### GleamLM-Nano SFT 指令微调（后训练基线，2026-09）
 
-**数据**：混合去重 7,868 条（7,107 单轮 + 761 多轮），来源 = hardcoded 通用问答模板 + API 蒸馏 + 长文 + 多轮对话，按 instruction/messages 去重（去重后新增 4,851 条与现有仅 0.1% 重叠）。训练集 `data/nano/sft/sft_data.jsonl`（源文件归档于 `data/nano/sft_sources/`）。
+**数据**：7,868 条（7,107 单轮 + 761 多轮），来源 = hardcoded 通用问答模板 + API 蒸馏 + 长文 + 多轮对话；训练集 `data/nano/sft/sft_data.jsonl`（源文件归档于 `data/nano/sft_sources/`）。
 
 **配置**：以预训练 `final.pt`（step 68108）为基座，ChatML 格式，loss mask 仅 assistant 回复，lr 1e-4 cosine，3 epochs，batch 8 × accumulate 4，seq 512。
 
@@ -386,11 +383,11 @@ Lite 与 Nano 使用同一数据配比（edu 55% + 三源全量吃满），字�
 | 乡村振兴 | — | 核心内容正确（农业强国/产业转型）|
 | GDP | — | 国内生产总值方向正确 |
 
-**结论**：40M 模型 SFT 对齐有效——从"乱码续写"变为"结构化中文问答"；数据规模 3,017→7,868 条后 best loss 1.905→1.104，知识性回答明显更准确。知识幻觉与闲聊能力受 40M 容量限制，属预期边界。
+**结论**：40M 模型 SFT 对齐有效——从"乱码续写"变为"结构化中文问答"；知识幻觉与闲聊能力受 40M 容量限制，属预期边界（数据迭代记录见 `docs/experiments.md` §1）。
 
 ### GleamLM-Nano DPO 偏好对齐（后训练演示，2026-09）
 
-**数据**：500 对 chosen/rejected，rejected 由**当前 SFT 模型**（`sft_best.pt`）生成（替换旧 7 月数据——旧数据由历史模型生成，与现模型分布不匹配，DPO 信号无效）。chosen 取自 SFT 高质量答案，rejected 为同 SFT 模型在 temp 0.95 下生成的"相关但劣化"回答。
+**数据**：500 对 chosen/rejected，chosen 取自 SFT 高质量答案，rejected 由当前 SFT 模型（`sft_best.pt`）在 temp 0.95 下生成的"相关但劣化"回答（由现模型自生成，保证落在 policy 分布内）。
 
 **配置**：以 SFT `sft_best.pt` 为基座（policy + frozen ref），lr 1e-6 cosine，1 epoch，beta 0.1，batch 2 × accumulate 2。
 
@@ -400,15 +397,13 @@ Lite 与 Nano 使用同一数据配比（edu 55% + 三源全量吃满），字�
 | DPO 数据 | 500 对（SFT 模型自生成 rejected）|
 | **DPO loss** | **0.659**（初始 ln2≈0.693 温和下降）|
 
-**超参调优记录**：lr 5e-6 + 3 epoch → loss 0.067（**过拟合**，回答退化）；lr 1e-6 + 1 epoch → 0.659（温和，可接受）。DPO 在 40M 模型上增益有限——能改善回答结构偏好，但无法弥补 40M 容量导致的知识幻觉（如 DNA/RNA 结构）。
-
-**结论**：作为后训练链路（预训练→SFT→DPO）的完整性演示；DPO 对 nano 属"锦上添花"，知识准确度受容量天花板限制。
+**结论**：作为后训练链路（预训练→SFT→DPO）的完整性演示；DPO 对 nano 属"锦上添花"，知识准确度受容量天花板限制（数据换代与超参记录见 `docs/experiments.md` §2-3）。
 
 ### GleamLM-Nano OPD 在线策略蒸馏（后训练演示，2026-09）
 
 **原理**：学生模型自己 rollout（on-policy）→ 本地 HF 教师（Qwen3-0.6B）对轨迹打分 → 序列级 reverse KL 更新。相比 DPO（偏好对）与 RL（稀疏奖励），OPD 每 token 都有教师监督，且学生自采样消除 exposure bias。
 
-**关键设计——ChatML 帧对齐（THUNLP OPD 论文 §5.2）**：数据存裸 user 输入，训练时套成 `<|im_start|>user…<|im_end|>\n<|im_start|>assistant\n` 再喂给学生与教师。学生 SFT 与 Qwen 教师均在 ChatML 下训练，裸文本 rollout 使师生双双 OOD（教师对每条续写恒定"惊讶"，`log_pi_T` 系统性偏低 ~1.2-1.5 nats，优势失真）；同帧后两边各回各自训练分布。BBPE 与 Qwen 的 `<|im_start|>`/`<|im_end|>` 标签文本一致，同一字符串在两边编码为各自的 special id，序列级跨 tokenizer 精确性不受影响。
+**关键设计——ChatML 帧对齐（THUNLP OPD 论文 §5.2）**：数据存裸 user 输入，训练时套成 `<|im_start|>user…<|im_end|>\n<|im_start|>assistant\n` 再喂给学生与教师。学生 SFT 与 Qwen 教师均在 ChatML 下训练，裸文本 rollout 使师生双双 OOD（教师对每条续写恒定"惊讶"，`log_pi_T` 系统性偏低，优势失真）；同帧后两边各回各自训练分布。BBPE 与 Qwen 的 `<|im_start|>`/`<|im_end|>` 标签文本一致，同一字符串在两边编码为各自的 special id，序列级跨 tokenizer 精确性不受影响。
 
 **数据**：40 条通用闲聊/知识 prompt（`data/nano/opd_prompts.jsonl`）。
 
@@ -421,10 +416,6 @@ Lite 与 Nano 使用同一数据配比（edu 55% + 三源全量吃满），字�
 | 教师 | Qwen3-0.6B（本地 HF，打分 ~0.03s/次）|
 | **产物** | `checkpoints/nano/opd_v4/opd_final.pt` |
 
-**符号修复（对照 THUNLP verl 参考实现）**：初版（`opd_v3`）误用 `A = logπ_S − logπ_T` 配合 `loss = −A·logπ`，梯度方向**反转**——数值单步验证 reverse KL 不降反升（1.32→1.66），等于最大化 reverse KL。修复为参考实现同款 `A = logπ_T − logπ_S`（其 `rm_scores = −(logπ_S − logπ_T)`）：loss 最小化 → 提升"教师比学生更信"的 token、压低"学生过度自信"的 token，reverse KL 稳步下降（1.32→0）。`opd_v4` 为该修复后的有效产物。
-
-**ChatML 帧对齐前后的 rollout 差异**：同帧前学生裸文本续写（输出"如果你对某个话题感兴趣，可以告诉我…"这类空转），`log_pi_S≈-3.2`；同帧后学生按 assistant 分布作答（"我是一个轻量级的开源对话模型…"），`log_pi_S≈-2.0`，训练 loss 稳定在 ~0。
-
 **三模型生成抽查**（SFT best vs DPO best vs OPD v4，temp 0.8）：
 
 | Prompt | SFT | DPO | OPD v4 |
@@ -433,7 +424,7 @@ Lite 与 Nano 使用同一数据配比（edu 55% + 三源全量吃满），字�
 | 写秋诗 | 碎片 | 结构散 | **全篇成诗**（梧桐落叶/夕阳/蝴蝶意象连贯）|
 | 光合作用 | 开头准后跑偏 | 退化幻觉 | 分点自答 |
 
-**结论**：符号修复后 OPD v4 输出比 v3（错号）更贴近教师——事实性定义句更规范、长段诗歌更连贯（on-policy 蒸馏教师 ChatML 行为的体现）；但 40M 参数仍做不了事实性知识问答（三者均幻觉），属容量天花板，非对齐方法可救。
+**结论**：OPD v4 输出贴近教师风格——事实性定义句更规范、长段诗歌更连贯（on-policy 蒸馏教师 ChatML 行为的体现）；但 40M 参数仍做不了事实性知识问答（SFT/DPO/OPD 三者均幻觉），属容量天花板，非对齐方法可救（符号修复与帧对齐观测见 `docs/experiments.md` §5-7）。
 
 ---
 
@@ -489,9 +480,9 @@ Lite 与 Nano 使用同一数据配比（edu 55% + 三源全量吃满），字�
 
 tokenizer 导出已含 ChatML chat template（`export_to_hf_format` → `tokenizer_config.json`），messages 数据训练时自动渲染，保留 prompt/completion 边界以支持 completion-only loss。
 
-### OPD 教师：本地 HF 模型（唯一方式）
+### OPD 教师：本地 HF 模型
 
-OPD（On-Policy Distillation）需要教师对 `prompt + completion` 求序列级 `log π_T(y)`。**DeepSeek API 的 logprobs 只覆盖新生成的 token、不对输入文本打分**（`prompt_logprobs` 参数不存在），API 打分不可用；ollama 8B 打分慢且偶发 timeout。本地 HF 因果模型（`AutoModelForCausalLM`，如 Qwen3-0.6B）经 `transformers` 直接加载，`log_softmax` 逐 token 求和可对任意文本打分，打分 ~0.03s/次，为唯一教师方式。运行命令见上文「4. OPD 在线策略蒸馏」。
+OPD（On-Policy Distillation）需要教师对 `prompt + completion` 求序列级 `log π_T(y)`。本地 HF 因果模型（`AutoModelForCausalLM`，如 Qwen3-0.6B）经 `transformers` 直接加载，`log_softmax` 逐 token 求和可对任意文本打分，打分 ~0.03s/次。运行命令见上文「4. OPD 在线策略蒸馏」。
 
 序列级 reverse KL 语义跨 tokenizer 可比：教师 tokenizer ≠ 学生 BBPE，但整条文本的 logprob 求和与切分无关。产物 `opd_final.pt` 与 DPO checkpoint 结构同构，**可直接复用 `deploy/manual_to_qwen3.py` 转 HF Qwen3 格式 → vLLM 部署**（转换只依赖 `model_state_dict` + `_config`，与训练方法无关）。
 
