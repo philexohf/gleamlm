@@ -75,7 +75,7 @@ GleamLM 面向大语言模型预训练与后训练工程师，目标是理解原
 | **分布式** | DDP + FSDP + DeepSpeed | 三种策略对比 |
 | **分词器** | BBPE 12K（纯 Python 自研） | 理解词表构建全流程 |
 | **推理加速** | KV Cache + 流式生成 + Flash Attention | 推理延迟优化 |
-| **对齐** | SFT → DPO（PPO/GRPO 可选）→ OPD  | 完整 RLHF 链条 |
+| **对齐** | SFT → 对齐（DPO / PPO / GRPO 并列可选）→ OPD（可选） | 完整后训练链条 |
 | **LoRA** | 手写 + PEFT 双版本 | 理解低秩适应的数学原理 |
 | **HF 集成** | `from_pretrained` / `GleamLMForCausalLM` | 自定义模型接入标准姿势 |
 | **部署** | vLLM + ONNX + FastAPI | 模型上线全链路 |
@@ -154,7 +154,6 @@ gleamlm-main/
 │   └── deepspeed_config.json / deepspeed_zero2.json
 ├── tests/                         # 单元测试 + 集成测试
 ├── tools/                         # 辅助工具脚本
-├── docs/                          # 架构说明与设计文档
 ├── pyproject.toml
 └── README.md
 ```
@@ -170,7 +169,7 @@ gleamlm-main/
 
 - Python 3.10+
 - PyTorch 2.5+ with CUDA 12.4
-- RTX 4070 Ti 12GB（或同等显存）
+- NVIDIA GPU 12GB显存+
 
 ```bash
 pip install -e ".[train,dev]"
@@ -230,9 +229,9 @@ python manual/dpo.py --variant nano \
     --model_path checkpoints/nano/sft/sft_best.pt
 ```
 
-> **PPO / GRPO 是 DPO 之后的可选强化步骤**：DPO 用偏好对静态对齐，已构成完整后训练链
-> （SFT → DPO）；需要进一步用奖励信号在线优化时，才在 DPO 产物（或 SFT 产物）之上加
-> PPO / GRPO（见 §5）。对 40M 规模属锦上添花，可跳过。
+> **DPO 与 §5 的 PPO / GRPO 并列，同属 SFT 之后的对齐步骤**：DPO 用偏好对做离线对齐，
+> PPO / GRPO 用规则/奖励信号做在线强化——按需选择其一，不是前后串联。本项目演示走 DPO
+> 路线（SFT → DPO），对 40M 规模已构成完整后训练链，PPO / GRPO 可跳过。
 
 ### 4. OPD 在线策略蒸馏
 
@@ -254,10 +253,11 @@ python manual/opd.py \
 > `<|im_start|>`/`<|im_end|>` 标签文本一致，同一字符串在两边编码为各自的 special id，
 > 序列级跨 tokenizer 精确性不受影响。
 
-### 5. 强化对齐（可选步骤）— PPO / GRPO
+### 5. 强化对齐（可选步骤，与 §3 DPO 并列）— PPO / GRPO
 
-> **定位**：DPO 之后的可选强化阶段（SFT → DPO → PPO/GRPO）。两者均需规则/奖励信号，
-> 无 value network（GRPO 组内归一化优势）或有 value network（PPO）。Nano 仅作演示/冒烟
+> **定位**：与 DPO 并列的后训练对齐方式，从 SFT 产物出发（SFT → PPO/GRPO），按需选择其一，
+> 不是 DPO 的后续阶段。两者均需规则/奖励信号：GRPO 无 value network（组内归一化优势），
+> PPO 有 value network（clip + GAE）。Nano 仅作演示/冒烟
 > 跑通，未作为正式产物；`data/rlhf.jsonl` 为占位，需自行准备（每行
 > `{"prompt": ..., "ground_truth": ...}`）。
 
@@ -296,7 +296,7 @@ pytest tests/ -v
 
 ## 训练数据
 
-### GleamLM-Nano 四源配比
+### GleamLM-Nano / Lite 四源配比
 
 Nano 与 Lite 同为四源（含 [Chinese FineWeb Edu](https://huggingface.co/datasets/opencsg/chinese-fineweb-edu) 的 edu 源），edu 55% 主导；news/wiki/baike 为稀缺高价值源，按"全量吃满"取用（其实际占比由各自可用字符量决定）：
 
@@ -308,26 +308,14 @@ Nano 与 Lite 同为四源（含 [Chinese FineWeb Edu](https://huggingface.co/da
 | 百度百科 (baike) | 6% | ~145 |
 
 > Nano 实际训练数据 4.47B tokens（train 文本 ≈4.6B 字符；train+valid+test ≈5.2B 字符），训练 1 epoch。
-> 配比由 `python data_tools/pretrain/run_pipeline.py --variant nano` 按字符占比做 Bernoulli 采样混合（news/wiki/baike 稀缺源全量吃满）；`configs/nano.yaml` 的 `training.max_train_chars` 预算现已调至 6.13B（现有产物按旧预算生成，按新预算重新打包可扩容）。
-
-### GleamLM-Lite 四源配比
-
-Lite 与 Nano 使用同一数据配比（edu 55% + 三源全量吃满），并与 Nano 共用同一份数据产物（`data/lite/pretrain` 与 `data/nano/pretrain` 文件一致，train 4.47B tokens）：
-
-| 数据源 | 字符配比 |
-|--------|:---:|
-| Chinese FineWeb Edu | 55% |
-| 中文新闻 | 27% |
-| 中文维基 | 12% |
-| 百度百科 | 6% |
-
-> 数据文件与 Nano 共用，由 `python data_tools/pretrain/run_pipeline.py --variant nano` 生成（`--variant lite` 读取同一配比与 `max_train_chars` 预算）。
+> 配比由 `python data_tools/pretrain/run_pipeline.py --variant nano` 按字符占比做 Bernoulli 采样混合（news/wiki/baike 稀缺源全量吃满）；`configs/nano.yaml` 的 `training.max_train_chars` 。
+> Lite 数据文件与 Nano 共用，由 `python data_tools/pretrain/run_pipeline.py --variant lite` 生成。
 
 ---
 
 ## 训练与验证结果
 
-### GleamLM-Nano（v0.1.0 基线，2026-09 完成）
+### GleamLM-Nano
 
 **预训练配置**：40.8M / 12L×512d / GQA(8Q/4KV) / SwiGLU(d_ff=1365) / BBPE 12K（基于四源语料重新训练）/ tie_weights / WSD linear decay / label_smoothing 0.1 / z-loss / torch.compile(mode=default)
 
@@ -397,7 +385,7 @@ Lite 与 Nano 使用同一数据配比（edu 55% + 三源全量吃满），并�
 | DPO 数据 | 500 对（SFT 模型自生成 rejected）|
 | **DPO loss** | **0.659**（初始 ln2≈0.693 温和下降）|
 
-**结论**：作为后训练链路（预训练→SFT→DPO）的完整性演示；DPO 对 nano 属"锦上添花"，知识准确度受容量天花板限制（数据换代与超参记录见 `docs/experiments.md` §2-3）。
+**结论**：作为后训练链路（预训练→SFT→DPO）的完整性演示；DPO 对 nano 属"锦上添花"，知识准确度受容量天花板限制。
 
 ### GleamLM-Nano OPD 在线策略蒸馏（后训练演示，2026-09）
 
@@ -424,7 +412,7 @@ Lite 与 Nano 使用同一数据配比（edu 55% + 三源全量吃满），并�
 | 写秋诗 | 碎片 | 结构散 | **全篇成诗**（梧桐落叶/夕阳/蝴蝶意象连贯）|
 | 光合作用 | 开头准后跑偏 | 退化幻觉 | 分点自答 |
 
-**结论**：OPD v4 输出贴近教师风格——事实性定义句更规范、长段诗歌更连贯（on-policy 蒸馏教师 ChatML 行为的体现）；但 40M 参数仍做不了事实性知识问答（SFT/DPO/OPD 三者均幻觉），属容量天花板，非对齐方法可救（符号修复与帧对齐观测见 `docs/experiments.md` §5-7）。
+**结论**：OPD v4 输出贴近教师风格——事实性定义句更规范、长段诗歌更连贯（on-policy 蒸馏教师 ChatML 行为的体现）；但 40M 参数仍做不了事实性知识问答（SFT/DPO/OPD 三者均幻觉），属容量天花板，非对齐方法可救。
 
 ---
 
@@ -432,10 +420,10 @@ Lite 与 Nano 使用同一数据配比（edu 55% + 三源全量吃满），并�
 
 | 版本 | 参数量 | 定位 | 状态 |
 |------|--------|------|------|
-| GleamLM-Nano | ~40M | 教学入门 / 单卡 12GB 完整训练 | ✅ 已完成 |
-| GleamLM-Lite | ~87M | 消融实验平台 / FFN 3.4× 扩容 | ✅ 已完成 |
-| GleamLM-Pro | ~126M | 科研进阶 / 18L×768d / BBPE 12K | 🔨 开发中 |
-| GleamLM-0.6B | ~0.6B | 工业级验证 / 37L×1024d / BBPE 24K 跨字合并 | 📋 规划中 |
+| GleamLM-Nano | ~40M | 单卡 12GB 完整训练 | ✅ 已完成 |
+| GleamLM-Lite | ~87M | FFN 3.4× 扩容 | ✅ 已完成 |
+| GleamLM-Pro | ~126M | 18L×768d / BBPE 12K | 开发中 |
+| GleamLM-0.6B | ~0.6B | 工业级验证 / 37L×1024d / BBPE 24K 跨字合并 | 规划中 |
 
 ---
 
@@ -445,11 +433,11 @@ Lite 与 Nano 使用同一数据配比（edu 55% + 三源全量吃满），并�
 
 ## 与工业预训练实践对齐
 
-手工轨训练持续对齐开源工业实践（以 HuggingFace SmolLM 系列与 megatron-core 为基准）：
+手工代码训练持续对齐开源工业实践（以 megatron-core 为基准）：
 
-- **Weight decay 分组**：embedding + norm 去 wd，矩阵权重正常衰减（SmolLM3 `weight_decay_exclude_named_params` / Megatron 跳过 1-D 参数）
-- **WSD 调度**：decay 段支持线性衰减（SmolLM3 实际配置 `lr_decay_style: linear`），`min_lr_ratio=0` 线性降到 0
-- **Z-Loss 默认 1e-5**：对齐 SmolLM3，防 logits 爆炸
+- **Weight decay 分组**：embedding + norm 去 wd，矩阵权重正常衰减（Megatron 跳过 1-D 参数）
+- **WSD 调度**：decay 段支持线性衰减，`min_lr_ratio=0` 线性降到 0
+- **Z-Loss 默认 1e-5**：防 logits 爆炸
 - **确定性采样 + 精确断点续训**：统一 `DistributedSampler(seed)`，checkpoint 持久化 `consumed_train_samples` 全局样本计数（与 DP 解耦），恢复逐位续上（对齐 nanotron 确定性契约）
 - **BF16 免 GradScaler**：仅 FP16 启用 scaler，BF16 无 underflow
 
@@ -466,7 +454,7 @@ Lite 与 Nano 使用同一数据配比（edu 55% + 三源全量吃满），并�
 
 效果：一份 `.bin/.idx` 数据可被 `manual/pretrain.py`（手写 `IndexedMMapDataset`）、`industrial/pretrain.py`（官方 `GPTDataset` + megatron `IndexedDataset`）直接消费；DeepSpeed 的 `MMapIndexedDataset` 与 Megatron 字节兼容，零转换可用。格式契约由 `tests/test_dataset.py::TestMegatronCompat` 防回归。
 
-工业轨预训练脚本的参数 / WSD / 累积 / 断点续训 / EOD 约定见 [`docs/industrial_pretrain.md`](docs/industrial_pretrain.md)；工业 checkpoint → HF 产物用 `tools/convert_megatron_to_hf.py`（含 `--verify` 等价性校验）。
+工业预训练脚本的参数 / WSD / 累积 / 断点续训 / EOD 约定见代码配置；工业 checkpoint → HF 产物用 `tools/convert_megatron_to_hf.py`（含 `--verify` 等价性校验）。
 
 ### 后训练数据格式：对齐 TRL 工业标准（messages / role-content）
 
