@@ -1,5 +1,5 @@
 """
-曜珑GleamLM 快速训练 + 验证一体化脚本
+GleamLM 快速训练 + 验证一体化脚本
 
 三级规模，适合不同验证场景：
 
@@ -98,12 +98,12 @@ def main():
     if args.verify_only:
         print(f"\n>>> 验证已有模型: {ckpt_dir}/best_model.pt")
         run(
-            f"python tools/eval_ppl.py --variant {v} --max_batches 50 --batch_size 4",
+            f"python -m tools.eval_runner --model {ckpt_dir}/best_model.pt --data_dir data/{v}/pretrain --benchmarks ppl --max_batches 50 --batch_size 4",
             "PPL 评估 (50 batches)",
             conda_env=args.conda_env,
         )
         run(
-            f"python tools/generate_samples.py --model {ckpt_dir}/best_model.pt",
+            f"python -m gleamlm.inference.cli --model {ckpt_dir}/best_model.pt --prompt \"介绍一下你自己\"",
             "生成样例",
             conda_env=args.conda_env,
         )
@@ -137,14 +137,14 @@ def main():
             return
 
         run(
-            f"python tools/eval_ppl.py --variant {v} "
+            f"python -m tools.eval_runner --model {TEST_CKPT_DIR}/best_model.pt "
             f"--data_dir {TEST_DATA_DIR} "
-            f"--model {TEST_CKPT_DIR}/best_model.pt --max_batches 30 --batch_size 4",
+            f"--benchmarks ppl --max_batches 30 --batch_size 4",
             "PPL 评估",
             conda_env=args.conda_env,
         )
         run(
-            f"python tools/generate_samples.py --model {TEST_CKPT_DIR}/best_model.pt",
+            f"python -m gleamlm.inference.cli --model {TEST_CKPT_DIR}/best_model.pt --prompt \"介绍一下你自己\"",
             "生成样例",
             conda_env=args.conda_env,
         )
@@ -189,14 +189,14 @@ def main():
 
         print("\n>>> 开始完整验证...")
         run(
-            f"python tools/eval_ppl.py --variant {v} "
+            f"python -m tools.eval_runner --model {TEST_CKPT_DIR}/best_model.pt "
             f"--data_dir {TEST_DATA_DIR} "
-            f"--model {TEST_CKPT_DIR}/best_model.pt --max_batches 100 --batch_size 4",
+            f"--benchmarks ppl --max_batches 100 --batch_size 4",
             "PPL 评估 (100 batches)",
             conda_env=args.conda_env,
         )
         run(
-            f"python tools/generate_samples.py --model {TEST_CKPT_DIR}/best_model.pt",
+            f"python -m gleamlm.inference.cli --model {TEST_CKPT_DIR}/best_model.pt --prompt \"介绍一下你自己\"",
             "生成样例",
             conda_env=args.conda_env,
         )
@@ -226,12 +226,12 @@ def main():
 
         print("\n>>> 训练完成，开始验证...")
         run(
-            f"python tools/eval_ppl.py --variant {v} --batch_size 4",
+            f"python -m tools.eval_runner --model {ckpt_dir}/best_model.pt --data_dir data/{v}/pretrain --benchmarks ppl --batch_size 4",
             "完整 PPL 评估",
             conda_env=args.conda_env,
         )
         run(
-            f"python tools/generate_samples.py --model {ckpt_dir}/best_model.pt",
+            f"python -m gleamlm.inference.cli --model {ckpt_dir}/best_model.pt --prompt \"介绍一下你自己\"",
             "生成样例",
             conda_env=args.conda_env,
         )

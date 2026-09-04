@@ -13,7 +13,7 @@ repos:
         language: system
         types: [python]
         args: [--ignore-missing-imports]
-        exclude: ^(experimental|tools|data_tools|tests|configs|scripts)/
+        exclude: ^(tools|data_tools|tests|configs|scripts)/
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.20
@@ -25,5 +25,5 @@ repos:
     rev: v2.2.0
     hooks:
       - id: mypy
-        args: [--exclude, "experimental/|tools/|data_tools/|tests/|configs/|scripts/"]
+        args: [--exclude, "tools/|data_tools/|tests/|configs/|scripts/"]
         additional_dependencies: [torch>=2.0, numpy>=1.20]

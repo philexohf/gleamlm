@@ -8,7 +8,7 @@ training:
   epochs: 1
   batch_size: 8
   accumulate_grad: 8
-  max_train_chars: 2600000000
+  max_train_chars: 6130000000
 
 lr:
   type: wsd
@@ -28,7 +28,6 @@ model:
   dropout: 0.0
   tie_weights: true
   use_flash_attn: true
-  use_qk_norm: true
 
 data:
   data_dir: data/nano/pretrain
@@ -50,7 +49,6 @@ dpo:
 
 data_sources:
   - {name: edu, type: text, ratio: 0.55}
-  - {name: news, type: news, ratio: 0.05}
-  - {name: wiki, type: text, ratio: 0.15}
-  - {name: baike, type: text, ratio: 0.10}
-  - {name: qa, type: qa, ratio: 0.15}
+  - {name: news, type: news, ratio: 0.27}
+  - {name: wiki, type: text, ratio: 0.12}
+  - {name: baike, type: text, ratio: 0.06}

@@ -158,7 +158,7 @@ class Conversation:
                 torch.no_grad(),
                 safe_autocast(enabled=self.use_amp, dtype=self.amp_dtype or torch.bfloat16),
             ):
-                _, self.past_kv = self.model(im_end_input, past_kv_list=self.past_kv)
+                _, self.past_kv, _, _ = self.model(im_end_input, past_kv_list=self.past_kv)
 
         self.messages.append(
             {

@@ -11,7 +11,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
-from gleamlm.data.dataset import LMDataset, collate_fn
+from gleamlm.data.dataset import tokenize_and_group
 from gleamlm.models.model import GleamLMModel
 from gleamlm.tokenizer.tokenizer import BBPETokenizer
 from gleamlm.trainer.base_trainer import set_seed
@@ -67,13 +67,18 @@ def test_smoke_train(variant):
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
         train_txt = os.path.join(tmpdir, "train.txt")
         val_txt = os.path.join(tmpdir, "valid.txt")
-        lines = ["这是一个用于冒烟测试的中文句子。深度学习是人工智能的重要分支。\n"] * 200
+        text_line = (
+            "这是一个用于冒烟测试的中文句子。深度学习是人工智能的重要分支。"
+            "自然语言处理技术近年来取得了巨大的进步，大语言模型成为了研究的热点。"
+            "通过大规模预训练和指令微调，模型展现出了强大的语言理解和生成能力。\n"
+        )
+        lines = [text_line] * 200
         with open(train_txt, "w", encoding="utf-8") as f:
             f.writelines(lines)
         with open(val_txt, "w", encoding="utf-8") as f:
             f.writelines(lines[:20])
 
-        train_ds = LMDataset(tmpdir, tokenizer, cfg["max_seq_len"], "train")
+        train_ds = tokenize_and_group(train_txt, tokenizer, cfg["max_seq_len"])
         assert len(train_ds) > 0
 
         model = GleamLMModel(
@@ -96,7 +101,6 @@ def test_smoke_train(variant):
             train_ds,
             batch_size=2,
             shuffle=True,
-            collate_fn=lambda b: collate_fn(b, pad_id=tokenizer.pad_id),
         )
 
         optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=0.01)
@@ -104,13 +108,13 @@ def test_smoke_train(variant):
 
         model.train()
         losses = []
-        for step, (input_ids, target_ids) in enumerate(dataloader):
+        for step, batch in enumerate(dataloader):
             if step >= 20:
                 break
-            input_ids = input_ids.to(device)
-            target_ids = target_ids.to(device)
+            input_ids = batch["input_ids"].to(device)
+            target_ids = batch["labels"].to(device)
 
-            logits, _ = model(input_ids)
+            logits, _, _, _ = model(input_ids)
             loss = criterion(logits.view(-1, VOCAB_SIZE), target_ids.view(-1))
             optimizer.zero_grad()
             loss.backward()
@@ -152,6 +156,6 @@ def test_smoke_train(variant):
 
         x = torch.randint(0, VOCAB_SIZE, (1, 32)).to(device)
         with torch.no_grad():
-            logits1, _ = model(x)
-            logits2, _ = model2(x)
+            logits1, _, _, _ = model(x)
+            logits2, _, _, _ = model2(x)
         assert torch.allclose(logits1, logits2, atol=1e-5), "Checkpoint reload mismatch"

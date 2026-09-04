@@ -15,7 +15,7 @@ class LayerLimitedModel(nn.Module):
         batch_size, seq_len = input_ids.shape
         device = input_ids.device
         x = self.original.token_embed(input_ids)
-        x = self.original.emb_dropout(x)
+        x = self.original.embed_dropout(x)
 
         offset = (
             past_kv_list[0][0].size(2)

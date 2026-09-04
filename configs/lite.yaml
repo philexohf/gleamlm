@@ -5,10 +5,10 @@
 extends: base.yaml
 
 training:
-  epochs: 2
+  epochs: 1
   batch_size: 4
   accumulate_grad: 16
-  max_train_chars: 5300000000   # 5.3B chars
+  max_train_chars: 6130000000   # 6.13B chars (与 nano 统一)
 
 lr:
   type: cosine                   # Cosine Annealing + Warmup
@@ -27,7 +27,6 @@ model:
   dropout: 0.0
   tie_weights: true
   use_flash_attn: true
-  use_qk_norm: true
 
 data:
   data_dir: data/lite/pretrain
@@ -48,8 +47,7 @@ dpo:
   data_path: data/lite/dpo/dpo_data.jsonl
 
 data_sources:
-  - {name: edu, type: text, ratio: 0.35}
-  - {name: news, type: news, ratio: 0.20}
-  - {name: wiki, type: text, ratio: 0.20}
-  - {name: baike, type: text, ratio: 0.15}
-  - {name: qa, type: qa, ratio: 0.10}
+  - {name: edu, type: text, ratio: 0.55}
+  - {name: news, type: news, ratio: 0.27}
+  - {name: wiki, type: text, ratio: 0.12}
+  - {name: baike, type: text, ratio: 0.06}

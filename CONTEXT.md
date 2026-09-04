@@ -16,8 +16,10 @@
 ## Tokenizer
 
 - **BBPE (Byte-Level BPE)**: Works on UTF-8 byte sequences; 256 base tokens + BPE merges. Self-developed, zero dependencies.
-- **ChatML tokens**: `<|im_start|>`, `<|im_end|>`, `<|endoftext|>` — special tokens for chat format and document boundaries. Registered at fixed IDs 0-2, with `<|buffer1|>`-`<|buffer10|>` at IDs 3-12 for future extensions.
+- **ChatML tokens**: `<|endoftext|>`=0 (pad/unk, only for aligning sample lengths in batches), `<|im_start|>`=1 (bos), `<|im_end|>`=2 (eos). Pre-train document boundary token = eos(id 2) — each doc in `.bin` ends with `<|im_end|>`, same token also terminates SFT turns. `<|buffer1|>`-`<|buffer10|>` at IDs 3-12 for future extensions.
 - **CJK pre-tokenization**: Each Chinese character is a separate token unit; non-CJK kept as contiguous segments.
+- **Frequency-aggregated training**: `train_from_files` dedupes repeated words via `Counter` (bytes → count) and indexes pairs as `pair → {(word_idx, pos)}` with frequency weighting. Memory drops from O(total words) to O(unique words) — 200M chars uses ~1.2GB vs 40GB+, ~9× faster, merge results bit-identical to the old position-level algorithm (verified by equivalence test).
+- **Variant-driven training entry**: `manual/train_tokenizer.py --variant nano` reads `data_sources` ratios from `configs/{variant}.yaml` (edu 55 / news 27 / wiki 12 / baike 6) and trains from `data/raw/{name}_dedup.txt`; `--data_dir` / `--base_tokenizer` / `--verify_only` modes remain backward-compatible.
 
 ## Architecture Philosophy
 

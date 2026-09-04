@@ -1,101 +1,168 @@
+<img src="./assets/gleamlm-title2.png"/>
+
 # GleamLM —— 面向教育和研究的小型语言模型
 
-<img src="./assets/GleamLM.png" width="300" alt="GleamLM Logo" />
+GleamLM 是一套从零实现的 LLM 工程实践项目，基于 PyTorch 原生手写，覆盖模型架构、BBPE 分词器、数据管道、预训练与后训练全流程。同时兼容 Hugging Face 生态，可对接 transformers、Megatron、TRL、PEFT 和 vLLM 等框架。
 
+项目不追求刷榜 SOTA，专注 **可解释、可复现和可落地**，帮助开发者打通完整的 LLM 工程链路。
 
+**能力覆盖**
 
- **项目持续开发中， 点个 Star ⭐ 收藏，更新不错过。**
+- **数据管道**：多源数据自动下载、粗去重、文本清洗、SimHash/MinHash 精细去重和字符级配比均衡；
 
-## 项目简介
+- **分词系统**：纯 Python 自研 BBPE 分词器，支持按 `configs/*.yaml` 配比从零训练（词频聚合内存优化，200M 字符仅 ~1.2GB）、编码解码与 HF 格式导出；
 
-纯 PyTorch 从零实现，零 HuggingFace 依赖，覆盖 **多源中文数据管线**（下载→清洗→去重→字符加权配比）→ **BBPE 分词器训练**（自研，零外部依赖）→ **Decoder-only 模型**（SwiGLU / GQA / RoPE / QK-Norm）→ **AMP + DDP 训练**（断点续训保存 optimizer/scheduler/scaler 全量状态）→ **SFT / DPO 对齐**（ChatML + loss mask）→FP16量化 → **KV Cache 流式推理**全链路。
+- **模型架构**：Decoder-only，原生实现 SwiGLU FFN、GQA、RoPE、QK-Norm 和 Mamba 等结构；
 
-| 版本 | 参数量 | 定位 | 状态 |
-|------|--------|------|------|
-| **GleamLM-Nano** | ~40M | 教学入门，单卡 12GB 即可完整训练 | ✅ 已完成 |
-| **GleamLM-Lite** | ~87M | 消融实验平台，FFN 3.4× 扩容，Windows/Linux 双平台 | ✅ 已完成 |
+- **预训练体系**：AMP 混合精度（BF16 免 scaler）、DDP 分布式训练、wd 分组（embedding+norm 去 wd）、WSD 调度（decay 可线性）、确定性采样 + `consumed_train_samples` 精确断点续训，以及稳定收敛调优方案；
+
+- **后训练对齐**：SFT、DPO、PPO、GRPO 和 OPD 全流程，以及 LoRA 微调；
+
+- **推理部署**：KV Cache 流式推理、模型量化、ONNX 导出、vLLM 高性能部署，以及 API 服务化；
+
+- **模型评测**：基于 lm-evaluation-harness 官方框架评测 CEVAL、CMMLU、MMLU 等主流中文/英文能力（不自写评测器）；安装：`pip install -e ".[eval]"`。
+
+---
+
+## 项目定位
+
+GleamLM 面向大语言模型预训练与后训练工程师，目标是理解原理和工业实战，不追求刷榜。
+
+项目帮你解决三个问题：
+
+**1. 模型内部长什么样**
+
+搞懂 GQA 的 KV Head 怎么复用、QK-Norm 为什么是标配、RoPE 外推怎么做。训练出问题时（loss spike、梯度异常），能定位原因而不是只会调参。
+
+**2. 工业框架怎么用**
+
+掌握标准工具栈：TRL 做 DPO/GRPO、PEFT 做 LoRA、vLLM 做部署。团队协作时能直接上手。
+
+**3. 完整链路走过没有**
+
+从原始数据到能聊天的服务，完整走一遍：数据筛选、清洗去重、预训练、指令微调、强化对齐、模型量化、服务上线。每一步做了什么、为什么这样做，心里有数。
+
+项目采用**双轨设计**：
+
+**manual 手写实现**
+
+核心算法、网络结构、训练逻辑全部从零写。不用框架封装，直接看原始代码。目的是理解每个技术细节，出问题知道怎么修。
+
+**industrial 工业框架**
+
+基于 TRL、DeepSpeed、PEFT、vLLM 等框架实现，对接工业界实际使用的工具链。目的是能用标准工具干活，适应团队协作流程。
+
+两边对照，原理和工程能力都有。
+
+---
+## GleamLM 模型结构（MLP版）
+
+<img src="./assets/GleamLMModel_R.png" />
 
 ## 技术架构
 
-| 组件 | 方案 | 对标 |
-|------|------|------|
-| 范式 | Decoder-only | LLaMA 3 / Qwen3 |
-| 归一化 | Pre-Norm + RMSNorm | LLaMA 3 / Qwen3 |
-| 位置编码 | RoPE（支持长度外推） | LLaMA 3 / Qwen3 |
-| 注意力 | GQA（8 Q-heads / 4 KV-heads）+ QK-Norm | LLaMA 3 |
-| 激活函数 | SwiGLU | LLaMA 3 / Qwen3 |
-| Tokenizer | BBPE 12K（自研，纯 Python） | — |
-| 训练精度 | BF16/FP16 AMP | — |
-| 分布式 | DDP（`torchrun` 一行启动） | — |
-| 推理加速 | KV Cache + 流式生成 + 多采样策略 | — |
+| 组件 | 实现方式 | 为什么这样选 |
+|:---|:---|:---|
+| **范式** | Decoder-only（对标 LLaMA 3 / Qwen3） | 当前主流 |
+| **归一化** | Pre-Norm + RMSNorm | 训练稳定，Post-Norm 已淘汰 |
+| **位置编码** | RoPE + YaRN 外推 | 当前主流 |
+| **注意力** | GQA + QK-Norm + KV Cache | 2024-2025 标配 |
+| **注意力变体** | NoPE / ALiBi / Sliding Window | 理解不同设计选择的代价 |
+| **激活函数** | SwiGLU（FFN） | 替代 ReLU 的现代选择 |
+| **MoE** | Router + Top-K + aux_loss | 稀疏激活，Mixtral 同款 |
+| **状态空间** | Mamba-1 教学实现 | SSM vs Attention 基础知识 |
+| **训练精度** | BF16/FP16 AMP（BF16 免 scaler，FP16 才启用） | 混合精度训练 |
+| **分布式** | DDP + FSDP + DeepSpeed | 三种策略对比 |
+| **分词器** | BBPE 12K（纯 Python 自研） | 理解词表构建全流程 |
+| **推理加速** | KV Cache + 流式生成 + Flash Attention | 推理延迟优化 |
+| **对齐** | SFT → DPO（PPO/GRPO 可选）→ OPD  | 完整 RLHF 链条 |
+| **LoRA** | 手写 + PEFT 双版本 | 理解低秩适应的数学原理 |
+| **HF 集成** | `from_pretrained` / `GleamLMForCausalLM` | 自定义模型接入标准姿势 |
+| **部署** | vLLM + ONNX + FastAPI | 模型上线全链路 |
 
 ### 模型规格
 
-| 参数 | Nano ~40M | Lite ~87M |
-|------|:---:|:---:|
-| 上下文窗口 | 1024 | **2048** |
-| 词表大小 | 12,002（自研 BBPE） | 12,002（复用） |
-| 网络层数 | 12 | 12 |
-| 模型维度 | 512 | **768** |
-| QK-Norm | ✅ | ✅ |
-| 查询头 / KV 头 | 8 / 4 | **12 / 6** |
-| SwiGLU 中间维度 | 1365 | **2048**（3.4× FFN 容量） |
-| Dropout | 0.1 | 0.0 |
-| Flash Attention | — | ✅ |
-| Z-Loss | — | 1e-4 |
-| 参数量 | **~40M** | **~87M** |
-| Embed 占比 | 15% | 11% |
-| FFN 参数 | 16.8M (41%) | **56.6M (65%)** |
+| 参数 | Nano ~40M | Lite ~87M | Pro ~126M | 0.6B |
+|------|:---:|:---:|:---:|:---:|
+| 层数 | 12 | 12 | 18 | 37 |
+| 维度 | 512 | 768 | 768 | 1024 |
+| 词表 | 12,002 | 12,002 | 12,002 | 24,002 |
+| 查询头 / KV 头 | 8 / 4 | 12 / 6 | 12 / 6 | 16 / 8 |
+| 数据量 | 6.13B chars | 6.13B chars | — | — |
+| 显存需求 | 单卡 12GB | 单卡 12GB | 单卡 16GB+ | 多卡 |
 
-> Lite 设计原则：测试证实 12 层是中文生成的硬阈值，且事实知识 100% 存于 FFN。因此保持 12 层不动，d_model 扩至 768，d_ff 按 SwiGLU 标准公式扩至 2048（3.4× FFN 容量），词表复用 Nano 的 12K。
+> **Lite 设计原则**：测试证实 12 层是中文生成的硬阈值，且事实知识全部存于 FFN。因此保持 12 层不动，d_model 扩至 768，d_ff 按 SwiGLU 标准公式扩至 2048（3.4× FFN 容量），词表复用 Nano 的 12K。
 
 ---
 
 ## 项目结构
 
 ```
-GleamLM/
-├── gleamlm/                     # 共享核心库
-│   ├── api.py                   # 推理便捷入口（GleamLM 类）
-│   ├── types.py                 # 类型别名 + ConfigValidationError
-│   ├── __init__.py              # load_model_for_inference
-│   ├── models/model.py          # GleamLMModel（RMSNorm/RoPE/GQA/SwiGLU/QK-Norm）
-│   ├── tokenizer/               # BBPE 12K 分词器（纯 Python 零依赖）
-│   ├── data/                    # 数据管线
-│   │   ├── dataset.py           # LMDataset（memmap 滑动窗口 + 预分词缓存）
-│   │   └── preprocess.py        # 清洗 / 去重 / QA过滤 / 混合切分
-│   ├── trainer/                 # 训练器
-│   │   ├── base_trainer.py      # 预训练循环（AMP/DDP/GradAccum）
-│   │   ├── sft_trainer.py       # SFTDataset + train_one_epoch_sft
-│   │   └── dpo_trainer.py       # DPODataset + dpo_loss
-│   ├── inference/               # KV Cache 流式生成
-│   │   ├── generator.py         # generate_tokens + sample_token
-│   │   ├── generate.py          # generate_response (ChatML + KV Cache)
-│   │   ├── streamer.py          # TextStreamer（流式输出）
-│   │   ├── conversation.py      # 多轮对话管理
-│   │   └── cli.py               # 统一推理 CLI
-│   ├── evaluation/              # PPL / 知识探针 / CEVAL / CMMLU
-│   ├── deploy/                  # 量化 / Safetensors 导出
-│   └── utils/                   # config / LR调度 / chatml
+gleamlm-main/
+├── gleamlm/                       # 核心库：完整学习路径（数据 → 模型 → 训练 → 推理）
+│   ├── tokenizer/                 # ① BBPE 分词器（训练/编码/解码/HF 导出）
+│   ├── data/                      # ② 数据管线（清洗→去重→打包→预分词）
+│   ├── models/                    # ③ 模型架构
+│   │   ├── model.py               #   GleamLMModel（GQA / RoPE / SwiGLU / MoE / QK-Norm）
+│   │   ├── attention_variants.py  #   NoPE / ALiBi / Sliding Window GQA
+│   │   └── mamba.py               #   Mamba-1 教学实现
+│   ├── trainer/                   # ④ 训练支撑
+│   │   ├── base_trainer.py        #   原子化训练原语（optimizer_step / GradScaler）
+│   │   ├── sft_trainer.py         #   SFT 训练 + 数据集
+│   │   ├── dpo_trainer.py         #   DPO 训练 + 数据集
+│   │   ├── lora.py                #   LoRA 从零实现
+│   │   └── grpo_loss.py / ppo_loss.py  # RL loss 独立可测
+│   ├── inference/                 # ⑤ 推理与生成（KV Cache / 流式 / 推测解码）
+│   ├── rag/                       # ⑥ RAG 检索增强
+│   ├── utils/                     # ⑦ 工具集（config / AMP / LR / ChatML）
+│   └── evaluation/                # ⑧ 评测（PPL 基础指标；标准 benchmark 见 eval/）
 │
-├── scripts/                     # 训练/推理脚本
-│   ├── train.py                 # 预训练（--variant nano|lite|pro）
-│   ├── sft.py                   # SFT 指令微调
-│   ├── dpo.py                   # DPO 偏好对齐
-│   └── infer.py                 # 推理
+├── manual/                        # 手写训练脚本（教学轨，完整实现细节）
+│   ├── pretrain.py                #   预训练（AMP / DDP / 断点续训）
+│   ├── sft.py                     #   SFT 全量微调
+│   ├── sft_lora.py                #   LoRA 微调（手写实现）
+│   ├── dpo.py                     #   DPO 偏好对齐
+│   ├── grpo.py / ppo.py           #   GRPO / PPO 强化对齐
+│   ├── distill.py                 #   知识蒸馏
+│   ├── deepspeed.py / fsdp.py     #   分布式训练
+│   ├── infer.py                   #   交互式推理
+│   └── train_tokenizer.py         #   BBPE 分词器训练（--variant 读配比 / --data_dir / 扩展 / 验证）
 │
-├── configs/                     # YAML 配置继承
-│   ├── base.yaml / nano.yaml / lite.yaml / pro.yaml
+├── industrial/                    # 工业训练脚本（对接 TRL / PEFT / DeepSpeed）
+│   ├── pretrain.py / dpo.py / grpo.py / ppo.py / sft_lora.py
+│   └── configs/                   #   工业轨专用 YAML
+│                                   #   预训练用法见 docs/industrial_pretrain.md
 │
-├── data_tools/                  # 数据获取 & SFT/DPO 数据生成
-├── tools/                       # 评估 + 验证工具
-├── tests/                       # 核心库测试（121 项）
-├── checkpoints/                 # 模型输出（按变体分目录）
-├── docs/                        # 开发文档 + 课程文档
+├── hf/                            # HuggingFace 生态桥梁
+│   ├── hf_config.py               #   PretrainedConfig
+│   ├── hf_model.py                #   GleamLMForCausalLM（from_pretrained / generate）
+│   ├── hf_adapter.py              #   Tokenizer 适配
+│   └── api.py                     #   便捷推理 API
+│
+├── data_tools/                    # 数据管线工具
+│   ├── pretrain/                  #   预训练数据（清洗/去重/切分）
+│   ├── sft/                       #   SFT 数据生成（API 蒸馏）
+│   ├── dpo/                       #   DPO rejected 生成
+│   └── shared/                    #   API 客户端
+│
+├── deploy/                        # 部署工具（导出 / ONNX / 量化）
+├── serve/                         # FastAPI OpenAI 兼容服务
+├── eval/                          # 评测入口（lm-evaluation-harness：CEVAL / CMMLU / MMLU）
+├── configs/                       # YAML 配置
+│   ├── base.yaml                  #   基础共享
+│   ├── nano.yaml / lite.yaml / pro.yaml  # 各变体
+│   └── deepspeed_config.json / deepspeed_zero2.json
+├── tests/                         # 单元测试 + 集成测试
+├── tools/                         # 辅助工具脚本
+├── docs/                          # 架构说明与设计文档
+├── pyproject.toml
 └── README.md
 ```
 
+
 ---
+
+<img src="./assets/luna_night2.png" />
 
 ## 快速开始
 
@@ -106,320 +173,267 @@ GleamLM/
 - RTX 4070 Ti 12GB（或同等显存）
 
 ```bash
-pip install -r requirements.txt
+pip install -e ".[train,dev]"
 ```
 
-### 1. 数据准备（一键管线）
+### 0. 数据准备
 
 ```bash
 # 下载原始数据（仅首次）
-pip install py7zr kagglehub
-python data_tools/pretrain/download.py
+pip install datasets
+python data_tools/download_data.py --sources fineweb wiki
 
-# 一键管道：清洗 → 去重 → SimHash → 字符加权配比 → 混合切分
-python data_tools/pretrain/pipeline.py
+# 训练 BBPE 分词器（按 configs/{variant}.yaml 的 data_sources 配比，默认 200M 字符预算）
+python manual/train_tokenizer.py --variant nano \
+    --vocab_size 12002 \
+    --save_dir gleamlm/tokenizer/checkpoints/bbpe_12k \
+    --max_chars 200000000
 
-# 选项：仅构建（不重复跑清洗/去重）
-python data_tools/pretrain/build.py --variant nano --max_chars 2600000000
+# 一键管道：6 阶段标准管线（粗去重 → 清洗 → 质量 → 细去重 → 切分 → 打包）
+python data_tools/pretrain/run_pipeline.py
+
+# 指定源和配比
+python data_tools/pretrain/run_pipeline.py \
+    --sources wiki baike edu \
+    --ratios wiki:0.4,baike:0.3,edu:0.3 \
+    --max-chars 6130000000
 ```
 
-### 2. 预训练
+### 1. 预训练
 
 ```bash
-# 统一入口：--variant 选择变体
-python scripts/train.py --variant nano
-python scripts/train.py --variant lite
-python scripts/train.py --variant pro
+# 单卡（Nano 40M 入门）
+python manual/pretrain.py --model configs/nano.yaml --data data/my_data.txt
 
-# 断点续训
-python scripts/train.py --variant nano --load_checkpoint checkpoints/nano/checkpoint_epoch_3.pt
-
-# 监控
-tensorboard --logdir ./checkpoints/nano/runs
+# 多卡 DDP（Lite 87M，4 卡）
+torchrun --nproc_per_node=4 manual/pretrain.py \
+    --model configs/lite.yaml --data data/my_data.txt --output_dir ./checkpoints
 ```
 
-优化器：AdamW（β=0.9,0.95，wd=0.01），BF16 AMP，Cosine Warmup + Decay，Flash Attention（`F.scaled_dot_product_attention`）。首次运行自动 BBPE 分词，后续 mmap 加载 ~1MB。
-
-### 3. 推理
+### 2. SFT 指令微调
 
 ```bash
-# 统一 CLI
-python scripts/infer.py --model checkpoints/nano/best_model.pt
-python scripts/infer.py --model checkpoints/lite/sft/sft_best.pt --sft  # SFT 对话
+# 全量微调
+python manual/sft.py --variant nano
 
-# API 一行入口
-python -c "from gleamlm.api import GleamLM; m = GleamLM.from_checkpoint('checkpoints/nano/best_model.pt'); print(m.generate('你好'))"
+# LoRA 微调（手写实现，基座用预训练模型）
+python manual/sft_lora.py \
+    --model checkpoints/nano/final.pt \
+    --data data/nano/sft/sft_data.jsonl \
+    --output_dir checkpoints/nano/lora
 ```
 
-### 4. SFT 指令微调
+### 3. DPO 偏好对齐
 
 ```bash
-python scripts/sft.py --variant nano
-python scripts/sft.py --variant lite --epochs 2 --lr 2e-5
-python scripts/sft.py --variant pro
+python manual/dpo.py --variant nano \
+    --model_path checkpoints/nano/sft/sft_best.pt
 ```
 
-### 5. DPO 偏好对齐
+> **PPO / GRPO 是 DPO 之后的可选强化步骤**：DPO 用偏好对静态对齐，已构成完整后训练链
+> （SFT → DPO）；需要进一步用奖励信号在线优化时，才在 DPO 产物（或 SFT 产物）之上加
+> PPO / GRPO（见 §5）。对 40M 规模属锦上添花，可跳过。
+
+### 4. OPD 在线策略蒸馏
+
+消费 DPO 产物，学生采样 → 教师对 `prompt+completion` 打分 → 序列级 reverse KL。
 
 ```bash
-python scripts/dpo.py --variant nano
-python scripts/dpo.py --variant lite
-python scripts/dpo.py --variant pro
+# 教师：本地 HF 模型（唯一方式），如 Qwen3-0.6B（打分 ~0.03s/次）
+python manual/opd.py \
+    --model checkpoints/nano/dpo/dpo_best.pt \
+    --data data/nano/opd_prompts.jsonl \
+    --output_dir checkpoints/nano/opd_v4 \
+    --teacher_model_path checkpoints/Qwen3-0.6B
 ```
 
-### 6. 量化导出
+> **ChatML 帧对齐（THUNLP OPD 论文 §5.2）**：`data/nano/opd_prompts.jsonl` 存裸 user 输入，
+> 训练时内部套成 `<|im_start|>user…<|im_end|>\n<|im_start|>assistant\n` 再喂给学生与
+> 教师。学生 SFT 与 Qwen 教师均在 ChatML 下训练，裸文本 rollout 使师生双双 OOD
+> （教师对每条续写恒定"惊讶"，`log_pi_T` 系统性偏低，优势失真）。BBPE 与 Qwen 的
+> `<|im_start|>`/`<|im_end|>` 标签文本一致，同一字符串在两边编码为各自的 special id，
+> 序列级跨 tokenizer 精确性不受影响。
+
+> **历史**：`api`（DeepSeek）与 `ollama` 教师已移除。DeepSeek 兼容端点不返回完整预填 assistant 的逐 token logprob（打分链断裂）；ollama 8B 打分慢（~10s/次）且偶发 timeout。本地 HF 0.6B（`transformers` 直接加载）打分快且稳定，为唯一教师方式。
+
+
+### 5. 强化对齐（可选步骤）— PPO / GRPO
+
+> **定位**：DPO 之后的可选强化阶段（SFT → DPO → PPO/GRPO）。两者均需规则/奖励信号，
+> 无 value network（GRPO 组内归一化优势）或有 value network（PPO）。Nano 仅作演示/冒烟
+> 跑通，未作为正式产物；`data/rlhf.jsonl` 为占位，需自行准备（每行
+> `{"prompt": ..., "ground_truth": ...}`）。
 
 ```bash
-python tools/quantize.py --input checkpoints/nano/best_model.pt --output checkpoints/nano/model_fp16.pt
-python tools/quantize.py --input checkpoints/nano/dpo/dpo_best.pt --output checkpoints/nano/dpo/dpo_fp16.pt
+# GRPO（无 value network，DeepSeek 风格）
+python manual/grpo.py \
+    --model checkpoints/nano/sft/sft_best.pt \
+    --data data/rlhf.jsonl \
+    --output_dir checkpoints/nano/grpo
+
+# PPO（value network + clip + GAE，经典 RLHF）
+python manual/ppo.py \
+    --model checkpoints/nano/sft/sft_best.pt \
+    --data data/rlhf.jsonl \
+    --output_dir checkpoints/nano/ppo
+```
+
+### 6. 推理
+
+```bash
+# 交互式推理（对话模式用 SFT 后模型）
+python manual/infer.py --model checkpoints/nano/sft/sft_best.pt --sft
+
+# OpenAI 兼容 API 服务
+python serve/api.py --model checkpoints/nano/sft/sft_best.pt --port 8000
 ```
 
 ### 7. 运行测试
 
 ```bash
-pip install -e ".[dev]"
 pytest tests/ -v
 ```
 
 ---
+<img src="./assets/露娜VS提丰.png" />
 
-## 数据集
+## 训练数据
 
-### 数据来源与清洗
+### GleamLM-Nano 四源配比
 
-| 数据源 | 原始 | 清洗后 | 保留率 |
-|--------|:---:|:---:|:---:|
-| 中文维基 | 565万 | 545万 | 96.4% |
-| 百度百科 | 214万 | 213万 | 99.8% |
-| 新闻 2016 | 202万 | 171万 | 84.5% |
-| 社区问答 | 403万 | 92万 | 22.8% |
-| **合计** | **1,384万** | **1,021万** | **73.8%** |
+Nano 与 Lite 同为四源（含 [Chinese FineWeb Edu](https://huggingface.co/datasets/opencsg/chinese-fineweb-edu) 的 edu 源），edu 55% 主导；news/wiki/baike 为稀缺高价值源，按"全量吃满"取用（其实际占比由各自可用字符量决定）：
 
-### GleamLM-Nano 字符加权配比
+| 数据源 | 字符配比 | 行均字符 |
+|--------|:---:|---:|
+| Chinese FineWeb Edu (edu) | 55% | — |
+| 中文新闻 (news) | 27% | ~752 |
+| 中文维基 (wiki) | 12% | ~123 |
+| 百度百科 (baike) | 6% | ~145 |
 
-各源行均字符差异巨大（新闻 ~752 字/行 vs 维基 ~123 字/行），`build.py` 自动按字符占比换算行数配比：
+> Nano 字符预算 6.13B（`configs/nano.yaml` 的 `training.max_train_chars`），训练 1 epoch。
+> 配比与预算由 `python data_tools/pretrain/run_pipeline.py --variant nano` 自动读取，按字符占比做 Bernoulli 采样 + 字符预算混合（edu 采样 ~21%，news/wiki/baike 采样率 ~100% 全量吃满）。
 
-| 源 | 目标字符比 | 行均字符 | → 行数配比 |
+### GleamLM-Lite 四源配比
+
+Lite 与 Nano 使用同一数据配比（edu 55% + 三源全量吃满），字符预算同样 6.13B：
+
+| 数据源 | 字符配比 |
+|--------|:---:|
+| Chinese FineWeb Edu | 55% |
+| 中文新闻 | 27% |
+| 中文维基 | 12% |
+| 百度百科 | 6% |
+
+> 配比与字符预算（6.13B）由 `python data_tools/pretrain/run_pipeline.py --variant lite` 自动读取。
+
+---
+
+## 训练与验证结果
+
+### GleamLM-Nano（v0.1.0 基线，2026-09 完成）
+
+**预训练配置**：40.8M / 12L×512d / GQA(8Q/4KV) / SwiGLU(d_ff=1365) / BBPE 12K（基于四源语料重新训练）/ tie_weights / WSD linear decay / label_smoothing 0.1 / z-loss / torch.compile(mode=default)
+
+| 项目 | 值 |
+|---|---|
+| 训练数据 | 4.47B tokens（四源配比，新 bbpe_12k 重新打包）|
+| 有效 batch | 64 seqs × 1024（micro 8 × accumulate 8）|
+| 训练步数 | 68,108 step（epoch 1）|
+| 训练时长 | 890.9 min（14.8 hr，单卡 RTX 4070 Ti）|
+| 平均吞吐 | ~760k tok/s（torch.compile）|
+| **train final loss** | **2.4850**（PPL ≈ 12.0）|
+| 学习率调度 | WSD linear：warmup 2% → stable 80% → linear decay 18%，4e-4 → 4e-5 |
+
+**训练曲线**（WSD 三段式：warmup 2% 升温 → stable 80% 恒定 → linear decay 18% 收尾）：
+
+<img src="./assets/nano_lr.png" />
+
+**Loss 收敛**（step 68108，最终 2.4850）：
+
+<img src="./assets/nano_loss.png" />
+
+**全量验证**（valid 248.3M tokens，全量遍历 30,310 batches）：
+
+| 指标 | 值 |
+|---|---|
+| **val loss** | **2.5044** |
+| **val ppl** | **12.24** |
+| train/val loss 差 | 0.019（泛化良好，无过拟合）|
+
+**生成抽查**（10 个农业/政策领域 prompt 纯续写）：上下文延续自然，模型已学到农业知识、新闻语体与政策表述；偶发词汇重复属小模型正常现象。
+
+**wandb runs**：训练 `nano_wsd_linear_v2`（run 73q36qrf）｜验证 `nano_eval_v1`（run u858vejw）
+
+### GleamLM-Nano SFT 指令微调（后训练基线，2026-09）
+
+**数据**：混合去重 7,868 条（7,107 单轮 + 761 多轮），来源 = hardcoded 通用问答模板 + API 蒸馏 + 长文 + 多轮对话，按 instruction/messages 去重（去重后新增 4,851 条与现有仅 0.1% 重叠）。训练集 `data/nano/sft/sft_data.jsonl`（源文件归档于 `data/nano/sft_sources/`）。
+
+**配置**：以预训练 `final.pt`（step 68108）为基座，ChatML 格式，loss mask 仅 assistant 回复，lr 1e-4 cosine，3 epochs，batch 8 × accumulate 4，seq 512。
+
+| 项目 | 值 |
+|---|---|
+| 基座 | GleamLM-Nano 预训练 final（val ppl 12.24）|
+| SFT 数据 | 7,868 条（混合去重）|
+| **SFT final loss** | **1.1036**（预训练 2.485 → SFT 1.104）|
+
+**效果对比**（真实对话评估）：
+
+| Prompt | SFT 前 | SFT 后 |
+|---|---|---|
+| 介绍自己 | 乱码/英文碎片 | 流利中文回答 |
+| 机器学习 | 无意义输出 | 中文结构化解说 |
+| 光合作用 | — | 准确讲出"光能→CO₂+H₂O→有机物+O₂" |
+| 乡村振兴 | — | 核心内容正确（农业强国/产业转型）|
+| GDP | — | 国内生产总值方向正确 |
+
+**结论**：40M 模型 SFT 对齐有效——从"乱码续写"变为"结构化中文问答"；数据规模 3,017→7,868 条后 best loss 1.905→1.104，知识性回答明显更准确。知识幻觉与闲聊能力受 40M 容量限制，属预期边界。
+
+### GleamLM-Nano DPO 偏好对齐（后训练演示，2026-09）
+
+**数据**：500 对 chosen/rejected，rejected 由**当前 SFT 模型**（`sft_best.pt`）生成（替换旧 7 月数据——旧数据由历史模型生成，与现模型分布不匹配，DPO 信号无效）。chosen 取自 SFT 高质量答案，rejected 为同 SFT 模型在 temp 0.95 下生成的"相关但劣化"回答。
+
+**配置**：以 SFT `sft_best.pt` 为基座（policy + frozen ref），lr 1e-6 cosine，1 epoch，beta 0.1，batch 2 × accumulate 2。
+
+| 项目 | 值 |
+|---|---|
+| 基座 | SFT sft_best（SFT loss 1.104）|
+| DPO 数据 | 500 对（SFT 模型自生成 rejected）|
+| **DPO loss** | **0.659**（初始 ln2≈0.693 温和下降）|
+
+**超参调优记录**：lr 5e-6 + 3 epoch → loss 0.067（**过拟合**，回答退化）；lr 1e-6 + 1 epoch → 0.659（温和，可接受）。DPO 在 40M 模型上增益有限——能改善回答结构偏好，但无法弥补 40M 容量导致的知识幻觉（如 DNA/RNA 结构）。
+
+**结论**：作为后训练链路（预训练→SFT→DPO）的完整性演示；DPO 对 nano 属"锦上添花"，知识准确度受容量天花板限制。
+
+### GleamLM-Nano OPD 在线策略蒸馏（后训练演示，2026-09）
+
+**原理**：学生模型自己 rollout（on-policy）→ 本地 HF 教师（Qwen3-0.6B）对轨迹打分 → 序列级 reverse KL 更新。相比 DPO（偏好对）与 RL（稀疏奖励），OPD 每 token 都有教师监督，且学生自采样消除 exposure bias。
+
+**关键设计——ChatML 帧对齐（THUNLP OPD 论文 §5.2）**：数据存裸 user 输入，训练时套成 `<|im_start|>user…<|im_end|>\n<|im_start|>assistant\n` 再喂给学生与教师。学生 SFT 与 Qwen 教师均在 ChatML 下训练，裸文本 rollout 使师生双双 OOD（教师对每条续写恒定"惊讶"，`log_pi_T` 系统性偏低 ~1.2-1.5 nats，优势失真）；同帧后两边各回各自训练分布。BBPE 与 Qwen 的 `<|im_start|>`/`<|im_end|>` 标签文本一致，同一字符串在两边编码为各自的 special id，序列级跨 tokenizer 精确性不受影响。
+
+**数据**：40 条通用闲聊/知识 prompt（`data/nano/opd_prompts.jsonl`）。
+
+**配置**：以 DPO `dpo_best.pt` 为基座，教师 = 本地 HF `checkpoints/Qwen3-0.6B`，T=1.0，n_samples=2（组内 LOO baseline），batch 2，lr 5e-6，4 epochs（80 步），entropy_coeff 0.01。
+
+| 项目 | 值 |
+|---|---|
+| 基座 | DPO dpo_best（DPO loss 0.659）|
+| OPD 数据 | 40 条 prompt × 4 epochs |
+| 教师 | Qwen3-0.6B（本地 HF，打分 ~0.03s/次）|
+| **产物** | `checkpoints/nano/opd_v4/opd_final.pt` |
+
+**符号修复（对照 THUNLP verl 参考实现）**：初版（`opd_v3`）误用 `A = logπ_S − logπ_T` 配合 `loss = −A·logπ`，梯度方向**反转**——数值单步验证 reverse KL 不降反升（1.32→1.66），等于最大化 reverse KL。修复为参考实现同款 `A = logπ_T − logπ_S`（其 `rm_scores = −(logπ_S − logπ_T)`）：loss 最小化 → 提升"教师比学生更信"的 token、压低"学生过度自信"的 token，reverse KL 稳步下降（1.32→0）。`opd_v4` 为该修复后的有效产物。
+
+**ChatML 帧对齐前后的 rollout 差异**：同帧前学生裸文本续写（输出"如果你对某个话题感兴趣，可以告诉我…"这类空转），`log_pi_S≈-3.2`；同帧后学生按 assistant 分布作答（"我是一个轻量级的开源对话模型…"），`log_pi_S≈-2.0`，训练 loss 稳定在 ~0。
+
+**三模型生成抽查**（SFT best vs DPO best vs OPD v4，temp 0.8）：
+
+| Prompt | SFT | DPO | OPD v4 |
 |---|---|---|---|
-| wiki | 30% | 123 | 52.8% |
-| baike | 12% | 145 | 17.9% |
-| news | 43% | 752 | 12.4% |
-| qa | 15% | 192 | 16.9% |
-
-> Nano 最终数据：train 6.48 GB / valid 0.36 GB / test 0.36 GB，~1.2B 训练字符。
-
-### GleamLM-Lite 五源配比
-
-Lite 在四源基础上引入 [Chinese FineWeb Edu](https://huggingface.co/datasets/opencsg/chinese-fineweb-edu)（教育级质量过滤网页文本），数据量从 ~1.2B 提升至 ~4.3B tokens：
-
-| 数据源 | token 估算 | 字符配比 | 文件大小 |
-|--------|-----------|:---:|------|
-| Chinese FineWeb Edu | ~1.5B | 35% | 5.8 GB |
-| 中文新闻 | ~870M | 20% | — |
-| 中文维基 | ~870M | 20% | — |
-| 百度百科 | ~650M | 15% | — |
-| 社区问答 | ~435M | 10% | — |
-| **总计** | **~4.3B** | **100%** | **13.85 GB** |
-
-> Chinchilla 最优 ~1.74B tokens（87M × 20），当前 2.5× 超出，保留多 epoch 训练余地。
-
----
-
-## GleamLM-Lite 训练结果
-
-GleamLM-Lite（87M）预训练完成，并完成了 SFT → DPO 对齐全链路。87M 在中文对话可用性上显著优于 40M 的 Nano 版，但仍受限于参数量，存在事实性幻觉。
-
-| 阶段 | 关键参数 | 结果 |
-|------|----------|------|
-| 预训练 | lr=4e-4, epochs=2, Cosine, Z-Loss=1e-4, FlashAttn | ~4.3B tokens, 五源混合（含 Chinese FineWeb Edu） |
-| SFT 指令微调 | 2300 条 API 蒸馏数据, ChatML+loss mask, lr=2e-5, epochs=2 | 首版含 markdown 标记污染（56% 数据），清洗后重训，最终 loss=2.40 |
-| DPO 偏好对齐 | 500 对 chosen/rejected, β=0.1, lr=1e-7, epochs=1 | SFT clean → DPO，loss=0.64，消除自我介绍崩溃 |
-
-> **关键经验**：DPO 的 rejected 必须用 SFT 模型自己生成，不能用预训练基座（方向是反的）。API 数据返回的 markdown 格式化是训练数据里的隐形杀手——56% 的输出含 `**bold**` 标记，需正则清洗后再入训。87M 的可靠输出窗口在 128-150 token，超 164 幻觉骤增。
-
-### 预训练对比
-
-| 参数 | Nano 40M | Lite 87M |
-|------|------|------|
-| 优化器 | AdamW | AdamW |
-| 学习率 | 3e-4 | 4e-4 |
-| LR 调度 | Cosine | Cosine（WSD 为后续消融选项） |
-| Attention | 手写 | `F.scaled_dot_product_attention` |
-| Z-Loss | 无 | 1e-4 |
-| Dropout | 0.1 | 0.0 |
-| 数据量 | ~1.2B chars | ~4.3B tokens |
-
-### GleamLM-Lite SFT + DPO（87M 对齐）
-
-#### SFT 指令微调
-
-SFT 数据采用 DeepSeek API 蒸馏的 2300 条高质量中文问答（`data/sft_api_new.jsonl`），ChatML 格式。
-
-首版 SFT 训练后，模型输出频繁出现 `**加粗标题**`、`1. 编号列表` 等 markdown 标记——经统计，**56% 的训练数据从 API 获取时就自带 markdown 格式化**。编写正则清洗脚本（去 bold/列表/标题标记）后，输出格式变为干净的纯文本段落。
-
-| 参数 | 值 | 说明 |
-|------|-----|------|
-| 训练数据 | 2308 条（清洗后） | JSONL，instruction+output |
-| 训练轮数 | 2 epochs | lr=2e-5, dropout=0.05 |
-| Batch size | 8 | accumulate=4，有效 batch=32 |
-| 格式 | ChatML + loss mask | 仅 assistant 部分计算损失 |
-| SFT(clean) loss | 2.40 | vs 首版(raw) 2.36，略高但输出质量更好 |
-
-#### DPO 偏好对齐
-
-基于 SFT(clean) 模型，用其自己生成"差回答"作为 rejected，API 的好回答作为 chosen，共 500 对。DPO lr=1e-7，β=0.1，1 epoch。
-
-> **重要教训**：最初用预训练基座生成 rejected——方向完全反了。DPO 的目标是让模型知道"别像你自己那样差，要像 API 那样好"，而不是"别像预训练基座那样胡扯"。**rejected 必须用 SFT 模型自己生成**。
-
-#### 四阶段效果对比
-
-同一 prompt，各阶段生成效果（temperature=0.7, max_new_tokens=128, repetition_penalty=1.15）：
-
-| Prompt | 预训练 | SFT(raw) | SFT(clean) | SFT+DPO |
-|--------|--------|----------|------------|---------|
-| 介绍一下你自己 | 空白 | 无限重复崩溃 | 有内容但偏题 | 有内容，结构改善 |
-| 失眠怎么办 | 空白 | `**markdown**` 标记 | 纯文本，连贯 | 有具体建议 |
-| 什么是机器学习 | 空白 | 定义还行 | 定义简洁 | 多领域交叉定义 |
-| 北京好玩地方 | 空白 | 城市幻觉 | 重复崩溃 | 有内容提及 |
-| 番茄炒蛋 | 空白 | 步骤正确 | 方法略偏 | 分步骤+调料 |
-
-> 87M 在事实知识广度和对话流畅性上明显优于 40M，但幻觉仍然较严重（如"天空为什么是蓝色"会回答"气温相互作用"而非瑞利散射）。建议推理时 max_new_tokens 控制在 128-150，超过 164 幻觉和重复骤增。
-
----
-
-## GleamLM-Nano 训练结果
-
-### （BBPE 12K + 字符加权四源混合，~40M）
-
-![](./assets/train_loss.jpg)
-
-
-
-![](./assets/val.jpg)
-
-训练配置：`batch_size=4, accumulate_grad=16`（等效 64），`label_smoothing=0.1`，`stride=768`，Cosine Warmup + Decay，12GB 显存持续 ~92% 满载。
-
-| Epoch | Train Loss | Val Loss | PPL | PPL↓ | 备注 |
-|-------|-----------|----------|-----|------|------|
-| 0 | 3.2960 | 2.8064 | 16.55 | — | 语法收敛，生成通顺但内容空洞 |
-| 1 | 2.8764 | 2.7045 | 14.95 | -1.60 | 首句沾边，后续漂移 |
-| 2 | 2.8053 | 2.6568 | 14.25 | -0.70 | 高频事实固化中 |
-| 3 | 2.7655 | 2.6255 | 13.81 | -0.44 | 边际收益递减，改善持续 |
-| 4 | 2.7440 | 2.6136 | **13.65** | -0.16 | 训练完成，全程无过拟合 |
-
-
-
-**最佳结果**：`val_loss=2.6136`，`val_ppl=13.65`，模型保存至 `./checkpoints`。
-
-> 输出通顺、格式清晰、首句基本沾边。5 个 epoch 全程无过拟合，val_loss 和 ppl 持续下降，边际收益递减但仍未完全收敛。长尾事实知识受限于 40M 参数容量，后续将通过 SFT + DPO 对齐改善。
-
-**Epoch 4 最佳模型生成样例**（temperature=0.5, repetition_penalty=1.1, max_new_tokens=35）：
-
-| 输入 | 输出（节选） |
-|------|------|
-| `中国有五千年的` | 历史，是中华人民共和国的一部分。（首词正确预测"历史"）... |
-| `机器学习是人工智能的` | 一个重要方面。（精准命中常见搭配）... |
-| `读书的好处是` | 每个人都会有自己的兴趣爱好和想法，不管你是否喜欢阅读，都可以通过阅读... |
-| `世界上最高的山峰是` | 位于中国西藏自治区拉萨市南部的一座山峰，海拔高度1,463米。（地理关联正确）... |
-
-> 模型对高频搭配和常见知识有一定记忆（如"五千年→历史"、"AI→一个方面"），能保持续写方向大致相关。但在长尾知识上仍会发散到无关话题。这是 40M 小模型在纯预训练阶段的物理上限，后续通过 SFT + DPO 对齐可显著改善。
-
-### GleamLM-Nano SFT + DPO（40M 对齐验证）
-
-#### SFT 数据生成
-
-采用 DeepSeek-V4-Pro API 蒸馏生成 10000 条高质量中文指令数据（`data/sft_data.jsonl`），三类配比：
-
-> **API 配置**：如需重新生成数据，需设置环境变量 `DEEPSEEK_API_KEY`（DeepSeek 控制台创建 API Key）。当前仓库已包含生成好的 `data/sft_data.jsonl`，无需额外配置即可直接训练。
-
-| 类别 | 占比 | 条数 | 内容范围 |
-|------|:---:|------|----------|
-| **A 类 · 通用问答** | 40% | 4000 | 烹饪技巧、家务整理、健康习惯、学习方法、安全科技、旅行出行、生活妙招 |
-| **B 类 · 知识回答** | 30% | 3000 | 历史（25 条基础）、地理（19 条）、科学（25 条）、文化（18 条），通过模板扩展至 3000 条 |
-| **C 类 · 创作与闲聊** | 30% | 3000 | 描写创作（夕阳、大海、星空等）、情感感悟（孤独、成长、友情等）、日常聊天、观点讨论 |
-
-数据格式为**标准 ChatML**（BBPE 12K 词表原生支持 `<|im_start|>` / `<|im_end|>` 特殊 token）：
-
-```
-<|im_start|>system
-你是一个乐于助人的AI助手。<|im_end|>
-<|im_start|>user
-如何煮出一碗好吃的面条？<|im_end|>
-<|im_start|>assistant
-煮好面条的诀窍：水要多，水开后下面，用筷子拨散防止粘连...<|im_end|>
-```
-
-训练时仅对 `assistant` 部分计算 loss（loss mask），确保模型学会回答而非重复问题。
-
-#### SFT 指令微调
-
-```bash
-# 从头训练
-python scripts/sft.py --variant nano
-
-# 断点续训
-python scripts/sft.py --variant nano --resume checkpoints/nano/sft/sft_epoch_1.pt
-```
-
-| 参数 | 值 | 说明 |
-|------|-----|------|
-| 训练数据 | 10000 条 | JSONL 格式，ChatML 包装 |
-| 训练轮数 | 3 epochs | 避免过拟合 |
-| 学习率 | 5e-6 | 预训练的 1/60，保护通用能力 |
-| Batch size | 8 | accumulate=4，有效 batch=32 |
-| 格式 | ChatML + loss mask | 仅 assistant 部分计算损失 |
-| 预计耗时 | ~55 分钟 | 单卡 12GB |
-| 续训 | `--resume PATH` | 从 checkpoint 恢复 optimizer/scheduler/scaler 状态续训 |
-
-- **ChatML + loss mask**：BBPE 原生支持 `<|im_start|>`（ID=1）、`<|im_end|>`（ID=2），`<|endoftext|>`（ID=0）为文档分隔符 + PAD
-- **评估方式**：对比微调前后对同一 prompt 的生成质量，检验是否从"续写"转为"直接回答"
-
-**SFT 训练结果**（lr=5e-6, epochs=3）：
-
-| Epoch | train_loss | 说明 |
-|-------|-----------|------|
-| 0 | 3.3279 | 初始状态，loss 与预训练末期接近 |
-| 1 | ~2.8 | 开始适应 ChatML 格式 |
-| 2 | ~2.2 | 对话格式基本学会 |
-
-> 提升 10 倍学习率后，模型仅需 3 个 epoch 即可掌握对话格式。loss 从 3.3 降至 2.2，说明模型有效学习了指令跟随能力。
-
-**SFT 后生成样例**（`--sft --temperature 0.7 --repetition_penalty 1.15 --max_new_tokens 128`）：
-
-| Prompt | 模型输出 | 评价 |
-|--------|----------|------|
-| 你好，请介绍一下你自己 | 如果你是个人，建议你先学会分析别人的优劣... | 格式正确（直接回答），但内容偏移到人生建议 |
-| 什么是机器学习 | 机器学习是指将信息传递给机器人，从而实现机器学习的一种方法... | 方向沾边，夹杂大量无关细节 |
-| 请用一句话描述北京的秋天 | 北京是世界上最大的热带气旋生物多样性保护区... | 完全幻觉，缺乏事实锚点 |
-| 写一首关于春天的五言诗 | 春天是温暖的季节，是安静的季节... | 没写成诗，只是在描述春天 |
-| 请解释一下什么是光合作用 | 光合作用是一种天然的氧化物，分子量约2000万个太阳质量... | 方向沾边，但事实严重错误 |
-
-> **结论**：SFT 成功让模型从"续写"转为"直接回答"，格式层面完全达标。但 40M 参数容量不足以支撑事实性知识的精准记忆——这是小模型的物理上限，而非训练问题。后续通过 DPO 对齐可进一步提升安全性和回答质量。
-
-#### DPO 偏好对齐
-
-```bash
-python scripts/dpo.py --variant nano
-```
-
-| 参数 | 值 | 说明 |
-|------|-----|------|
-| 训练数据 | 150 对 chosen/rejected | SFT 模型生成 rejected（回答同一问题但答错），DeepSeek 输出作为 chosen |
-| 训练轮数 | 1 epoch | β=0.1，学习率 1e-7 |
-| DPO loss | 0.89 → 0.79 | 偏好信号有效学习，loss 下降 11% |
-| 预计耗时 | ~2 分钟 | 150 对数据，batch=2×2 |
-
-**DPO 后生成样例**（`--sft --temperature 0.7 --repetition_penalty 1.15 --max_new_tokens 128`）：
-
-| Prompt | SFT 后 | DPO 后 | 改善 |
-|--------|--------|--------|:---:|
-| 北京秋天 | 北京是世界上最大的热带气旋生物多样性保护区 | 落叶遍野、金黄如雪、红得让人心旷神怡 | 🟢 |
-| 光合作用 | 天然的氧化物，分子量约2000万个太阳质量 | 生物体生长发育和光照时间变化 | 🟢 |
-| 自我介绍 | 如果你是个人，建议先学会分析别人的优劣 | 练字孩子的成长故事 | ⬜ 叙事更连贯但仍跑题 |
-| 机器学习 | 将信息传递给机器人 | 操作系统/计算机模块分离 | ⬜ 方向修正，细节仍幻觉 |
-| 五言诗 | 春天是温暖的季节，是安静的季节 | 描写+引经据典（三国/水浒） | ⬜ 更有文采，但未成诗 |
-
-> **DPO 结论**：最显著的效果是纠正方向性错误（不再说北京是保护区、光合作用有太阳质量）。但 40M 参数注定无法记住精准事实。GleamLM-Nano 全链路（预训练→SFT→DPO）至此收尾，下一阶段转向 GleamLM-Lite（80M）预训练。
+| 机器学习 | 定义含糊 | 偏模式预测 | **教科书式定义**（"计算机科学分支，让机器模拟人类智能行为…"）|
+| 写秋诗 | 碎片 | 结构散 | **全篇成诗**（梧桐落叶/夕阳/蝴蝶意象连贯）|
+| 光合作用 | 开头准后跑偏 | 退化幻觉 | 分点自答 |
+
+**结论**：符号修复后 OPD v4 输出比 v3（错号）更贴近教师——事实性定义句更规范、长段诗歌更连贯（on-policy 蒸馏教师 ChatML 行为的体现）；但 40M 参数仍做不了事实性知识问答（三者均幻觉），属容量天花板，非对齐方法可救。
 
 ---
 
@@ -427,19 +441,64 @@ python scripts/dpo.py --variant nano
 
 | 版本 | 参数量 | 定位 | 状态 |
 |------|--------|------|------|
-| GleamLM-Nano | ~40M | 教学入门 / 单卡 12GB | ✅ 已完成 |
-| GleamLM-Lite | ~87M | 消融实验平台 / FFN 3.4× | ✅ 已完成 |
+| GleamLM-Nano | ~40M | 教学入门 / 单卡 12GB 完整训练 | ✅ 已完成 |
+| GleamLM-Lite | ~87M | 消融实验平台 / FFN 3.4× 扩容 | ✅ 已完成 |
 | GleamLM-Pro | ~126M | 科研进阶 / 18L×768d / BBPE 12K | 🔨 开发中 |
-| GleamLM-0.6B | ~0.6B | 工业级验证 / 37L×1024d / BBPE 24K | 📋 寻求合作 |
+| GleamLM-0.6B | ~0.6B | 工业级验证 / 37L×1024d / BBPE 24K 跨字合并 | 📋 规划中 |
+
+---
+
+<img src="./assets/luna_title2.png" />
+
+---
+
+## 与工业预训练实践对齐
+
+手工轨训练持续对齐开源工业实践（以 HuggingFace SmolLM 系列与 megatron-core 为基准）：
+
+- **Weight decay 分组**：embedding + norm 去 wd，矩阵权重正常衰减（SmolLM3 `weight_decay_exclude_named_params` / Megatron 跳过 1-D 参数）
+- **WSD 调度**：decay 段支持线性衰减（SmolLM3 实际配置 `lr_decay_style: linear`），`min_lr_ratio=0` 线性降到 0
+- **Z-Loss 默认 1e-5**：对齐 SmolLM3，防 logits 爆炸
+- **确定性采样 + 精确断点续训**：统一 `DistributedSampler(seed)`，checkpoint 持久化 `consumed_train_samples` 全局样本计数（与 DP 解耦），恢复逐位续上（对齐 nanotron 确定性契约）
+- **BF16 免 GradScaler**：仅 FP16 启用 scaler，BF16 无 underflow
+
+### 数据格式与数据类：与 Megatron 逐层对齐（手工数据可直接进工业）
+
+预训练数据统一为 Megatron 标准 `.bin/.idx`，手工轨与工业轨消费同一份数据：
+
+| 层级 | 项目实现 | Megatron 对应 | 对齐 |
+|---|---|---|---|
+| **token 数据层** | `.bin`：uint16 token 连续流 | `IndexedDataset` 的 `.bin` | 字节一致 |
+| **索引层** | `.idx`：34B header + int32 sizes + int64 pointers + int64 doc_idx | `_IndexWriter` 布局 | 完全兼容 |
+| **数据类** | 工业轨用官方 `GPTDataset` + `BlendedMegatronDatasetBuilder`（含跨文档滑窗、eod_mask_loss、position_ids）；`hf/hf_megatron_tokenizer.py` 将 BBPE 适配为 `MegatronTokenizerBase` | `pretrain_gpt.py` 主路径 | 官方类一致 |
+| **滑窗语义层** | 手工轨 `IndexedMMapDataset` 跨文档滑窗 | `GPTDataset._build_document_sample_shuffle_indices` | 语义一致 |
+
+效果：一份 `.bin/.idx` 数据可被 `manual/pretrain.py`（手写 `IndexedMMapDataset`）、`industrial/pretrain.py`（官方 `GPTDataset` + megatron `IndexedDataset`）直接消费；DeepSpeed 的 `MMapIndexedDataset` 与 Megatron 字节兼容，零转换可用。格式契约由 `tests/test_dataset.py::TestMegatronCompat` 防回归。
+
+工业轨预训练脚本的参数 / WSD / 累积 / 断点续训 / EOD 约定见 [`docs/industrial_pretrain.md`](docs/industrial_pretrain.md)；工业 checkpoint → HF 产物用 `tools/convert_megatron_to_hf.py`（含 `--verify` 等价性校验）。
+
+### 后训练数据格式：对齐 TRL 工业标准（messages / role-content）
+
+工业后训练（SFT/DPO/GRPO）以 TRL 为事实标准，数据存 role/content 数组、不预渲染 ChatML，由 tokenizer 的 chat template 运行时拼装：
+
+| 阶段 | 工业标准字段 | 项目实现 |
+|---|---|---|
+| **SFT** | `{"messages": [user, assistant]}` 或 `{"prompt":[...], "completion":[...]}`，`completion_only_loss=True`（只算回答） | `industrial/sft.py` 自动识别 messages → completion-only loss；兼容旧 `{"text"}` 纯文本 |
+| **DPO** | `{"prompt":[user], "chosen":[assistant A], "rejected":[assistant B]}` | `industrial/dpo.py`（TRL 自动 chat template 渲染）|
+| **GRPO/PPO** | `{"prompt": ..., "ground_truth": ...}` + 规则 reward_funcs | `industrial/{grpo,ppo}.py` 的 `default_reward` 支持 `ground_truth` 精确匹配 |
+
+tokenizer 导出已含 ChatML chat template（`export_to_hf_format` → `tokenizer_config.json`），messages 数据训练时自动渲染，保留 prompt/completion 边界以支持 completion-only loss。
+
+### OPD 教师：本地 HF 模型（唯一方式）
+
+OPD（On-Policy Distillation）需要教师对 `prompt + completion` 求序列级 `log π_T(y)`。**DeepSeek API 的 logprobs 只覆盖新生成的 token、不对输入文本打分**（`prompt_logprobs` 参数不存在），API 打分不可用；ollama 8B 打分慢且偶发 timeout。本地 HF 因果模型（`AutoModelForCausalLM`，如 Qwen3-0.6B）经 `transformers` 直接加载，`log_softmax` 逐 token 求和可对任意文本打分，打分 ~0.03s/次，为唯一教师方式。运行命令见上文「4. OPD 在线策略蒸馏」。
+
+序列级 reverse KL 语义跨 tokenizer 可比：教师 tokenizer ≠ 学生 BBPE，但整条文本的 logprob 求和与切分无关。产物 `opd_final.pt` 与 DPO checkpoint 结构同构，**可直接复用 `deploy/manual_to_qwen3.py` 转 HF Qwen3 格式 → vLLM 部署**（转换只依赖 `model_state_dict` + `_config`，与训练方法无关）。
 
 ---
 
 ## 安全提示
 
-所有 checkpoint 加载使用 `torch.load(weights_only=False)`，这是加载优化器状态、Python 对象（如 argparse Namespace）等非张量数据的必要条件。**请勿加载来源不明的 checkpoint 文件**，否则存在 pickle 反序列化攻击风险。仅加载自己训练或可信来源的 checkpoint。
+模型权重加载使用 `torch.load(weights_only=True)` 确保安全。训练脚本因需加载优化器/GradScaler 状态（Python 对象），使用 `weights_only=False` —— 请勿加载来源不明的 checkpoint 文件，否则存在 pickle 反序列化攻击风险。仅加载自己训练或可信来源的 checkpoint。
 
----
-
-## 许可证
-
-Apache License 2.0
+## 许可证：Apache License 2.0

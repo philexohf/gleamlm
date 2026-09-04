@@ -3,7 +3,7 @@
 import argparse
 import os
 
-from gleamlm.data.dataset import LMDataset
+from gleamlm.data.dataset import tokenize_and_group
 from gleamlm.models.model import GleamLMModel
 from gleamlm.tokenizer.tokenizer import BBPETokenizer
 from gleamlm.utils.config import DEFAULT_TOKENIZER_PATH, cfg_to_namespace, load_config
@@ -42,7 +42,7 @@ m = GleamLMModel(
 )
 print(f"Model: {sum(p.numel() for p in m.parameters()):,} params OK")
 
-ds = LMDataset(ns.data_dir, tok, 128, "valid")
+ds = tokenize_and_group(os.path.join(ns.data_dir, "valid.txt"), tok, 128)
 print(f"Dataset: {len(ds)} samples OK")
 
 print("\nAll imports and paths verified.")

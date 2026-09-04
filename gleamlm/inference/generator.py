@@ -31,7 +31,10 @@ def sample_token(
                 scores < 0, scores * repetition_penalty, scores / repetition_penalty
             )
 
-    if temperature > 0 and temperature != 1.0:
+    # temperature ≤ 0 → greedy: 与文档声明的语义一致 (其他调用方特判行为统一到此)
+    if temperature <= 0:
+        return logits.argmax(dim=-1)
+    if temperature != 1.0:
         logits = logits / temperature
 
     if top_k > 0:
@@ -115,5 +118,7 @@ def _forward(
 ) -> tuple[torch.Tensor, PastKeyValueList]:
     if use_amp:
         with safe_autocast(dtype=amp_dtype or torch.bfloat16):
-            return model(input_ids, past_kv_list=past_kv)  # type: ignore[no-any-return]
-    return model(input_ids, past_kv_list=past_kv)  # type: ignore[no-any-return]
+            logits, kv_list, *_ = model(input_ids, past_kv_list=past_kv)  # type: ignore[arg-type]
+    else:
+        logits, kv_list, *_ = model(input_ids, past_kv_list=past_kv)  # type: ignore[arg-type]
+    return logits, kv_list

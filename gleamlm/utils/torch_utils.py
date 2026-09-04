@@ -1,46 +1,32 @@
-"""PyTorch utility functions."""
+"""AMP (Automatic Mixed Precision) context manager.
+
+Provides safe_autocast — cross-cutting utility used by both training
+and inference code. LR schedulers have been moved to trainer/schedulers.py.
+"""
 
 from __future__ import annotations
 
-import math
+import torch
 from collections.abc import Generator
 from contextlib import contextmanager
 
-import torch
 
+def clean_state_dict(state_dict: dict) -> dict:
+    """规整 checkpoint state_dict 键名：剥离 torch.compile/_orig_mod、DDP/module 前缀。
 
-def get_lr_cosine(
-    step: int, total_steps: int, warmup_ratio: float = 0.01, min_lr_ratio: float = 0.1
-) -> float:
-    """Cosine annealing with warmup. Returns multiplier in [0, 1]."""
-    warmup_steps = int(total_steps * warmup_ratio)
-
-    if step < warmup_steps:
-        return step / max(1, warmup_steps)
-    else:
-        progress = (step - warmup_steps) / max(1, total_steps - warmup_steps)
-        return min_lr_ratio + (1.0 - min_lr_ratio) * 0.5 * (1 + math.cos(math.pi * progress))
-
-
-def get_lr_wsd(
-    step: int,
-    total_steps: int,
-    warmup_ratio: float = 0.02,
-    stable_ratio: float = 0.80,
-    min_lr_ratio: float = 0.05,
-) -> float:
-    """WSD scheduler. Returns multiplier in [0, 1]."""
-    warmup_steps = int(total_steps * warmup_ratio)
-    stable_steps = int(total_steps * stable_ratio)
-    decay_steps = total_steps - warmup_steps - stable_steps
-
-    if step < warmup_steps:
-        return step / max(1, warmup_steps)
-    elif step < warmup_steps + stable_steps:
-        return 1.0
-    else:
-        progress = (step - warmup_steps - stable_steps) / max(1, decay_steps)
-        return min_lr_ratio + (1.0 - min_lr_ratio) * 0.5 * (1.0 + math.cos(math.pi * progress))
+    torch.compile 会给被编译 module 的键加 `_orig_mod.` 前缀，DDP 加 `module.`，
+    加载到原始模型前需剥离。这是所有下游脚本（sft/dpo/grpo/infer/eval）加载
+    训练产物时的统一入口，避免每个脚本重复处理。
+    """
+    sd = state_dict
+    if any(k.startswith("_orig_mod.") for k in sd):
+        sd = {k[len("_orig_mod."):]: v for k, v in sd.items()}
+    if any(k.startswith("module.") for k in sd):
+        sd = {k[len("module."):]: v for k, v in sd.items()}
+    if any(k.startswith("model.") for k in sd):
+        # HF wrapper 产物常见前缀 (旧 gleamlm_hf 格式)
+        sd = {k[len("model."):]: v for k, v in sd.items()}
+    return sd
 
 
 @contextmanager

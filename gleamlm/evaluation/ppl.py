@@ -12,7 +12,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from gleamlm.data.dataset import LMDataset, collate_fn
+from gleamlm.data.dataset import tokenize_and_group
 from gleamlm.tokenizer.tokenizer import BBPETokenizer
 
 
@@ -64,13 +64,13 @@ def _compute_raw_loss(
     criterion = nn.CrossEntropyLoss(reduction="sum", ignore_index=pad_token_id)
 
     pbar = tqdm(data_loader, desc="Eval", mininterval=5)
-    for input_ids, target_ids in pbar:
+    for batch in pbar:
         if max_batches and n_batches >= max_batches:
             break
-        input_ids = input_ids.to(device)
-        target_ids = target_ids.to(device)
+        input_ids = batch["input_ids"].to(device)
+        target_ids = batch["labels"].to(device)
 
-        logits, _ = model(input_ids)
+        logits, _, _, _ = model(input_ids)
         loss = criterion(logits.reshape(-1, logits.size(-1)), target_ids.reshape(-1))
 
         total_loss += loss.item()
@@ -120,7 +120,7 @@ def evaluate_ppl(
     local_rank: int = 0,
 ) -> PPLResult:
     """Evaluate model perplexity on a dataset."""
-    ds = LMDataset(data_dir, tokenizer, max_seq_len, dataset, ids_prefix=ids_prefix, augment=False)
+    ds = tokenize_and_group(os.path.join(data_dir, f"{dataset}.txt"), tokenizer, max_seq_len)
 
     if world_size > 1:
         import torch.distributed as dist
@@ -133,14 +133,12 @@ def evaluate_ppl(
             ds,
             batch_size=batch_size,
             sampler=sampler,
-            collate_fn=lambda b: collate_fn(b, pad_id=tokenizer.pad_id),
         )
     else:
         dl = DataLoader(
             ds,
             batch_size=batch_size,
             shuffle=False,
-            collate_fn=lambda b: collate_fn(b, pad_id=tokenizer.pad_id),
             num_workers=0,
         )
 

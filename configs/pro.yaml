@@ -1,5 +1,5 @@
 # ============================================================================
-# GleamLM-Pro 126M 配置（18L×768d, GQA 12/6, SwiGLU, RoPE, QK-Norm）
+# GleamLM-Pro 126M 配置（18L×768d, GQA 12/6, SwiGLU, RoPE）
 # ============================================================================
 extends: base.yaml
 
@@ -27,7 +27,6 @@ model:
   dropout: 0.0
   tie_weights: true
   use_flash_attn: true
-  use_qk_norm: true
   use_gradient_checkpointing: true
 
 data:

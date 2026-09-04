@@ -1,7 +1,9 @@
 # Editable install with train extras (TensorBoard)
 -e .[train]
 
-# For development: pip install -e .[train,dev]
-# For data tools:  pip install -e .[train,data]
-# For evaluation:  pip install -e .[train,data,quality,tools]
--e .[train]
+# For development:          pip install -e .[train,dev]
+# For data tools:           pip install -e .[train,data]
+# For evaluation:           pip install -e .[train,data,eval]
+# For HF integration only:  pip install -e .[hf]
+# For industrial track:     pip install -e .[train,data,industrial]
+#   (Megatron 预训练 + TRL/PEFT 后训练；可选，手工核心轨不需要)

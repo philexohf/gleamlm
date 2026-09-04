@@ -41,6 +41,7 @@ dev = [
     "ruff>=0.15",
     "mypy>=2.0",
     "pre-commit>=4.0",
+    "pydantic>=2.0",
 ]
 data = [
     "pandas",
@@ -54,6 +55,31 @@ tools = [
 quality = [
     "openai>=1.0",
     "fasttext-wheel>=0.9",
+]
+hf = [
+    # HF 生态集成 (hf/ serve/ deploy/ eval/): transformers.cache_utils 4.30 才有，
+    # 版本必须钉住，否则 hf_model.py import 即崩
+    "transformers>=4.30",
+]
+industrial = [
+    # 工业轨 (industrial/ tools/convert_megatron_to_hf.py): Megatron 预训练 + TRL 后训练。
+    # 全为可选 —— 手工核心轨 (manual/ + gleamlm/) 零 HF/Megatron 依赖，可不装。
+    "megatron-core>=0.16,<0.17",   # 代码按 0.16 API (GPTModel 显式 vocab/max_seq、optimizer_param_scheduler)
+    "transformers>=4.44",          # TRL/GRPO 需较新 transformers (chat template / Trainer 集成)
+    "trl>=1.0",                    # GRPOConfig/GRPOTrainer/RLOOTrainer (1.x)
+    "peft>=0.13",
+    "accelerate>=0.30",
+    "datasets>=3.0",
+    "tokenizers>=0.19",
+    # DeepSpeed 可选 (manual/deepspeed.py, industrial 多卡): torch2.6 下 0.19.x import 崩
+    # (infer_schema 拒绝 list[int])，本仓库锁定 0.16.x
+    "deepspeed>=0.16,<0.17",
+]
+eval = [
+    # 标准评测 (eval/ tools/eval_runner.py): lm-evaluation-harness 官方框架，
+    # CEVAL/CMMLU/MMLU 均为框架注册任务，不自写评测器
+    "lm-eval>=0.4",
+    "transformers>=4.30",
 ]
 
 [project.urls]
@@ -90,13 +116,9 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "**/__init__.py" = ["F401"]  # re-exports
-"tools/eval_ppl.py" = ["E402"]  # path setup before imports
-"tools/eval_knowledge.py" = ["SIM115"]  # stdout redirect
 "tools/eval_layer_dropout.py" = ["SIM115"]  # stdout redirect
 "tests/test_tokenizer.py" = ["SIM115"]  # NamedTemporaryFile manual cleanup
-"tests/verify_flash_attn.py" = ["E741"]  # loss loop variable
 "data_tools/pretrain/extract_text.py" = ["F401", "B018"]  # availability probe
-"data_tools/pretrain/pipeline.py" = ["B007"]  # enumerate src iteration
 "data_tools/sft/generate.py" = ["E402"]  # sys.path before data_tools imports
 "data_tools/sft/generate_longform.py" = ["E402"]  # sys.path before data_tools imports
 "data_tools/sft/generate_multiturn.py" = ["E402"]  # sys.path before data_tools imports
@@ -117,12 +139,16 @@ python_version = "3.12"
 strict = true
 disallow_any_generics = false
 exclude = [
-    "experimental/",
     "tools/",
     "data_tools/",
     "tests/",
     "configs/",
-    "scripts/",
+    "manual/",
+    "industrial/",
+    "hf/",
+    "eval/",
+    "serve/",
+    "deploy/",
 ]
 
 [[tool.mypy.overrides]]

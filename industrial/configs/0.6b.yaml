@@ -1,0 +1,41 @@
+# Megatron 版 0.6B 预训练配置 — 与项目 0.6B 定义（37L×1024d×GQA16/8×4096ffn×seq4096×BBPE24K）完全对齐。
+#
+# 说明:
+#   - 本配置是"学习 Megatron 用法"的最小集，由 industrial/pretrain.py 读取
+#   - 生产级配置建议直接用 Megatron-LM 官方 pretrain_gpt.py 命令行参数
+#   - 数据由 data_tools/pretrain/run_pipeline.py 生成 (.bin/.idx, --tokenizer bbpe)
+#   - tokenizer: 项目 BBPE 24K (checkpoints/bbpe_24k)，run_pipeline.py 打包时
+#     用 BBPE，若需 HF 格式 tokenizer 可手动 export_to_hf_format 导出
+
+model:
+  hidden_size: 1024            # d_model (与 0.6b.yaml 对齐)
+  num_layers: 37               # transformer 层数 (0.6B 定义: 37L)
+  num_attention_heads: 16      # Q heads
+  num_query_groups: 8          # GQA: 8 KV heads (0.6B 定义: GQA 16/8)
+  ffn_hidden_size: 4096        # SwiGLU 中间维度 (d_ff 4x)
+  seq_length: 4096             # 训练序列长度 (0.6B 定义: max_seq_len 4096)
+  max_position_embeddings: 4096
+  vocab_size: 24002            # BBPE 24K (data_tools/pretrain/run_pipeline.py --tokenizer bbpe)
+
+parallel:
+  tensor_model_parallel_size: 1   # TP: 权重切分 (0.6B 单卡可跑，多卡可开 2/4 学习)
+  pipeline_model_parallel_size: 1 # PP: 层数流水切分 (37 层可开 2/3 学习)
+  context_parallel_size: 1        # CP: 长序列沿 seq 维切分 (学习用)
+
+training:
+  micro_batch_size: 2          # 每卡 batch (0.6B 定义: batch_size 1 + accum 64)
+  global_batch_size: 64        # 总 batch = micro × DP × grad_accum
+  accumulate_grad: 32          # 单卡有效 batch = micro(2)×32 = 64（对齐 global 64；多卡 DP 按需调小）
+  train_iters: 10000           # 训练步数
+  lr: 2.0e-4                   # 0.6B 定义: lr 2e-4
+  min_lr: 1.0e-5
+  min_lr_ratio: 0.05           # 供未显式给 min_lr 时换算（此处已给 min_lr，作文档一致性）
+  lr_decay_style: cosine
+  lr_warmup_iters: 500
+  weight_decay: 0.1
+  clip_grad: 1.0
+  z_loss_weight: 1.0e-5        # Z-Loss 防 logits 爆炸（SmolLM3 默认 1e-5；nano 用 1e-4）
+  bf16: true                   # 与手写轨 AMP 对应 (Megatron 的混合精度开关)
+  log_interval: 10
+  eval_interval: 500
+  save_interval: 1000

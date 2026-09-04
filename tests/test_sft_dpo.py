@@ -9,9 +9,10 @@ from torch.utils.data import DataLoader
 
 from gleamlm.models.model import GleamLMModel
 from gleamlm.tokenizer.tokenizer import BBPETokenizer
-from gleamlm.trainer.base_trainer import set_seed
-from gleamlm.trainer.dpo_trainer import DPODataset, compute_log_probs, dpad_collate, dpo_loss
-from gleamlm.trainer.sft_trainer import SFTDataset, evaluate_sft
+from gleamlm.trainer.base_trainer import evaluate_generations, set_seed
+from gleamlm.trainer.dpo_loss import compute_log_probs, dpo_loss
+from gleamlm.data.sft_data import SFTDataset
+from gleamlm.data.dpo_data import DPODataset, dpad_collate
 from gleamlm.utils.config import DEFAULT_TOKENIZER_PATH
 
 VOCAB_SIZE = 12002
@@ -86,7 +87,7 @@ class TestSFT:
                     break
                 input_ids = input_ids.to(device)
                 labels = labels.to(device)
-                logits, _ = model(input_ids)
+                logits, _, _, _ = model(input_ids)
                 ce = torch.nn.functional.cross_entropy(
                     logits.view(-1, VOCAB_SIZE), labels.view(-1), ignore_index=-100
                 )
@@ -96,7 +97,7 @@ class TestSFT:
             assert ce.item() > 0
 
             model.eval()
-            evaluate_sft(model, tokenizer, ["你好"])
+            evaluate_generations(model, tokenizer, ["你好"])
 
 
 class TestDPO:
@@ -159,14 +160,14 @@ class TestDPO:
             rejected_mask = batch["rejected_mask"].to(device)
 
             policy.train()
-            c_logits, _ = policy(chosen_ids)
-            r_logits, _ = policy(rejected_ids)
+            c_logits, _, _, _ = policy(chosen_ids)
+            r_logits, _, _, _ = policy(rejected_ids)
             p_cho = compute_log_probs(c_logits.float(), chosen_ids, chosen_mask)
             p_rej = compute_log_probs(r_logits.float(), rejected_ids, rejected_mask)
 
             with torch.no_grad():
-                c_logits_r, _ = ref(chosen_ids)
-                r_logits_r, _ = ref(rejected_ids)
+                c_logits_r, _, _, _ = ref(chosen_ids)
+                r_logits_r, _, _, _ = ref(rejected_ids)
             r_cho = compute_log_probs(c_logits_r.float(), chosen_ids, chosen_mask)
             r_rej = compute_log_probs(r_logits_r.float(), rejected_ids, rejected_mask)
 

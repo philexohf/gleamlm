@@ -6,6 +6,13 @@ __pycache__/
 # Model checkpoints
 checkpoints/*
 !checkpoints/*/.gitkeep
+checkpoints_*/
+
+# HF 转换产物 (tools/convert_megatron_to_hf.py 生成，不入库)
+hf/checkpoints/
+
+# Weights & Biases (local run dirs, never commit)
+wandb/
 
 # Training data — gitignore all, selectively un-ignore small data
 data/
@@ -21,6 +28,9 @@ data/
 !data/pro/dpo/
 !data/benchmarks/
 !data/raw/.gitkeep
+# gleamlm/data/ 是核心库数据层（dataset/pack/pipeline/preprocess），
+# 上面的 data/ 模式会递归匹配任意层级的同名目录，必须显式反忽略
+!gleamlm/data/
 
 # Tokenizer checkpoints (keep 12K, ignore test)
 
@@ -47,6 +57,9 @@ images/
 opencode.json
 .claude/
 AGENTS.md
+
+# 本地 skill（复用旧仓库，不入库）
+.opencode/skills/
 
 # Local issue tracker (internal planning)
 .scratch/

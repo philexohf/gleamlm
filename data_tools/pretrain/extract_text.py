@@ -177,7 +177,7 @@ def extract_edu(input_dir, output_path):
 
 
 def _open_archive(path):
-    """打开 zip 或 gz 归档, 返回逐行文本迭代器"""
+    """打开 zip/gz/jsonl 归档, 返回逐行文本迭代器"""
     if path.endswith(".gz"):
         return gzip.open(path, "rt", encoding="utf-8")
     if path.endswith(".zip"):
@@ -189,6 +189,8 @@ def _open_archive(path):
         train = [n for n in json_files if "train" in n.lower()]
         target = train[0] if train else max(json_files, key=lambda n: zf.getinfo(n).file_size)
         return io.TextIOWrapper(zf.open(target), encoding="utf-8")
+    if path.endswith((".json", ".jsonl")):
+        return open(path, "r", encoding="utf-8")
     return None
 
 

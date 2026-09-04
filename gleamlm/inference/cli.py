@@ -71,7 +71,7 @@ def generate(
     print(f"{'=' * 60}")
     print("Generated: ", end="", flush=True)
 
-    last_chunk = prompt
+    chunks: list[str] = []
     for chunk in streamer.generate_text(
         model,  # type: ignore[arg-type]
         prompt,
@@ -83,14 +83,14 @@ def generate(
         stop_on_endoftext=sft_mode,
     ):
         new_text = chunk
-        last_chunk = chunk
+        chunks.append(chunk)
         if sft_mode and stop_token and stop_token in new_text:
             new_text = new_text.split(stop_token)[0] + stop_token
             _safe_print(new_text)
             break
         _safe_print(new_text)
 
-    full_text = prompt + (last_chunk if last_chunk != prompt else "")
+    full_text = prompt + "".join(chunks)
     print("\n")
     return full_text
 
