@@ -177,6 +177,9 @@ pip install -e ".[train,dev]"
 
 ### 0. 数据准备
 
+- **预处理数据已上传 ModelScope**：[LLM-Pretrain-Data](https://www.modelscope.cn/datasets/philexohf/LLM-Pretrain-Data)。
+- 复现训练可直接下载该数据集，无需重复执行数据管线。数据下载后，预训练数据（train/val/test）放入本地 `data/nano/pretrain` 文件夹。
+
 ```bash
 # 下载原始数据（仅首次）
 pip install datasets
@@ -197,8 +200,6 @@ python data_tools/pretrain/run_pipeline.py \
     --ratios wiki:0.4,baike:0.3,edu:0.3 \
     --max-chars 6130000000
 ```
-
-> **数据管线预处理数据**：已上传 ModelScope：[LLM-Pretrain-Data](https://www.modelscope.cn/datasets/philexohf/LLM-Pretrain-Data)，数据下载后，放入本地 `data/nano/pretrain` 文件夹。复现训练可直接下载该数据集，无需重复执行数据管线。
 
 
 ### 1. 预训练
