@@ -41,7 +41,8 @@ advanced:
 
 sft:
   max_seq_len: 512
-  data_path: data/nano/sft/sft_data.jsonl
+  # 混合训练集：基础集 3,415 + QA→SFT 10,000（见 data_tools/sft/mix_sft.py）
+  data_path: data/nano/sft/sft_mix.jsonl
 
 dpo:
   max_seq_len: 512

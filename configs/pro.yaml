@@ -48,8 +48,9 @@ dpo:
   data_path: data/pro/dpo_data.jsonl
 
 data_sources:
-  - {name: edu, type: text, ratio: 0.35}
-  - {name: news, type: news, ratio: 0.20}
-  - {name: wiki, type: text, ratio: 0.20}
-  - {name: baike, type: text, ratio: 0.15}
-  - {name: qa, type: qa, ratio: 0.10}
+  # 预训练不用问答语料（调研共识 + qa 实测保留率 22.8%，见设计文档 §21）；
+  # 2026-09 移除 qa:0.10，剩余四源按原相对比例等比放大
+  - {name: edu, type: text, ratio: 0.39}
+  - {name: news, type: news, ratio: 0.22}
+  - {name: wiki, type: text, ratio: 0.22}
+  - {name: baike, type: text, ratio: 0.17}

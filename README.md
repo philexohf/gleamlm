@@ -46,11 +46,11 @@ GleamLM 面向大语言模型预训练与后训练工程师，目标是理解原
 
 **manual 手写实现**
 
-核心算法、网络结构、训练逻辑全部从零写。不用框架封装，直接看原始代码。目的是理解每个技术细节，出问题知道怎么修。
+核心算法、模型结构、训练逻辑全部从零实现。目的是理解技术细节，出问题知道怎么修。
 
 **industrial 工业框架**
 
-基于 TRL、DeepSpeed、PEFT、vLLM 等框架实现，对接工业界实际使用的工具链。目的是能用标准工具干活，适应团队协作流程。
+基于 TRL、DeepSpeed、PEFT 和 vLLM 等框架实现，对接工业界实际使用的工具链。目的是能用标准工具干活，适应团队协作流程。
 
 两边对照，原理和工程能力都有。
 
@@ -365,43 +365,51 @@ Nano 与 Lite 同为四源（含 [Chinese FineWeb Edu](https://huggingface.co/da
 
 **wandb runs**：训练 `nano_wsd_linear_v2`（run 73q36qrf）｜验证 `nano_eval_v1`（run u858vejw）
 
-### GleamLM-Nano SFT 指令微调（后训练基线，2026-09）
+### GleamLM-Nano SFT 指令微调（后训练基线）
 
-**数据**：7,868 条（7,107 单轮 + 761 多轮），来源 = hardcoded 通用问答模板 + API 蒸馏 + 长文 + 多轮对话；训练集 `data/nano/sft/sft_data.jsonl`（源文件归档于 `data/nano/sft_sources/`）。
+**数据**：13,413 条/epoch = 基础集 3,415（模板/API 蒸馏/多轮，dedup 清洗后）+ QA→SFT 10,000（知乎知识问答，占 74.5%）。训练集 `data/nano/sft/sft_mix.jsonl`，由 `data_tools/sft/mix_sft.py` 混合 `sft_data.jsonl`（基础）与 `qa_sft.jsonl`（QA 源，20,000 条由 `data_tools/sft/qa_to_sft.py` 从 qa_dedup 语料规则抽取）。
 
-**配置**：以预训练 `final.pt`（step 68108）为基座，ChatML 格式，loss mask 仅 assistant 回复，lr 1e-4 cosine，3 epochs，batch 8 × accumulate 4，seq 512。
+> **数据迭代背景**（详见 `docs/experiments.md` §8）：原 7,868 条训练集含 59% output 重复（模板拼接污染，单组最多 29 连），导致旧 SFT 模型对闲聊输入出现“主题自锁复读”缺陷；2026-09 清洗去重（备份 `sft_data_bak_dup.jsonl`）+ QA 提料 + 手写闲聊补足后重建。
+
+**配置**：以预训练 `final.pt`（step 68108）为基座，ChatML 格式，loss mask 仅 assistant 回复，lr 1e-4 cosine，3 epochs，batch 8 × accumulate 4，seq 512。默认值来自 base.yaml。
 
 | 项目 | 值 |
 |---|---|
 | 基座 | GleamLM-Nano 预训练 final（val ppl 12.24）|
-| SFT 数据 | 7,868 条（混合去重）|
-| **SFT final loss** | **1.1036**（预训练 2.485 → SFT 1.104）|
+| SFT 数据 | 13,413 条（基础 3,415 + QA 10,000，output 零重复）|
+| **SFT final loss** | **2.6283**（预训练 2.485 → SFT 2.628）|
 
-**效果对比**（真实对话评估）：
+> loss 2.6283 仅比预训练 val 2.5044 高约 0.12：数据零重复且 74.5% 为知乎长答（均值 197.7 字），属真实拟合的合理水位。
 
-| Prompt | SFT 前 | SFT 后 |
-|---|---|---|
-| 介绍自己 | 乱码/英文碎片 | 流利中文回答 |
-| 机器学习 | 无意义输出 | 中文结构化解说 |
-| 光合作用 | — | 准确讲出"光能→CO₂+H₂O→有机物+O₂" |
-| 乡村振兴 | — | 核心内容正确（农业强国/产业转型）|
-| GDP | — | 国内生产总值方向正确 |
+**效果评估**（模型实测，ChatML 单轮，temp 0.8）：
 
-**结论**：40M 模型 SFT 对齐有效——从"乱码续写"变为"结构化中文问答"；知识幻觉与闲聊能力受 40M 容量限制，属预期边界（数据迭代记录见 `docs/experiments.md` §1）。
+| 维度 | 结果 |
+|---|---|
+| 语言流畅度 | ✅ 全中文、无乱码碎片、问答自带结构化分点 |
+| 知识问答 | ⚠️ 形式成型但有幻觉（光合作用编出“甲烷/电力”）——40M 容量边界 |
+| 闲聊/身份 | ⚠️ 答非所问（“介绍一下你自己”答文档整理）——闲聊样本仅 169 条，被知乎分布稀释 |
+| 写作 | ⚠️ 描述性文字可读（北京秋天），五言诗无格律 |
+| 算术 | ❌ “2+2” 未答对（容量边界，各后训练模型一致）|
 
-### GleamLM-Nano DPO 偏好对齐（后训练演示，2026-09）
+**结论**：数据清洗训练达成核心目标，生成的语言较为流畅；幻觉/闲聊/算术仍受 40M 容量限制，属预期边界。
 
-**数据**：500 对 chosen/rejected，chosen 取自 SFT 高质量答案，rejected 由当前 SFT 模型（`sft_best.pt`）在 temp 0.95 下生成的"相关但劣化"回答（由现模型自生成，保证落在 policy 分布内）。
+### GleamLM-Nano DPO 偏好对齐（后训练演示，2026-09，数据 v2）
 
-**配置**：以 SFT `sft_best.pt` 为基座（policy + frozen ref），lr 1e-6 cosine，1 epoch，beta 0.1，batch 2 × accumulate 2。
+**数据 v2**：1,930 对 chosen/rejected = 闲聊 169 + 单轮知识 1,000 + 多轮对话 761。chosen 取自 SFT 基础集高质答案；rejected 由当前 SFT 模型（`sft_best.pt`，数据 v2 产物）在 temp 0.95 下生成的“相关但劣化”回答（由现模型自生成，保证落在 policy 分布内）。
+
+> **数据链路**：`data_tools/dpo/build_dpo_chosen.py` 抽 chosen 池 → `data_tools/dpo/generate_rejected.py`（v2 模型逐条生成，4 分片并行）→ `data_tools/dpo/merge_dpo_data.py` 合并清洗 → `data/nano/dpo/dpo_data.jsonl`。多轮样本的 `messages` 只含对话历史（尾轮答案由 chosen/rejected 承载）。旧 500 对（旧 SFT v1 模型生成，纯单轮）备份为 `dpo_data_bak_v1.jsonl`。
+
+**配置**：以 SFT `sft_best.pt` 为基座（policy + frozen ref），lr 1e-6 cosine，1 epoch，beta 0.3，batch 2 × accumulate 2。
+
+> **beta 调参**（v2 数据，2026-09）：rejected 为 policy 自采样（与模型同分布），beta 0.1 的 KL 约束在 40M 上偏弱，单次采样评估即见输出漂移（写作题离题）；调至 0.3 后 7 题 × 4 采样 A/B 对比 SFT 基座无退化亦无显著提升，定稿。loss 初始恒为 ln2≈0.693，且数值随 beta 放大而变小（真实偏好 margin 两版相近 ≈2.5），不可只凭 loss 数字跨 beta 比较。
 
 | 项目 | 值 |
 |---|---|
-| 基座 | SFT sft_best（SFT loss 1.104）|
-| DPO 数据 | 500 对（SFT 模型自生成 rejected）|
-| **DPO loss** | **0.659**（初始 ln2≈0.693 温和下降）|
+| 基座 | SFT sft_best |
+| DPO 数据 | 1,930 对（闲聊 169 + 单轮 1,000 + 多轮 761，v2 模型自生成 rejected）|
+| **DPO loss** | **0.3953**（beta 0.3，初始 ln2≈0.693 温和下降）|
 
-**结论**：作为后训练链路（预训练→SFT→DPO）的完整性演示；DPO 对 nano 属"锦上添花"，知识准确度受容量天花板限制。
+**结论**：作为后训练链路（预训练→SFT→DPO）的完整性演示。beta 0.3 定稿模型的 A/B 实测（7 题 × 4 采样，temp 0.8，与 SFT 基座对比）确认**无退化亦无显著提升**——40M 容量钉死生成能力上限，偏好优化学到排序但难以转化为更优输出；知识准确度/算术仍受容量天花板限制。
 
 ### GleamLM-Nano OPD 在线策略蒸馏（后训练演示，2026-09）
 
@@ -415,7 +423,7 @@ Nano 与 Lite 同为四源（含 [Chinese FineWeb Edu](https://huggingface.co/da
 
 | 项目 | 值 |
 |---|---|
-| 基座 | DPO dpo_best（DPO loss 0.659）|
+| 基座 | DPO dpo_best |
 | OPD 数据 | 40 条 prompt × 4 epochs |
 | 教师 | Qwen3-0.6B（本地 HF，打分 ~0.03s/次）|
 

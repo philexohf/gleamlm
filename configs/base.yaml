@@ -3,25 +3,30 @@
 # 具体模型配置（nano/lite/pro）通过 merges 继承后会覆盖各自差异项
 # ============================================================================
 
-# ---- 训练控制 ----
+# ---- 预训练控制 ----
 training:
   seed: 42
-  epochs: 4
+  # 单遍数据预算由 max_train_chars 控制，epochs=1（nano/lite 实证）；pro 覆盖为 3
+  epochs: 1
+  # 有效 batch = 8×8 = 64（nano 实证，README 预训练配置）
   batch_size: 8
   accumulate_grad: 8
   clip_grad: 1.0
   weight_decay: 0.01
-  label_smoothing: 0.1
+  label_smoothing: 0.1            # nano 实证值（README：label_smoothing 0.1）
   log_interval: 50
   eval_interval: 500
   save_interval: 2000
-  max_train_chars: 1200000000   # 12 亿字符上限
+  # 与 nano/lite 实证预算一致（6.13B chars）；pro 覆盖为 8B
+  max_train_chars: 6130000000
 
-# ---- 学习率 (Cosine) ----
+# ---- 学习率 - WSD 兜底（与 nano/pro 实证一致；lite 覆盖为 cosine）----
 lr:
-  type: cosine                  # lite 默认 Cosine Annealing + Warmup
-  lr: 0.0003
-  warmup_ratio: 0.01
+  type: wsd
+  # 与 nano 实证一致（4e-4，README：WSD 4e-4 → 4e-5）；lite/pro 各自覆盖
+  lr: 0.0004
+  warmup_ratio: 0.02             # nano 实证 warmup 2%
+  stable_ratio: 0.80             # nano/pro 实证 stable 80%
   min_lr_ratio: 0.1
 
 # ---- 优化器 ----
@@ -56,7 +61,8 @@ data_sources: []                # 各变体覆盖：{name, type, ratio, file}
 
 # ---- 高级 ----
 advanced:
-  z_loss_weight: 0.0            # lite 覆盖为 1e-4
+  # 各变体（nano/lite/pro）均覆盖为 1e-4（nano 实证启用 z-loss）；base 同步实证值作兜底
+  z_loss_weight: 0.0001
   bf16: true
   pin_memory: true
   num_workers: 0                # Windows + memmap: 0 is fastest; Linux: try 2-4
@@ -66,7 +72,9 @@ sft:
   epochs: 3
   batch_size: 8
   accumulate_grad: 4
-  lr: 5.0e-6
+  # 与 README SFT 基线一致（nano_sft_v2.log 实证：lr 1e-4 cosine → loss 1.10）
+  # 历史坑：曾误配 5.0e-6——那是 1e-4×min_lr_ratio 0.05 的余弦终点值，非起始 lr
+  lr: 1.0e-4
   warmup_ratio: 0.02
   weight_decay: 0.01
   max_seq_len: 1024
@@ -78,7 +86,9 @@ dpo:
   epochs: 1
   batch_size: 2
   accumulate_grad: 2
-  lr: 1.0e-7
+  # 与 README DPO 基线一致（lr 1e-6 cosine → loss 0.659，README §DPO）
+  # 历史坑：曾误配 1.0e-7（比实证值低 10 倍）
+  lr: 1.0e-6
   beta: 0.1
   max_seq_len: 1024
   warmup_ratio: 0.02

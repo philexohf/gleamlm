@@ -131,6 +131,8 @@ def main():
     parser.add_argument("--tokenizer_path", type=str, default=DEFAULT_TOKENIZER_PATH)
     parser.add_argument("--output", type=str, default="data/dpo_data.jsonl", help="输出文件")
     parser.add_argument("--limit", type=int, default=0, help="最大样本数 (0=all)")
+    parser.add_argument("--shard-id", type=int, default=0, help="分片序号 (0-based, 配合 --shard-total 多进程并行)")
+    parser.add_argument("--shard-total", type=int, default=1, help="分片总数")
     # 生成参数
     parser.add_argument(
         "--temperature", type=float, default=0.95, help="温度 (单轮 default=0.8, 多轮 default=0.95)"
@@ -186,6 +188,10 @@ def main():
                 continue
     if args.limit:
         samples = samples[: args.limit]
+    if args.shard_total > 1:
+        samples = samples[args.shard_id :: args.shard_total]
+        if args.shard_id:
+            args.output = args.output.replace(".jsonl", f".{args.shard_id}.jsonl")
     print(f"Loaded {len(samples)} samples from {data_path}")
 
     temp = args.temperature if fmt == "multi" else min(args.temperature, 0.95)
@@ -221,7 +227,10 @@ def main():
             )
             dpo_data.append(
                 {
-                    "messages": context + [{"role": "assistant", "content": target}],
+                    # messages 只含对话历史（不含尾轮答案），与 DPODataset 消费约定一致：
+                    # 训练时 prompt = messages + generation prompt，chosen/rejected 作为尾轮续写。
+                    # 历史坑：曾把 target 也拼进 messages，导致答案在 prompt 区重复（被 mask 区吃掉）。
+                    "messages": context,
                     "chosen": target,
                     "rejected": rejected,
                 }
