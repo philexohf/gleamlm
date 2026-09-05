@@ -81,6 +81,14 @@ eval = [
     "lm-eval>=0.4",
     "transformers>=4.30",
 ]
+serve = [
+    # OpenAI 兼容 API 服务 (serve/api.py): FastAPI + uvicorn；
+    # 经 hf/ 桥接加载 checkpoint 需 transformers，pydantic 做请求/响应模型
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "pydantic>=2.0",
+    "transformers>=4.30",
+]
 
 [project.urls]
 Homepage = "https://github.com/philexohf/gleamlm"

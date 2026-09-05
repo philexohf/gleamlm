@@ -181,20 +181,27 @@ pip install -e ".[train,dev]"
 - 复现训练可直接下载该数据集，无需重复执行数据管线。数据下载后，预训练数据（train/val/test）放入本地 `data/nano/pretrain` 文件夹。
 
 ```bash
-# 下载原始数据（仅首次）
+# ① 下载原始数据（仅首次，生成 data/raw/{edu,wiki}_raw.txt）
 pip install datasets
 python data_tools/download_data.py --sources fineweb wiki
 
-# 训练 BBPE 分词器（按 configs/{variant}.yaml 的 data_sources 配比，默认 200M 字符预算）
+# ② 一键管道：6 阶段标准管线（粗去重 → 清洗 → 质量 → 细去重 → 切分 → 打包）
+#    --variant nano 自动读取 nano.yaml 的 data_sources 配比（55/27/12/6）与
+#    max_train_chars 字符预算（6.13B），train/valid/test.bin/.idx 输出到
+#    data/nano/pretrain（打包用内置 bbpe_12k）；中间产物 {name}_dedup.txt
+#    落盘 data/raw/（③ 训练分词器的输入）。每阶段产物存在即跳过，可断点续跑。
+python data_tools/pretrain/run_pipeline.py --variant nano
+
+# ③ 可选：基于 ② 的 data/raw/{name}_dedup.txt 训练自己的 BBPE 分词器
+#    （按 configs/{variant}.yaml 的 data_sources 配比，默认 200M 字符预算）。
+#    注意：新词表不会自动参与 ② 已打包的 .bin/.idx —— 需删除旧产物（或换
+#    --output-prefix）后重跑 ②，并追加 --tokenizer-path <新词表目录>。
 python manual/train_tokenizer.py --variant nano \
     --vocab_size 12002 \
     --save_dir gleamlm/tokenizer/checkpoints/bbpe_12k \
     --max_chars 200000000
 
-# 一键管道：6 阶段标准管线（粗去重 → 清洗 → 质量 → 细去重 → 切分 → 打包）
-python data_tools/pretrain/run_pipeline.py
-
-# 指定源和配比
+# 指定源和配比（不带 --variant 时输出到 data/processed）
 python data_tools/pretrain/run_pipeline.py \
     --sources wiki baike edu \
     --ratios wiki:0.4,baike:0.3,edu:0.3 \
@@ -206,18 +213,20 @@ python data_tools/pretrain/run_pipeline.py \
 
 ```bash
 # 单卡（Nano 40M 入门）
-python manual/pretrain.py --model configs/nano.yaml --data data/my_data.txt
+# --data 传 .bin/.idx 前缀（推荐：§0 ModelScope 产物 data/nano/pretrain/train）；
+# 也可传 .txt 路径/目录（小数据示例，文件需自行准备）
+python manual/pretrain.py --model configs/nano.yaml --data data/nano/pretrain/train
 
-# 多卡 DDP（Lite 87M，4 卡）
+# 多卡 DDP（Lite 87M，4 卡；数据用 §0 同管线 --variant lite 的产物）
 torchrun --nproc_per_node=4 manual/pretrain.py \
-    --model configs/lite.yaml --data data/my_data.txt --output_dir ./checkpoints
+    --model configs/lite.yaml --data data/lite/pretrain/train --output_dir ./checkpoints
 ```
 
 ### 2. SFT 指令微调
 
 ```bash
-# 全量微调
-python manual/sft.py --variant nano
+# 全量微调（--model_path 指定预训练基座；缺省会找不存在的 checkpoints/nano/best_model.pt）
+python manual/sft.py --variant nano --model_path checkpoints/nano/final.pt
 
 # LoRA 微调（手写实现，基座用预训练模型）
 python manual/sft_lora.py \
@@ -243,6 +252,7 @@ python manual/dpo.py --variant nano \
 
 ```bash
 # 教师：本地 HF 模型，如 Qwen3-0.6B（打分 ~0.03s/次）
+# 教师加载需 transformers，先执行 pip install -e ".[hf]"
 python manual/opd.py \
     --model checkpoints/nano/dpo/dpo_best.pt \
     --data data/nano/opd_prompts.jsonl \
@@ -285,7 +295,7 @@ python manual/ppo.py \
 # 交互式推理（对话模式用 SFT 后模型）
 python manual/infer.py --model checkpoints/nano/sft/sft_best.pt --sft
 
-# OpenAI 兼容 API 服务
+# OpenAI 兼容 API 服务（依赖在 serve extra：先执行 pip install -e ".[serve]"）
 python serve/api.py --model checkpoints/nano/sft/sft_best.pt --port 8000
 ```
 
