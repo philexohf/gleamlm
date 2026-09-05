@@ -21,6 +21,10 @@
   # 训练超参默认值来自同一 YAML（training/lr/advanced 段），CLI 可覆盖
   python manual/pretrain.py --model configs/nano.yaml --data ./data.txt --lr 5e-4 --epochs 2
 
+  # 观测模式: 默认 tqdm 进度条（仅主进程渲染）；--no-pbar 切回日志式
+  # （每 log_interval 步一行，适合输出重定向/无人值守）
+  python manual/pretrain.py --model configs/nano.yaml --data data/nano/pretrain/train
+
   # 多卡 DDP（单机 4 卡示例）
   torchrun --nproc_per_node=4 manual/pretrain.py \
       --model configs/lite.yaml --data ./data.txt --output_dir ./checkpoints
@@ -39,6 +43,7 @@
 import argparse
 import math
 import os
+import subprocess
 import sys
 import time
 from contextlib import nullcontext
@@ -62,6 +67,7 @@ import torch.nn.functional as F
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
+from tqdm import tqdm
 
 from gleamlm.data.dataset import tokenize_and_group
 from gleamlm.models.model import GleamLMModel, GQA, MLP, MoE
@@ -85,6 +91,43 @@ FFN_REGISTRY = {"mlp": MLP, "moe": MoE}
 
 
 # ddp_setup / ddp_cleanup / is_main_process 见 gleamlm/trainer/base_trainer.py。
+
+
+def _gpu_stats(device, local_rank):
+    """GPU 占用 (util%, 进程显存 GiB, 峰值 GiB, 总显存 GiB) — 对齐 nvidia-smi。
+
+    Windows 上 torch.cuda.utilization 因 pynvml 缺失抛异常（实测），若直接
+    fallback 0 会误导监控（GPU 满载却显示 0%）；此处回退 nvidia-smi 子进程
+    查询（每 log_interval 步一次，毫秒级开销）。显存取 memory.used（进程
+    占用）而非 PyTorch 缓存分配器视图 allocated（只含活跃张量，远小于真实）。
+    显存统一 GiB 口径（bytes/2**30 或 MiB/1024），与 nvidia-smi 读数一致。
+    """
+    if device.type != "cuda":
+        return 0.0, 0.0, 0.0, 0.0
+    try:
+        util = float(torch.cuda.utilization(device))
+        mem = torch.cuda.memory_allocated(device) / 2**30
+        mem_max = torch.cuda.max_memory_allocated(device) / 2**30
+        mem_total = torch.cuda.get_device_properties(device).total_memory / 2**30
+        return util, mem, mem_max, mem_total
+    except Exception:
+        pass
+    try:
+        kwargs = {}
+        if os.name == "nt":
+            # Ctrl+C 隔离: 子进程默认与主进程同 console 前台组，用户 Ctrl+C 会
+            # 同时中断 nvidia-smi（其挂起不退出会拖住下方 check_output 等待，
+            # 表现为退出卡住）；新进程组使其不受 SIGINT 影响，正常跑完即退。
+            kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+        out = subprocess.check_output(
+            ["nvidia-smi", "--query-gpu=utilization.gpu,memory.used,memory.total",
+             "--format=csv,noheader,nounits"], text=True, timeout=3, **kwargs)
+        lines = [ln.strip() for ln in out.strip().splitlines() if ln.strip()]
+        # 多卡按 local_rank 取对应 GPU 行
+        u, mem_mib, total_mib = lines[min(local_rank, len(lines) - 1)].split(",")
+        return float(u), float(mem_mib) / 1024, 0.0, float(total_mib) / 1024
+    except Exception:
+        return 0.0, 0.0, 0.0, 0.0
 
 
 def train(args, model_cfg: ModelConfig):
@@ -265,6 +308,21 @@ def train(args, model_cfg: ModelConfig):
     best_val_loss = float("inf")
     raw_model.train()
 
+    # 观测模式: 默认 tqdm 进度条（optimizer step 粒度、跨 epoch 连续、
+    # initial=断点步数，resume 后位置精确）；--no-pbar → 日志式输出。
+    # 进度条仅主进程渲染（多卡从进程静默，与旧 base_trainer 同策略）；
+    # mininterval 节流重绘频率，避免交互终端刷屏/重定向被 \r 污染。
+    pbar = None
+    # GPU 显存缓存: set_postfix 每步引用，但查询较重（NVML 缺失时起
+    # nvidia-smi 子进程）→ 每 log_interval 步刷新一次；此处先查一次让
+    # 第 1 步即有真实值
+    gpu_util, gpu_mem, gpu_mem_max, gpu_mem_total = 0.0, 0.0, 0.0, 0.0
+    if args.pbar and is_main_process():
+        pbar = tqdm(total=total_steps, initial=step, desc="pretrain",
+                    mininterval=5, unit="step")
+        if device.type == "cuda":
+            gpu_util, gpu_mem, gpu_mem_max, gpu_mem_total = _gpu_stats(device, local_rank)
+
     if is_main_process():
         os.makedirs(args.output_dir, exist_ok=True)
 
@@ -350,34 +408,48 @@ def train(args, model_cfg: ModelConfig):
                 optimizer.zero_grad()
                 step += 1
 
-            if is_main_process() and step % args.log_interval == 0:
-                tok_per_sec = args.batch_size * model_cfg.max_seq_len / dt
-                progress_pct = 100.0 * step / max(1, total_steps)
-                if device.type == "cuda":
-                    try:
-                        gpu_util = float(torch.cuda.utilization(device))
-                    except Exception:
-                        gpu_util = 0.0
-                    gpu_mem = torch.cuda.memory_allocated(device) / 1e9
-                    gpu_mem_max = torch.cuda.max_memory_allocated(device) / 1e9
-                else:
-                    gpu_util, gpu_mem, gpu_mem_max = 0.0, 0.0, 0.0
-                print(f"step {step}/{total_steps} ({progress_pct:.1f}%)  loss={loss.item():.4f}  lr={lr:.2e}  {tok_per_sec/1e3:.1f}k tok/s  GPU:{gpu_util:.0f}%/{gpu_mem:.1f}G")
-                if wandb is not None:
-                    wandb.log({
-                        "loss": loss.item(),
-                        "lr": optimizer.param_groups[0]["lr"],
-                        "step": step,
-                        "epoch": epoch,
-                        "progress_pct": progress_pct,
-                        "tok_per_sec": tok_per_sec,
-                        "time_per_step_ms": dt * 1000,
-                        "gpu_util": gpu_util,
-                        "gpu_mem_gb": gpu_mem,
-                        "gpu_mem_peak_gb": gpu_mem_max,
-                    }, step=step)
+            # 观测输出仅在本 accumulate 组末发生一次（重复守卫同 save/val）。
+            # --pbar(默认): 每组末 update + set_postfix，loss/lr/tok/s 每步连续刷新
+            # （对齐旧 base_trainer 节奏：从第 1 步就有值、平滑不跳跃）；
+            # GPU 显存走缓存（查询较重——NVML 缺失时起 nvidia-smi 子进程，
+            # 每步执行太贵——每 log_interval 步刷新一次，显存变化缓慢无感）。
+            # --no-pbar 日志式: 每 log_interval 步打一行；wandb 两模式同节奏。
+            if is_main_process() and is_last_acc:
+                if args.pbar:
+                    pbar.update(1)
+                if step % args.log_interval == 0:
+                    gpu_util, gpu_mem, gpu_mem_max, gpu_mem_total = _gpu_stats(device, local_rank)
+                    tok_per_sec = args.batch_size * model_cfg.max_seq_len / dt
+                    progress_pct = 100.0 * step / max(1, total_steps)
+                    if not args.pbar:
+                        print(f"step {step}/{total_steps} ({progress_pct:.1f}%)  loss={loss.item():.4f}  lr={lr:.6f}  {tok_per_sec/1e3:.1f}k tok/s  GPU:{gpu_mem:.1f}/{gpu_mem_total:.1f}G")
+                    if wandb is not None:
+                        wandb.log({
+                            "loss": loss.item(),
+                            "lr": optimizer.param_groups[0]["lr"],
+                            "step": step,
+                            "epoch": epoch,
+                            "progress_pct": progress_pct,
+                            "tok_per_sec": tok_per_sec,
+                            "time_per_step_ms": dt * 1000,
+                            "gpu_util": gpu_util,
+                            "gpu_mem_gb": gpu_mem,
+                            "gpu_mem_peak_gb": gpu_mem_max,
+                        }, step=step)
+                if args.pbar:
+                    # 每步刷新（旧 base_trainer 组末 set_postfix 同款），
+                    # 数值连续变化；重绘频率由 mininterval=5 节流
+                    tok_per_sec = args.batch_size * model_cfg.max_seq_len / dt
+                    pbar.set_postfix({
+                        "loss": f"{loss.item():.4f}",
+                        "lr": f"{lr:.6f}",
+                        "tok/s": f"{tok_per_sec/1e3:.1f}k",
+                        "GPU": f"{gpu_mem:.1f}/{gpu_mem_total:.1f}G",
+                    })
 
-            if is_main_process() and step > 0 and step % args.save_interval == 0:
+            # 周期保存/验证与日志同规则：只在组末判定一次，否则命中步会
+            # 被组内每个 micro-batch 重复执行（save 重复全量写盘、val 重复跑整集）。
+            if is_main_process() and is_last_acc and step > 0 and step % args.save_interval == 0:
                 ckpt_path = os.path.join(args.output_dir, f"step_{step}.pt")
                 torch.save({
                     "step": step, "epoch": epoch, "batch": batch_idx + 1,
@@ -392,7 +464,7 @@ def train(args, model_cfg: ModelConfig):
                 print(f"Saved: {ckpt_path}")
 
             # 周期验证 + best model
-            if is_main_process() and val_loader is not None and step > 0 and step % val_interval == 0:
+            if is_main_process() and is_last_acc and val_loader is not None and step > 0 and step % val_interval == 0:
                 raw_model.eval()
                 # 仅 rank 0 跑完整 val 集 (val_loader 只在 rank 0 构建)；
                 # world_size=1 跳过 all_reduce，避免其他 rank 不参与验证导致的死锁。
@@ -422,6 +494,9 @@ def train(args, model_cfg: ModelConfig):
             print(f"Epoch {epoch} done: {epoch_duration:.0f}s = {epoch_duration/60:.1f} min")
             if wandb is not None:
                 wandb.log({"epoch": epoch, "epoch_duration": epoch_duration}, step=step)
+
+    if pbar is not None:
+        pbar.close()
 
     if is_main_process():
         ckpt_path = os.path.join(args.output_dir, "final.pt")
@@ -508,6 +583,8 @@ def _show_full_help():
     p.add_argument("--wandb_project", type=str, default=None)
     p.add_argument("--wandb_run_name", type=str, default=None)
     p.add_argument("--label_smoothing", type=float, default=0.0, help="CrossEntropy label smoothing (LLaMA 用 0.1)")
+    p.add_argument("--pbar", action=argparse.BooleanOptionalAction, default=True,
+                   help="用 tqdm 进度条输出（默认开；--no-pbar 切日志式；仅主进程渲染）")
     p.print_help()
 
 
@@ -574,6 +651,8 @@ def main():
     parser.add_argument("--val_interval", type=int, default=None, help="验证间隔步数（默认=save_interval）")
     parser.add_argument("--label_smoothing", type=float, default=0.0, help="CrossEntropy label smoothing (LLaMA 用 0.1)")
     parser.add_argument("--tensorboard", action="store_true", help="启用 TensorBoard 日志")
+    parser.add_argument("--pbar", action=argparse.BooleanOptionalAction, default=True,
+                        help="用 tqdm 进度条输出（默认开；--no-pbar 切日志式；仅主进程渲染）")
     args = parser.parse_args(remaining)
     args.model = None  # 清掉，不参与训练逻辑
 
@@ -596,12 +675,19 @@ def main():
               f"d_ff={model_cfg.d_ff}  seq_len={model_cfg.max_seq_len}")
     if "LOCAL_RANK" in os.environ:
         ddp_setup()
-        try:
-            train(args, model_cfg)
-        finally:
-            ddp_cleanup()
-    else:
+    try:
         train(args, model_cfg)
+    except KeyboardInterrupt:
+        # Ctrl+C 优雅退出：pbar 随栈展开 GC 自动 close（tqdm __del__），
+        # 此处只做提示；step_*.pt 每 save_interval 步已落盘，可断点续训。
+        if is_main_process():
+            print("\n训练被中断 (Ctrl+C)。")
+            print(f"续训: python manual/pretrain.py --model {pre_args.model} "
+                  f"--data {args.data} --resume {args.output_dir}/step_*.pt")
+        raise SystemExit(130)
+    finally:
+        if dist.is_initialized():
+            ddp_cleanup()
 
 
 if __name__ == "__main__":
