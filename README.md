@@ -363,13 +363,11 @@ Nano 与 Lite 同为四源（含 [Chinese FineWeb Edu](https://huggingface.co/da
 
 **生成抽查**（10 个农业/政策领域 prompt 纯续写）：上下文延续自然，模型已学到农业知识、新闻语体与政策表述；偶发词汇重复属小模型正常现象。
 
-**wandb runs**：训练 `nano_wsd_linear_v2`（run 73q36qrf）｜验证 `nano_eval_v1`（run u858vejw）
 
 ### GleamLM-Nano SFT 指令微调（后训练基线）
 
 **数据**：13,413 条/epoch = 基础集 3,415（模板/API 蒸馏/多轮，dedup 清洗后）+ QA→SFT 10,000（知乎知识问答，占 74.5%）。训练集 `data/nano/sft/sft_mix.jsonl`，由 `data_tools/sft/mix_sft.py` 混合 `sft_data.jsonl`（基础）与 `qa_sft.jsonl`（QA 源，20,000 条由 `data_tools/sft/qa_to_sft.py` 从 qa_dedup 语料规则抽取）。
 
-> **数据迭代背景**（详见 `docs/experiments.md` §8）：原 7,868 条训练集含 59% output 重复（模板拼接污染，单组最多 29 连），导致旧 SFT 模型对闲聊输入出现“主题自锁复读”缺陷；2026-09 清洗去重（备份 `sft_data_bak_dup.jsonl`）+ QA 提料 + 手写闲聊补足后重建。
 
 **配置**：以预训练 `final.pt`（step 68108）为基座，ChatML 格式，loss mask 仅 assistant 回复，lr 1e-4 cosine，3 epochs，batch 8 × accumulate 4，seq 512。默认值来自 base.yaml。
 
@@ -379,7 +377,7 @@ Nano 与 Lite 同为四源（含 [Chinese FineWeb Edu](https://huggingface.co/da
 | SFT 数据 | 13,413 条（基础 3,415 + QA 10,000，output 零重复）|
 | **SFT final loss** | **2.6283**（预训练 2.485 → SFT 2.628）|
 
-> loss 2.6283 仅比预训练 val 2.5044 高约 0.12：数据零重复且 74.5% 为知乎长答（均值 197.7 字），属真实拟合的合理水位。
+> loss 2.6283 仅比预训练 val 2.5044 高约 0.12：数据零重复且 74.5% 为知乎长答（均值 197.7 字），属合理水平。
 
 **效果评估**（模型实测，ChatML 单轮，temp 0.8）：
 
@@ -393,15 +391,15 @@ Nano 与 Lite 同为四源（含 [Chinese FineWeb Edu](https://huggingface.co/da
 
 **结论**：数据清洗训练达成核心目标，生成的语言较为流畅；幻觉/闲聊/算术仍受 40M 容量限制，属预期边界。
 
-### GleamLM-Nano DPO 偏好对齐（后训练演示，2026-09，数据 v2）
+### GleamLM-Nano DPO 偏好对齐
 
-**数据 v2**：1,930 对 chosen/rejected = 闲聊 169 + 单轮知识 1,000 + 多轮对话 761。chosen 取自 SFT 基础集高质答案；rejected 由当前 SFT 模型（`sft_best.pt`，数据 v2 产物）在 temp 0.95 下生成的“相关但劣化”回答（由现模型自生成，保证落在 policy 分布内）。
+**数据**：1,930 对 chosen/rejected = 闲聊 169 + 单轮知识 1,000 + 多轮对话 761。chosen 取自 SFT 基础集高质答案；rejected 由当前 SFT 模型（`sft_best.pt`，数据 v2 产物）在 temp 0.95 下生成的“相关但劣化”回答（由现模型自生成，保证落在 policy 分布内）。
 
-> **数据链路**：`data_tools/dpo/build_dpo_chosen.py` 抽 chosen 池 → `data_tools/dpo/generate_rejected.py`（v2 模型逐条生成，4 分片并行）→ `data_tools/dpo/merge_dpo_data.py` 合并清洗 → `data/nano/dpo/dpo_data.jsonl`。多轮样本的 `messages` 只含对话历史（尾轮答案由 chosen/rejected 承载）。旧 500 对（旧 SFT v1 模型生成，纯单轮）备份为 `dpo_data_bak_v1.jsonl`。
+> **数据链路**：`data_tools/dpo/build_dpo_chosen.py` 抽 chosen 池 → `data_tools/dpo/generate_rejected.py`（模型逐条生成，4 分片并行）→ `data_tools/dpo/merge_dpo_data.py` 合并清洗 → `data/nano/dpo/dpo_data.jsonl`。多轮样本的 `messages` 只含对话历史（尾轮答案由 chosen/rejected 承载）。
 
 **配置**：以 SFT `sft_best.pt` 为基座（policy + frozen ref），lr 1e-6 cosine，1 epoch，beta 0.3，batch 2 × accumulate 2。
 
-> **beta 调参**（v2 数据，2026-09）：rejected 为 policy 自采样（与模型同分布），beta 0.1 的 KL 约束在 40M 上偏弱，单次采样评估即见输出漂移（写作题离题）；调至 0.3 后 7 题 × 4 采样 A/B 对比 SFT 基座无退化亦无显著提升，定稿。loss 初始恒为 ln2≈0.693，且数值随 beta 放大而变小（真实偏好 margin 两版相近 ≈2.5），不可只凭 loss 数字跨 beta 比较。
+> **beta 调参**：rejected 为 policy 自采样（与模型同分布），beta 0.1 的 KL 约束在 40M 上偏弱，单次采样评估即见输出漂移（写作题离题）；调至 0.3 后 7 题 × 4 采样 A/B 对比 SFT 基座无退化亦无显著提升，定稿。loss 初始恒为 ln2≈0.693，且数值随 beta 放大而变小（真实偏好 margin 两版相近 ≈2.5），不可只凭 loss 数字跨 beta 比较。
 
 | 项目 | 值 |
 |---|---|
@@ -411,11 +409,11 @@ Nano 与 Lite 同为四源（含 [Chinese FineWeb Edu](https://huggingface.co/da
 
 **结论**：作为后训练链路（预训练→SFT→DPO）的完整性演示。beta 0.3 定稿模型的 A/B 实测（7 题 × 4 采样，temp 0.8，与 SFT 基座对比）确认**无退化亦无显著提升**——40M 容量钉死生成能力上限，偏好优化学到排序但难以转化为更优输出；知识准确度/算术仍受容量天花板限制。
 
-### GleamLM-Nano OPD 在线策略蒸馏（后训练演示，2026-09）
+### GleamLM-Nano OPD 在线策略蒸馏
 
 **原理**：学生模型自己 rollout（on-policy）→ 本地 HF 教师（Qwen3-0.6B）对轨迹打分 → 序列级 reverse KL 更新。相比 DPO（偏好对）与 RL（稀疏奖励），OPD 每 token 都有教师监督，且学生自采样消除 exposure bias。
 
-**关键设计——ChatML 帧对齐（THUNLP OPD 论文 §5.2）**：数据存裸 user 输入，训练时套成 `<|im_start|>user…<|im_end|>\n<|im_start|>assistant\n` 再喂给学生与教师。学生 SFT 与 Qwen 教师均在 ChatML 下训练，裸文本 rollout 使师生双双 OOD（教师对每条续写恒定"惊讶"，`log_pi_T` 系统性偏低，优势失真）；同帧后两边各回各自训练分布。BBPE 与 Qwen 的 `<|im_start|>`/`<|im_end|>` 标签文本一致，同一字符串在两边编码为各自的 special id，序列级跨 tokenizer 精确性不受影响。
+**关键设计——ChatML 帧对齐（THUNLP OPD 论文）**：数据存裸 user 输入，训练时套成 `<|im_start|>user…<|im_end|>\n<|im_start|>assistant\n` 再喂给学生与教师。学生 SFT 与 Qwen 教师均在 ChatML 下训练，裸文本 rollout 使师生双双 OOD（教师对每条续写恒定"惊讶"，`log_pi_T` 系统性偏低，优势失真）；同帧后两边各回各自训练分布。BBPE 与 Qwen 的 `<|im_start|>`/`<|im_end|>` 标签文本一致，同一字符串在两边编码为各自的 special id，序列级跨 tokenizer 精确性不受影响。
 
 **数据**：40 条通用闲聊/知识 prompt（`data/nano/opd_prompts.jsonl`）。
 
