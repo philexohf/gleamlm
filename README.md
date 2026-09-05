@@ -301,7 +301,7 @@ python serve/api.py --model checkpoints/nano/dpo/dpo_best.pt --port 8000
 - 调试与健康检查：`/docs`（OpenAPI 交互页）、`/health`；接口兼容 OpenAI 格式：`/v1/chat/completions`、`/v1/completions`
 - 聊天请使用 SFT/DPO/OPD 等后训练产物；裸预训练模型只会文本续写，不适合对话
 
-### 7. 运行测试
+### 6. 代码测试
 
 ```bash
 pytest tests/ -v
