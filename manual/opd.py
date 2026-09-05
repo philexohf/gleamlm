@@ -521,7 +521,7 @@ def parse_args():
     p.add_argument("--model", type=str, required=True, help="Student checkpoint")
     p.add_argument("--data", type=str, required=True, help="JSONL prompts (每行 prompt/instruction 或纯文本)")
     p.add_argument("--output_dir", type=str, default="./checkpoints/opd")
-    p.add_argument("--epochs", type=int, default=1)
+    p.add_argument("--epochs", type=int, default=4, help="训练轮数 (默认 4, nano 演示标准: 40 prompt × 4 = 80 步)")
     p.add_argument("--batch_size", type=int, default=2, help="每 step 的 prompt 数")
     p.add_argument("--n_samples", type=int, default=2, help="每个 prompt 采样条数 (THUNLP 用 4; >1 时启用组内 LOO baseline)")
     p.add_argument("--seq_len", type=int, default=1024)

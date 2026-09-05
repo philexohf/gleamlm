@@ -274,7 +274,8 @@ python manual/opd.py \
     --model checkpoints/nano/dpo/dpo_best.pt \
     --data data/nano/opd_prompts.jsonl \
     --output_dir checkpoints/nano/opd \
-    --teacher_model_path checkpoints/Qwen3-0.6B
+    --teacher_model_path checkpoints/Qwen3-0.6B \
+    --epochs 4   # 默认已是 4（80 步），显式传以对齐配置记录；其余取默认：lr 5e-6, batch 2, T=1.0, n_samples=2, entropy_coeff 0.01
 ```
 
 > **ChatML 帧对齐（THUNLP OPD 论文 §5.2）**：`data/nano/opd_prompts.jsonl` 存裸 user 输入，
@@ -417,13 +418,16 @@ Nano 与 Lite 同为四源（含 [Chinese FineWeb Edu](https://huggingface.co/da
 
 **数据**：40 条通用闲聊/知识 prompt（`data/nano/opd_prompts.jsonl`）。
 
-**配置**：以 DPO `dpo_best.pt` 为基座，教师 = 本地 HF `checkpoints/Qwen3-0.6B`，T=1.0，n_samples=2（组内 LOO baseline），batch 2，lr 5e-6，4 epochs（80 步），entropy_coeff 0.01。
+**配置**：以 DPO `dpo_best.pt`（beta 0.3 版）为基座，教师 = 本地 HF `checkpoints/Qwen3-0.6B`，T=1.0，n_samples=2（组内 LOO baseline），batch 2，lr 5e-6，4 epochs（80 步），entropy_coeff 0.01。
 
 | 项目 | 值 |
 |---|---|
-| 基座 | DPO dpo_best |
-| OPD 数据 | 40 条 prompt × 4 epochs |
+| 基座 | DPO dpo_best（beta 0.3）|
+| 产物 | `checkpoints/nano/opd/opd_final.pt` |
+| OPD 数据 | 40 条 prompt × 4 epochs（80 步）|
 | 教师 | Qwen3-0.6B（本地 HF，打分 ~0.03s/次）|
+
+**效果抽查**（8 题 × 3 采样，与 DPO 基座对比）：无退化；AI 定义句向教师规范靠拢（“人工智能是计算机科学的一个分支…”），方法论类回答（缓解压力）趋向结构化列表；身份类/事实细节仍受 40M 容量限制（与 SFT/DPO 同边界）。
 
 ---
 
