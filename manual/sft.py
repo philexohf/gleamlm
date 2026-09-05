@@ -249,7 +249,7 @@ def main():
                 else:
                     lr_mult = get_lr_cosine(global_step, total_steps, warmup_ratio, min_lr_ratio)
                 cur_lr = lr * lr_mult
-                pbar.set_postfix({"loss": f"{loss.item() * denom:.4f}", "lr": f"{cur_lr:.6f}"})
+                pbar.set_postfix({"loss": f"{loss.item() * denom:.4f}", "lr": f"{cur_lr:.2e}"})
 
         epoch_loss /= max(n_batches, 1)
 
@@ -259,7 +259,7 @@ def main():
         model.train()
 
         cur_lr = optimizer.param_groups[0]["lr"]
-        print(f"\nEpoch {epoch}: train_loss={epoch_loss:.4f}, lr={cur_lr:.6f}")
+        print(f"\nEpoch {epoch}: train_loss={epoch_loss:.4f}, lr={cur_lr:.2e}")
 
         ckpt_name = f"sft_epoch_{epoch}.pt"
         torch.save(

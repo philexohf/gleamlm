@@ -238,42 +238,16 @@ python manual/sft_lora.py \
 ### 3. DPO 偏好对齐
 
 ```bash
-python manual/dpo.py --variant nano \
-    --model_path checkpoints/nano/sft/sft_best.pt
+python manual/dpo.py --variant nano --model_path checkpoints/nano/sft/sft_best.pt
 ```
 
-> **DPO 与 §5 的 PPO / GRPO 并列，同属 SFT 之后的对齐步骤**：DPO 用偏好对做离线对齐，
-> PPO / GRPO 用规则/奖励信号做在线强化——按需选择其一，不是前后串联。本项目演示走 DPO
-> 路线（SFT → DPO），对 40M 规模已构成完整后训练链，PPO / GRPO 可跳过。
+> DPO 用偏好对做离线对齐，路线（SFT → DPO），对 40M 规模已构成完整后训练链，PPO / GRPO 可跳过。
 
-### 4. OPD 在线策略蒸馏
+### PPO / GRPO 强化对齐（可选步骤，与 DPO 并列）
 
-消费 DPO 产物，学生采样 → 教师对 `prompt+completion` 打分 → 序列级 reverse KL。
-
-```bash
-# 教师：本地 HF 模型，如 Qwen3-0.6B（打分 ~0.03s/次）
-# 教师加载需 transformers，先执行 pip install -e ".[hf]"
-python manual/opd.py \
-    --model checkpoints/nano/dpo/dpo_best.pt \
-    --data data/nano/opd_prompts.jsonl \
-    --output_dir checkpoints/nano/opd_v4 \
-    --teacher_model_path checkpoints/Qwen3-0.6B
-```
-
-> **ChatML 帧对齐（THUNLP OPD 论文 §5.2）**：`data/nano/opd_prompts.jsonl` 存裸 user 输入，
-> 训练时内部套成 `<|im_start|>user…<|im_end|>\n<|im_start|>assistant\n` 再喂给学生与
-> 教师。学生 SFT 与 Qwen 教师均在 ChatML 下训练，裸文本 rollout 使师生双双 OOD
-> （教师对每条续写恒定"惊讶"，`log_pi_T` 系统性偏低，优势失真）。BBPE 与 Qwen 的
-> `<|im_start|>`/`<|im_end|>` 标签文本一致，同一字符串在两边编码为各自的 special id，
-> 序列级跨 tokenizer 精确性不受影响。
-
-### 5. 强化对齐（可选步骤，与 §3 DPO 并列）— PPO / GRPO
-
-> **定位**：与 DPO 并列的后训练对齐方式，从 SFT 产物出发（SFT → PPO/GRPO），按需选择其一，
-> 不是 DPO 的后续阶段。两者均需规则/奖励信号：GRPO 无 value network（组内归一化优势），
-> PPO 有 value network（clip + GAE）。Nano 仅作演示/冒烟
-> 跑通，未作为正式产物；`data/rlhf.jsonl` 为占位，需自行准备（每行
-> `{"prompt": ..., "ground_truth": ...}`）。
+> 与 DPO 并列的后训练对齐方式，从 SFT 产物出发（SFT → PPO/GRPO），按需选择其一，
+> PPO / GRPO 均需规则/奖励信号：GRPO 无 value network（组内归一化优势），PPO 有 value network（clip + GAE）。
+> 需自行准备数据`data/rlhf.jsonl`（每行`{"prompt": ..., "ground_truth": ...}`）。
 
 ```bash
 # GRPO（无 value network，DeepSeek 风格）
@@ -289,15 +263,43 @@ python manual/ppo.py \
     --output_dir checkpoints/nano/ppo
 ```
 
-### 6. 推理
+### 4. OPD 在线策略蒸馏
+
+消费 DPO 产物，学生采样 → 教师对 `prompt+completion` 打分 → 序列级 reverse KL。
 
 ```bash
-# 交互式推理（对话模式用 SFT 后模型）
+# 教师：本地 HF 模型，如 Qwen3-0.6B，下载的教师模型放在checkpoints目录下
+# 教师加载需 transformers，先执行 pip install -e ".[hf]"
+python manual/opd.py \
+    --model checkpoints/nano/dpo/dpo_best.pt \
+    --data data/nano/opd_prompts.jsonl \
+    --output_dir checkpoints/nano/opd \
+    --teacher_model_path checkpoints/Qwen3-0.6B
+```
+
+> **ChatML 帧对齐（THUNLP OPD 论文 §5.2）**：`data/nano/opd_prompts.jsonl` 存裸 user 输入，
+> 训练时内部套成 `<|im_start|>user…<|im_end|>\n<|im_start|>assistant\n` 再喂给学生与
+> 教师。学生 SFT 与 Qwen 教师均在 ChatML 下训练，裸文本 rollout 使师生双双 OOD
+> （教师对每条续写恒定"惊讶"，`log_pi_T` 系统性偏低，优势失真）。BBPE 与 Qwen 的
+> `<|im_start|>`/`<|im_end|>` 标签文本一致，同一字符串在两边编码为各自的 special id，
+> 序列级跨 tokenizer 精确性不受影响。
+
+### 5. 推理
+
+```bash
+# 交互式推理（对话模式可以用 SFT、DPO和OPD等后训练模型）
 python manual/infer.py --model checkpoints/nano/sft/sft_best.pt --sft
 
-# OpenAI 兼容 API 服务（依赖在 serve extra：先执行 pip install -e ".[serve]"）
-python serve/api.py --model checkpoints/nano/sft/sft_best.pt --port 8000
+# 网页模式，OpenAI 兼容 API 服务（依赖在 serve extra：先执行 pip install -e ".[serve]"）
+python serve/api.py --model checkpoints/nano/dpo/dpo_best.pt --port 8000
 ```
+
+服务启动后，浏览器直接打开 <http://localhost:8000> 即可使用**网页聊天界面**（纯前端，无需额外安装）：
+
+- 多轮对话：自动携带最近 6 轮上下文；模型上下文仅 512 长，对话过长请点右上角「清空对话」
+- 温度滑杆（0.1~1.5，默认 0.8）：小模型答非所问/胡话时调低到 0.5~0.6 可明显改善稳定性
+- 调试与健康检查：`/docs`（OpenAPI 交互页）、`/health`；接口兼容 OpenAI 格式：`/v1/chat/completions`、`/v1/completions`
+- 聊天请使用 SFT/DPO/OPD 等后训练产物；裸预训练模型只会文本续写，不适合对话
 
 ### 7. 运行测试
 
@@ -416,17 +418,6 @@ Nano 与 Lite 同为四源（含 [Chinese FineWeb Edu](https://huggingface.co/da
 | 基座 | DPO dpo_best（DPO loss 0.659）|
 | OPD 数据 | 40 条 prompt × 4 epochs |
 | 教师 | Qwen3-0.6B（本地 HF，打分 ~0.03s/次）|
-| **产物** | `checkpoints/nano/opd_v4/opd_final.pt` |
-
-**三模型生成抽查**（SFT best vs DPO best vs OPD v4，temp 0.8）：
-
-| Prompt | SFT | DPO | OPD v4 |
-|---|---|---|---|
-| 机器学习 | 定义含糊 | 偏模式预测 | **教科书式定义**（"计算机科学分支，让机器模拟人类智能行为…"）|
-| 写秋诗 | 碎片 | 结构散 | **全篇成诗**（梧桐落叶/夕阳/蝴蝶意象连贯）|
-| 光合作用 | 开头准后跑偏 | 退化幻觉 | 分点自答 |
-
-**结论**：OPD v4 输出贴近教师风格——事实性定义句更规范、长段诗歌更连贯（on-policy 蒸馏教师 ChatML 行为的体现）；但 40M 参数仍做不了事实性知识问答（SFT/DPO/OPD 三者均幻觉），属容量天花板，非对齐方法可救。
 
 ---
 

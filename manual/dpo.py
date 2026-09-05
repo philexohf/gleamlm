@@ -291,8 +291,13 @@ def main():
     )
     print(f"Model saved: {save_path}")
 
-    print("\n--- DPO 后最终评估 ---")
+    print("\n" + "=" * 60)
+    print("DPO 训练完成，最终生成评估")
+    print("=" * 60)
     evaluate_generations(policy_model, tokenizer, eval_prompts, "DPO 生成评估")
+
+    print(f"\nFinal dpo_loss: {avg_loss:.4f}")
+    print(f"Models saved to: {output_dir}")
 
 
 if __name__ == "__main__":

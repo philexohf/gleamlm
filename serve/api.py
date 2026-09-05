@@ -29,7 +29,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import torch
 import uvicorn
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
 from hf.hf_config import gleamlm_config_from_core
@@ -37,6 +37,11 @@ from hf.hf_model import GleamLMForCausalLM, load_from_checkpoint
 from gleamlm.utils.chatml import format_chatml
 from gleamlm.tokenizer.tokenizer import BBPETokenizer
 from gleamlm.utils.config import DEFAULT_TOKENIZER_PATH, extract_checkpoint_config
+
+# PyTorch ≥2.6 的 weights_only 默认白名单不含 argparse.Namespace，
+# 而训练产物（sft/dpo/opd 等）嵌有 "args" 元数据（Namespace）→ 显式放行
+# （weights_only=True 其余安全约束保持生效）
+torch.serialization.add_safe_globals([argparse.Namespace])
 
 
 class CompletionRequest(BaseModel):
@@ -46,6 +51,7 @@ class CompletionRequest(BaseModel):
     temperature: float = 0.8
     top_p: float = 0.9
     top_k: int = 50
+    repetition_penalty: float = 1.15  # 对齐训练评估默认值
     stop: Optional[list[str]] = None
     stream: bool = False
 
@@ -62,6 +68,7 @@ class ChatRequest(BaseModel):
     temperature: float = 0.8
     top_p: float = 0.9
     top_k: int = 50
+    repetition_penalty: float = 1.15  # 对齐训练评估默认值
     stop: Optional[list[str]] = None
     stream: bool = False
 
@@ -114,8 +121,16 @@ def _check_request(req, prompt_len: int) -> None:
         )
 
 
-def _sample_token(logits: torch.Tensor, params) -> torch.Tensor:
-    """单步采样: top_k → (T>0: 缩放+multinomial | T≤0: argmax)。"""
+def _sample_token(logits: torch.Tensor, params, generated: list[int] | None = None) -> torch.Tensor:
+    """单步采样: repetition_penalty → top_k → (T>0: 缩放+multinomial | T≤0: argmax)。"""
+    # 与 gleamlm.inference.generator.sample_token 同款重复惩罚（HF 算法）
+    penalty = getattr(params, "repetition_penalty", 1.0)
+    if penalty != 1.0 and generated:
+        for gid in set(generated):
+            scores = logits[..., gid]
+            logits[..., gid] = torch.where(
+                scores < 0, scores * penalty, scores / penalty
+            )
     if params.top_k > 0:
         vals, _ = logits.topk(params.top_k, dim=-1)
         logits = logits.masked_fill(logits < vals[:, -1:], float("-inf"))
@@ -135,17 +150,29 @@ def _apply_stop(text: str, stops: Optional[list[str]]) -> str:
     return text
 
 
+def _stop_ids() -> set[int]:
+    """ChatML 训练下模型以 im_end/eos 收尾；serve 需同样识别才不超生成。"""
+    tk = server.tokenizer
+    ids = {tk.eos_id, tk.im_end_id, tk.pad_id}
+    ids.discard(None)
+    return ids
+
+
 def _generate(input_ids: torch.Tensor, params, prompt_len: int) -> list[int]:
     """自回归生成，只返回新增 token（不含 prompt，避免把用户输入当 completion 返回）。"""
     tokens: list[int] = []
+    generated: list[int] = input_ids[0].tolist()  # 重复惩罚需看已生成序列
+    stop_ids = _stop_ids()
     with torch.no_grad():
         for _ in range(params.max_tokens):
             logits, _, _, _ = server.model.model(input_ids)
-            nxt = _sample_token(logits[:, -1, :], params)
-            input_ids = torch.cat([input_ids, nxt], dim=-1)
-            if nxt.item() == server.tokenizer.eos_id:
+            nxt = _sample_token(logits[:, -1, :], params, generated)
+            token_id = int(nxt.item())
+            if token_id in stop_ids:
                 break
-            tokens.append(int(nxt.item()))
+            input_ids = torch.cat([input_ids, nxt], dim=-1)
+            tokens.append(token_id)
+            generated.append(token_id)
             if params.stop:
                 text = server.tokenizer.decode(tokens, skip_special=True)
                 if _apply_stop(text, params.stop) != text:
@@ -153,12 +180,14 @@ def _generate(input_ids: torch.Tensor, params, prompt_len: int) -> list[int]:
     return tokens
 
 
-def _step(input_ids: torch.Tensor, params) -> tuple[torch.Tensor, int]:
-    """单步前向+采样（供流式生成在线程池中执行，避免阻塞事件循环）。"""
+def _step(input_ids: torch.Tensor, params, generated: list[int]) -> tuple[torch.Tensor, int, bool]:
+    """单步前向+采样（供流式生成在线程池中执行，避免阻塞事件循环）。
+    返回 (下一 token, 其 id, 是否命中终止符 eos/im_end/pad)。"""
     with torch.no_grad():
         logits, _, _, _ = server.model.model(input_ids)
-        nxt = _sample_token(logits[:, -1, :], params)
-    return nxt, int(nxt.item())
+        nxt = _sample_token(logits[:, -1, :], params, generated)
+    token_id = int(nxt.item())
+    return nxt, token_id, token_id in _stop_ids()
 
 
 async def _stream(input_ids: torch.Tensor, params, prompt_len: int, chat: bool):
@@ -168,12 +197,13 @@ async def _stream(input_ids: torch.Tensor, params, prompt_len: int, chat: bool):
     """
     total_decoded = ""
     emitted_len = 0
+    generated: list[int] = input_ids[0].tolist()
     for _ in range(params.max_tokens):
-        nxt, nxt_id = await asyncio.to_thread(_step, input_ids, params)
+        nxt, nxt_id, stop_hit = await asyncio.to_thread(_step, input_ids, params, generated)
         input_ids = torch.cat([input_ids, nxt], dim=-1)
+        generated.append(nxt_id)
         chunk = server.tokenizer.decode([nxt_id], skip_special=True)
         total_decoded += chunk
-        stop_hit = nxt_id == server.tokenizer.eos_id
         if params.stop:
             trimmed = _apply_stop(total_decoded, params.stop)
             if trimmed != total_decoded:
@@ -209,9 +239,8 @@ async def completions(req: CompletionRequest):
 @app.post("/v1/chat/completions")
 async def chat_completions(req: ChatRequest):
     messages = [{"role": m.role, "content": m.content} for m in req.messages]
-    # 默认注入 system 提示，与训练时的 ChatML 协议保持一致
-    if not any(m["role"] == "system" for m in messages):
-        messages.insert(0, {"role": "system", "content": "You are GleamLM, a helpful assistant."})
+    # 不自动注入 system：SFT 训练仅 20% 样本带 system（80% 无），
+    # 纯 user/assistant 帧更贴合训练主流分布；调用方自带 system 时原样保留
     prompt = format_chatml(messages, add_generation_prompt=True)
     input_ids = torch.tensor([server.tokenizer.encode(prompt, add_bos=False)], device=server.device)
     prompt_len = input_ids.size(1)
@@ -228,6 +257,12 @@ async def chat_completions(req: ChatRequest):
 @app.get("/health")
 async def health():
     return {"status": "ok", "model": "gleamlm"}
+
+
+@app.get("/")
+async def root():
+    """聊天界面（浏览器直接访问根路径即对话页，前端直连 /v1/chat/completions）。"""
+    return FileResponse(os.path.join(os.path.dirname(__file__), "chat.html"))
 
 
 def parse_args():

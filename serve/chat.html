@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>GleamLM Chat</title>
+<style>
+  :root {
+    --bg: #1e1f24;
+    --panel: #26272e;
+    --user-bubble: #3b6fe0;
+    --text: #e8e9ed;
+    --muted: #9a9ca8;
+    --border: #34363f;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+  }
+  header {
+    padding: 12px 20px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+  header .logo {
+    font-weight: 600;
+    font-size: 16px;
+  }
+  header .badge {
+    font-size: 12px;
+    color: var(--muted);
+  }
+  #messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    max-width: 860px;
+    width: 100%;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .msg { display: flex; }
+  .msg.user { justify-content: flex-end; }
+  .bubble {
+    max-width: 78%;
+    padding: 10px 14px;
+    border-radius: 14px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 15px;
+  }
+  .msg.user .bubble { background: var(--user-bubble); }
+  .msg.assistant .bubble {
+    background: var(--panel);
+    border: 1px solid var(--border);
+  }
+  .msg.error .bubble {
+    background: #4a2020;
+    border: 1px solid #7a3a3a;
+    font-size: 13px;
+    color: #ffb3b3;
+    white-space: pre-wrap;
+  }
+  .hint {
+    text-align: center;
+    color: var(--muted);
+    font-size: 13px;
+    padding: 40px 0;
+  }
+  .hint b { color: var(--text); }
+  #input-bar {
+    flex-shrink: 0;
+    border-top: 1px solid var(--border);
+    background: var(--panel);
+    padding: 12px 20px;
+  }
+  form {
+    max-width: 860px;
+    margin: 0 auto;
+    display: flex;
+    gap: 10px;
+    align-items: flex-end;
+  }
+  textarea {
+    flex: 1;
+    resize: none;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-size: 15px;
+    font-family: inherit;
+    line-height: 1.5;
+    outline: none;
+    max-height: 160px;
+  }
+  textarea:focus { border-color: #5a7fe0; }
+  button {
+    background: var(--user-bubble);
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    padding: 10px 22px;
+    font-size: 15px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.ghost {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 13px;
+    padding: 6px 14px;
+  }
+  button.ghost:hover { color: var(--text); border-color: #5a7fe0; }
+  .temp-ctl {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  .temp-ctl input { width: 90px; accent-color: var(--user-bubble); }
+  .temp-ctl span { width: 34px; color: var(--text); }
+  .thinking::after {
+    content: "";
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    margin-left: 6px;
+    border-radius: 50%;
+    background: var(--muted);
+    animation: blink 1s infinite;
+    vertical-align: middle;
+  }
+  @keyframes blink { 50% { opacity: 0.2; } }
+  footer {
+    text-align: center;
+    font-size: 12px;
+    color: var(--muted);
+    padding: 6px;
+    flex-shrink: 0;
+  }
+</style>
+</head>
+<body>
+<header>
+  <span class="logo">💬 GleamLM Chat</span>
+  <span class="badge">本地模型对话</span>
+  <span style="flex:1"></span>
+  <label class="temp-ctl">温度
+    <input id="temp" type="range" min="0.1" max="1.5" step="0.05" value="0.8" />
+    <span id="temp-val">0.8</span>
+  </label>
+  <button id="clear" type="button" class="ghost">清空对话</button>
+</header>
+
+<main id="messages">
+  <div class="hint">
+    <b>GleamLM 已就绪</b><br />
+    在下方输入消息开始对话，Enter 发送，Shift+Enter 换行。
+  </div>
+</main>
+
+<div id="input-bar">
+  <form id="chat-form">
+    <textarea id="input" rows="1" placeholder="输入消息…"></textarea>
+    <button id="send" type="submit">发送</button>
+  </form>
+</div>
+
+<footer>GleamLM API · /v1/chat/completions</footer>
+
+<script>
+"use strict";
+
+const messagesEl = document.getElementById("messages");
+const form = document.getElementById("chat-form");
+const input = document.getElementById("input");
+const sendBtn = document.getElementById("send");
+const tempInput = document.getElementById("temp");
+const tempVal = document.getElementById("temp-val");
+
+// 温度实时显示（低温度可减少小模型的胡话/发散）
+tempInput.addEventListener("input", () => {
+  tempVal.textContent = tempInput.value;
+});
+
+// 对话历史（无 system：纯 user/assistant 帧，贴合 SFT 训练主流分布）
+let history = [];
+
+function esc(s) {
+  const div = document.createElement("div");
+  div.textContent = s;
+  return div.innerHTML;
+}
+
+function addMsg(role, text, error) {
+  const wrap = document.createElement("div");
+  wrap.className = "msg " + (error ? "error" : role);
+  const bubble = document.createElement("div");
+  bubble.className = "bubble";
+  bubble.textContent = text;
+  wrap.appendChild(bubble);
+  messagesEl.appendChild(wrap);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+  return wrap;
+}
+
+function removeHint() {
+  const h = messagesEl.querySelector(".hint");
+  if (h) h.remove();
+}
+
+async function send() {
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = "";
+  input.style.height = "auto";
+  removeHint();
+  addMsg("user", text);
+  history.push({ role: "user", content: text });
+
+  // 占位气泡，等待回复
+  const pending = addMsg("assistant", "思考中…");
+  pending.querySelector(".bubble").classList.add("thinking");
+  sendBtn.disabled = true;
+
+  try {
+    const resp = await fetch("/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messages: history.slice(-6), // 模型上下文仅 512，只能容下最近几轮
+        max_tokens: 256,            // 回复预留减半，避免 prompt+max_tokens 超限
+        temperature: parseFloat(tempInput.value),
+        top_p: 0.9,
+      }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      const detail = typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail);
+      throw new Error("服务返回错误: " + detail);
+    }
+    const reply = data.choices[0].message.content;
+    pending.querySelector(".bubble").classList.remove("thinking");
+    pending.querySelector(".bubble").textContent = reply;
+    history.push({ role: "assistant", content: reply });
+  } catch (err) {
+    pending.querySelector(".bubble").classList.remove("thinking");
+    const ctxFull = err.message.includes("超过上下文长度");
+    pending.querySelector(".bubble").textContent = ctxFull
+      ? "对话内容已超出模型上下文长度（512）。\n\n点击右上角「清空对话」重新开始，或缩短输入内容。"
+      : "请求失败：" + err.message + "\n\n请确认服务已加载模型后重试。";
+    pending.className = "msg error";
+  } finally {
+    sendBtn.disabled = false;
+    input.focus();
+  }
+}
+
+form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  send();
+});
+
+// Enter 发送，Shift+Enter 换行
+input.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    send();
+  }
+});
+
+// 输入框自适应高度
+input.addEventListener("input", () => {
+  input.style.height = "auto";
+  input.style.height = Math.min(input.scrollHeight, 160) + "px";
+});
+
+// 清空对话（上下文仅 512，历史过多时需重开）
+document.getElementById("clear").addEventListener("click", () => {
+  history = [];
+  messagesEl.innerHTML =
+    '<div class="hint"><b>GleamLM 已就绪</b><br />在下方输入消息开始对话，Enter 发送，Shift+Enter 换行。</div>';
+  input.focus();
+});
+
+input.focus();
+</script>
+</body>
+</html>
