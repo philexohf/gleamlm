@@ -22,7 +22,12 @@ from gleamlm.trainer.dpo_loss import (
     get_reference_logps,
 )
 from gleamlm.data.dpo_data import DPODataset, dpad_collate
-from gleamlm.utils.config import DEFAULT_TOKENIZER_PATH, cfg_to_namespace, load_config
+from gleamlm.utils.config import (
+    DEFAULT_TOKENIZER_PATH,
+    cfg_to_namespace,
+    extract_checkpoint_config,
+    load_config,
+)
 from gleamlm.trainer.schedulers import get_lr_cosine, get_lr_wsd
 from gleamlm.utils.torch_utils import clean_state_dict, safe_autocast
 
@@ -109,31 +114,19 @@ def main():
 
     sft_ckpt = torch.load(model_path, map_location=device, weights_only=False)
 
-    if "args" in sft_ckpt:
-        sft_args = sft_ckpt["args"]
-        model_kwargs = {
-            "vocab_size": getattr(sft_args, "vocab_size", args.vocab_size),
-            "d_model": getattr(sft_args, "d_model", args.d_model),
-            "num_layers": getattr(sft_args, "num_layers", args.num_layers),
-            "num_heads": getattr(sft_args, "num_heads", args.num_heads),
-            "num_kv_heads": getattr(sft_args, "num_kv_heads", args.num_kv_heads),
-            "d_ff": getattr(sft_args, "d_ff", args.d_ff),
-            "dropout": getattr(sft_args, "dropout", args.dropout),
-            "max_seq_len": getattr(sft_args, "max_seq_len", max_seq_len),
-            "pad_token_id": getattr(sft_args, "pad_token_id", 0),
-        }
-    else:
-        model_kwargs = {
-            "vocab_size": args.vocab_size,
-            "d_model": args.d_model,
-            "num_layers": args.num_layers,
-            "num_heads": args.num_heads,
-            "num_kv_heads": args.num_kv_heads,
-            "d_ff": args.d_ff,
-            "dropout": args.dropout,
-            "max_seq_len": max_seq_len,
-            "pad_token_id": 0,
-        }
+    # 结构快照统一从 _config 读（纯 dict；旧 args 格式已不再兼容）
+    sft_cfg = extract_checkpoint_config(sft_ckpt)
+    model_kwargs = {
+        "vocab_size": sft_cfg["vocab_size"],
+        "d_model": sft_cfg["d_model"],
+        "num_layers": sft_cfg["num_layers"],
+        "num_heads": sft_cfg["num_heads"],
+        "num_kv_heads": sft_cfg["num_kv_heads"],
+        "d_ff": sft_cfg["d_ff"],
+        "dropout": sft_cfg.get("dropout", args.dropout),
+        "max_seq_len": sft_cfg.get("max_seq_len", max_seq_len),
+        "pad_token_id": sft_cfg.get("pad_token_id", 0),
+    }
 
     flash_attn = args.use_flash_attn
 
@@ -193,28 +186,20 @@ def main():
     evaluate_generations(policy_model, tokenizer, eval_prompts, "DPO 生成评估")
     policy_model.train()
 
-    train_ns = argparse.Namespace(
-        batch_size=batch_size,
-        accumulate_grad=accumulate_grad,
-        clip_grad=clip_grad,
-        lr=lr,
-        warmup_ratio=warmup_ratio,
-        stable_ratio=stable_ratio,
-        min_lr_ratio=min_lr_ratio,
-        total_steps=total_steps,
-        epochs=epochs,
-        max_seq_len=max_seq_len,
-        lr_scheduler=lr_scheduler,
-        # ── 模型架构（供下游 OPD 等阶段重建模型）──
-        vocab_size=tokenizer.get_vocab_size(),
-        d_model=model_kwargs["d_model"],
-        num_layers=model_kwargs["num_layers"],
-        num_heads=model_kwargs["num_heads"],
-        num_kv_heads=model_kwargs["num_kv_heads"],
-        d_ff=model_kwargs["d_ff"],
-        use_flash_attn=flash_attn,
-        pad_token_id=model_kwargs["pad_token_id"],
-    )
+    # 模型结构快照: 供下游 (opd/serve) 经 extract_checkpoint_config 精确重建。
+    # 字段与 GleamLMModel 构建参数一一对应，纯 dict（weights_only 安全）。
+    _ckpt_cfg = {
+        "vocab_size": model_kwargs["vocab_size"],
+        "d_model": model_kwargs["d_model"],
+        "num_layers": model_kwargs["num_layers"],
+        "num_heads": model_kwargs["num_heads"],
+        "num_kv_heads": model_kwargs["num_kv_heads"],
+        "d_ff": model_kwargs["d_ff"],
+        "dropout": model_kwargs["dropout"],
+        "max_seq_len": model_kwargs["max_seq_len"],
+        "pad_token_id": model_kwargs["pad_token_id"],
+        "use_flash_attn": flash_attn,
+    }
 
     global_step = 0
     log_interval = 50
@@ -285,7 +270,7 @@ def main():
         {
             "model_state_dict": policy_model.state_dict(),
             "dpo_loss": avg_loss,
-            "args": train_ns,
+            "_config": _ckpt_cfg,
         },
         save_path,
     )

@@ -9,6 +9,7 @@ from gleamlm.utils.config import (
     _DictWrapper,
     _validate_config,
     cfg_to_namespace,
+    extract_checkpoint_config,
     load_config,
     load_yaml,
 )
@@ -215,3 +216,22 @@ def test_validate_config_bool_field():
 
     with pytest.raises(ConfigValidationError, match="tie_weights"):
         _validate_config(bad)
+
+
+# ── extract_checkpoint_config: checkpoint 结构快照，唯一格式 `_config` ──
+
+
+def test_extract_checkpoint_config_returns_config_snapshot():
+    ckpt = {"_config": {"d_model": 512, "num_layers": 12}, "model_state_dict": {}}
+    cfg = extract_checkpoint_config(ckpt)
+    assert cfg["d_model"] == 512
+    assert cfg["num_layers"] == 12
+
+
+def test_extract_checkpoint_config_requires_underscore_config():
+    # 旧格式 (args/config) 已随格式统一移除 → 缺 _config 一律显式报错
+    import pytest
+
+    for stale in ({"args": None}, {"config": {"d_model": 512}}, {"model_state_dict": {}}):
+        with pytest.raises(ConfigValidationError, match="_config"):
+            extract_checkpoint_config(stale)

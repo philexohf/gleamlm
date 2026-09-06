@@ -38,11 +38,6 @@ from gleamlm.utils.chatml import format_chatml
 from gleamlm.tokenizer.tokenizer import BBPETokenizer
 from gleamlm.utils.config import DEFAULT_TOKENIZER_PATH, extract_checkpoint_config
 
-# PyTorch ≥2.6 的 weights_only 默认白名单不含 argparse.Namespace，
-# 而训练产物（sft/dpo/opd 等）嵌有 "args" 元数据（Namespace）→ 显式放行
-# （weights_only=True 其余安全约束保持生效）
-torch.serialization.add_safe_globals([argparse.Namespace])
-
 
 class CompletionRequest(BaseModel):
     model: str = "gleamlm"

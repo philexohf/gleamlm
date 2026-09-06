@@ -1,6 +1,5 @@
 """GleamLM API — convenience entry point for inference."""
 
-import argparse
 import os
 
 import torch
@@ -10,10 +9,6 @@ from .hf_config import gleamlm_config_from_core
 from .hf_model import GleamLMForCausalLM, load_from_checkpoint
 from gleamlm.tokenizer.tokenizer import BBPETokenizer
 from gleamlm.utils.config import DEFAULT_TOKENIZER_PATH, extract_checkpoint_config
-
-# PyTorch ≥2.6 的 weights_only 默认白名单不含 argparse.Namespace，
-# 而训练产物（sft/dpo/opd 等）嵌有 "args" 元数据（Namespace）→ 显式放行
-torch.serialization.add_safe_globals([argparse.Namespace])
 
 
 class GleamLM:

@@ -152,58 +152,22 @@ def _validate_config(cfg_dict: dict[str, Any]) -> None:
         raise ConfigValidationError("配置校验失败:\n" + "\n".join(f"  {e}" for e in errors))
 
 
-def extract_checkpoint_config(checkpoint: dict) -> dict[str, Any]:
-    if "_config" in checkpoint:
-        return checkpoint["_config"]
-    if "args" in checkpoint:
-        args = checkpoint["args"]
-        return {
-            "vocab_size": getattr(args, "vocab_size", 12002),
-            "d_model": getattr(args, "d_model", 768),
-            "num_layers": getattr(args, "num_layers", 12),
-            "num_heads": getattr(args, "num_heads", 12),
-            "num_kv_heads": getattr(args, "num_kv_heads", 6),
-            "d_ff": getattr(args, "d_ff", 2048),
-            "dropout": getattr(args, "dropout", 0.0),
-            "max_seq_len": getattr(args, "max_seq_len", 2048),
-            "pad_token_id": getattr(args, "pad_token_id", 0),
-            "tie_weights": getattr(args, "tie_weights", True),
-            "use_flash_attn": getattr(args, "use_flash_attn", False),
-            "use_gradient_checkpointing": getattr(args, "use_gradient_checkpointing", False),
-            "attn_type": getattr(args, "attn_type", "gqa"),
-            "ffn_type": getattr(args, "ffn_type", "mlp"),
-            "num_experts": getattr(args, "num_experts", 8),
-            "top_k": getattr(args, "top_k", 2),
-            "rope_scale": getattr(args, "rope_scale", 1.0),
-            "rope_factor": getattr(args, "rope_factor", 8.0),
-            "rope_theta": getattr(args, "rope_theta", 10000.0),
-            "layer_configs": getattr(args, "layer_configs", None),
-        }
-    if "config" in checkpoint:
-        cfg = checkpoint["config"]
-        return {
-            "vocab_size": cfg.get("vocab_size", 12002),
-            "d_model": cfg.get("d_model", 768),
-            "num_layers": cfg.get("num_layers", 12),
-            "num_heads": cfg.get("num_heads", 12),
-            "num_kv_heads": cfg.get("num_kv_heads", 6),
-            "d_ff": cfg.get("d_ff", 2048),
-            "dropout": cfg.get("dropout", 0.0),
-            "max_seq_len": cfg.get("max_seq_len", 2048),
-            "pad_token_id": cfg.get("pad_token_id", 0),
-            "tie_weights": cfg.get("tie_weights", True),
-            "use_flash_attn": cfg.get("use_flash_attn", False),
-            "use_gradient_checkpointing": cfg.get("use_gradient_checkpointing", False),
-            "attn_type": cfg.get("attn_type", "gqa"),
-            "ffn_type": cfg.get("ffn_type", "mlp"),
-            "num_experts": cfg.get("num_experts", 8),
-            "top_k": cfg.get("top_k", 2),
-            "rope_scale": cfg.get("rope_scale", 1.0),
-            "rope_factor": cfg.get("rope_factor", 8.0),
-            "rope_theta": cfg.get("rope_theta", 10000.0),
-            "layer_configs": cfg.get("layer_configs"),
-        }
-    raise ConfigValidationError("checkpoint 缺少模型结构信息，需包含 'args' 或 'config' 字段")
+def extract_checkpoint_config(checkpoint: dict[str, Any]) -> dict[str, Any]:
+    """从 checkpoint 提取模型结构配置（唯一格式: `_config` 纯 dict 快照）。
+
+    保存端 (pretrain/opd/ppo/grpo/sft/dpo/distill/sft_lora) 统一写 `_config`，
+    其字段由 ModelConfig dump（pretrain）或构建参数（sft/dpo）直接生成，
+    无手写默认值可猜错。历史格式（args Namespace / config dict）已在格式
+    统一时移除，不再兼容。
+    """
+    raw = checkpoint.get("_config")
+    if not isinstance(raw, dict):
+        raise ConfigValidationError(
+            "checkpoint 缺少 '_config' 字段，无法重建模型结构。"
+            "若来自 mcore 轨 (industrial/pretrain)，请先运行 "
+            "deploy/megatron_to_hf.py 转换为 HF 目录后再加载"
+        )
+    return raw
 
 
 def load_config(config_file: str) -> _DictWrapper:
@@ -276,17 +240,58 @@ def cfg_to_namespace(cfg: _DictWrapper, root_dir: str) -> argparse.Namespace:
     )
 
 
+# ── load_config_v2 消费方必读字段 ─────────────────────────────────────
+# manual/pretrain.py (_load_training_defaults) 与 manual/train_tokenizer.py
+# 消费的 YAML 键全集。YAML 缺键时直接报错, 禁止静默回退 Pydantic 默认 ——
+# 双轨默认值曾多次漂移 (dpo.lr 1e-7 / sft.lr 5e-6 / stable_ratio 0.0 等
+# 历史坑), 一致性由 tests/test_config_defaults.py 锁死。
+# data_sources 允许空列表 (键存在即可, train_tokenizer.py 自带防空)。
+_REQUIRED_CONFIG_SECTIONS: dict[str, tuple[str, ...]] = {
+    "training": (
+        "epochs", "batch_size", "accumulate_grad", "weight_decay",
+        "clip_grad", "log_interval", "save_interval", "seed",
+        "label_smoothing",
+    ),
+    "lr": ("type", "lr", "warmup_ratio", "stable_ratio", "min_lr_ratio"),
+    "advanced": ("z_loss_weight", "num_workers"),
+    "data": ("tokenizer_path", "data_dir", "checkpoint_dir"),
+}
+
+
+def validate_required_config_fields(data: dict[str, Any]) -> None:
+    """校验训练消费方必读字段齐全; 缺失即报错, 不静默回退默认值。"""
+    missing: list[str] = []
+    for section, keys in _REQUIRED_CONFIG_SECTIONS.items():
+        sec = data.get(section)
+        if not isinstance(sec, dict):
+            missing.append(section)
+            continue
+        for key in keys:
+            if key not in sec:
+                missing.append(f"{section}.{key}")
+    if "data_sources" not in data:
+        missing.append("data_sources")
+    if missing:
+        raise ConfigValidationError(
+            "配置缺少训练消费方必读字段 (参考 configs/base.yaml 补全): "
+            + ", ".join(missing)
+        )
+
+
 # Pydantic 配置体系（v2），手写轨 pretrain/deepspeed/fsdp 使用；
 # 移植自历史版本 core/config.py（旧版已删除），load_config_v2 返回 GleamLMConfig。
 
 if _HAS_PYDANTIC:
 
     class LrConfig(BaseModel):
-        type: Literal["wsd", "cosine"] = "cosine"
-        lr: float = 0.0003
-        warmup_ratio: float = 0.01
+        # 默认值 = base.yaml 实证 (WSD 4e-4 → 4e-5, stable 80%)。
+        # 历史坑: 曾回落 cosine/3e-4/stable 0.0 与实证漂移; 一致性由
+        # tests/test_config_defaults.py 锁死
+        type: Literal["wsd", "cosine"] = "wsd"
+        lr: float = 0.0004
+        warmup_ratio: float = 0.02
         min_lr_ratio: float = 0.1
-        stable_ratio: float = 0.0
+        stable_ratio: float = 0.8
 
         @field_validator("lr")
         @classmethod
@@ -352,8 +357,9 @@ if _HAS_PYDANTIC:
             return cls(**data)
 
     class TrainingConfig(BaseModel):
+        # 默认值 = base.yaml training 段实证 (epochs=1, 6.13B chars 预算)
         seed: int = 42
-        epochs: int = 4
+        epochs: int = 1
         batch_size: int = 8
         accumulate_grad: int = 8
         clip_grad: float = 1.0
@@ -362,7 +368,7 @@ if _HAS_PYDANTIC:
         log_interval: int = 50
         eval_interval: int = 500
         save_interval: int = 2000
-        max_train_chars: int = 1200000000
+        max_train_chars: int = 6130000000
 
     class DataConfig(BaseModel):
         data_dir: str = ""
@@ -372,8 +378,9 @@ if _HAS_PYDANTIC:
         load_checkpoint: str | None = None
 
     class AdvancedConfig(BaseModel):
-        # SmolLM3 用 1e-5 作 Z-Loss 默认系数（防 logits 爆炸）；0 禁用
-        z_loss_weight: float = 1e-5
+        # nano 实证 z-loss 系数 1e-4（防 logits 爆炸）；0 禁用。
+        # 历史坑: 曾沿用 SmolLM3 的 1e-5, 与 base.yaml 漂移 10×
+        z_loss_weight: float = 1e-4
         bf16: bool = True
         pin_memory: bool = True
         num_workers: int = 0
@@ -382,7 +389,8 @@ if _HAS_PYDANTIC:
         epochs: int = 3
         batch_size: int = 8
         accumulate_grad: int = 4
-        lr: float = 5e-6
+        # 历史坑: 曾误配 5e-6 (=1e-4×min_lr 0.05, 余弦终点值非起点), 与 base.yaml 实证 1e-4 对齐
+        lr: float = 1e-4
         warmup_ratio: float = 0.02
         weight_decay: float = 0.01
         max_seq_len: int = 1024
@@ -393,7 +401,8 @@ if _HAS_PYDANTIC:
         epochs: int = 1
         batch_size: int = 2
         accumulate_grad: int = 2
-        lr: float = 1e-7
+        # 历史坑: 曾误配 1e-7 (比 base.yaml 实证低 10×)
+        lr: float = 1e-6
         beta: float = 0.1
         max_seq_len: int = 1024
         warmup_ratio: float = 0.02
@@ -425,7 +434,9 @@ if _HAS_PYDANTIC:
 
         @classmethod
         def from_yaml(cls, path: str) -> "GleamLMConfig":
-            return cls(**load_yaml(path))
+            data = load_yaml(path)
+            validate_required_config_fields(data)
+            return cls(**data)
 
         def resolve_paths(self, root_dir: str) -> "GleamLMConfig":
             for field_name in ("data_dir", "tokenizer_path", "checkpoint_dir"):

@@ -181,29 +181,21 @@ def main():
     if not cli_args.resume:
         global_step = 0
 
-    train_ns = argparse.Namespace(
-        epochs=epochs,
-        batch_size=batch_size,
-        accumulate_grad=accumulate_grad,
-        lr=lr,
-        warmup_ratio=warmup_ratio,
-        stable_ratio=stable_ratio,
-        min_lr_ratio=min_lr_ratio,
-        total_steps=total_steps,
-        clip_grad=clip_grad,
-        max_seq_len=max_seq_len,
-        lr_scheduler=lr_scheduler,
-        # 模型结构字段: 供下游 grpo/ppo/opd 经 extract_checkpoint_config 精确重建
-        vocab_size=tokenizer.get_vocab_size(),
-        d_model=args.d_model,
-        num_layers=args.num_layers,
-        num_heads=args.num_heads,
-        num_kv_heads=args.num_kv_heads,
-        d_ff=args.d_ff,
-        dropout=args.dropout,
-        tie_weights=args.tie_weights,
-        use_flash_attn=args.use_flash_attn,
-    )
+    # 模型结构快照: 供下游 (dpo/opd/ppo/grpo/serve) 经 extract_checkpoint_config 精确重建。
+    # 字段与 GleamLMModel 构建参数一一对应，纯 dict（weights_only 安全）。
+    _ckpt_cfg = {
+        "vocab_size": tokenizer.get_vocab_size(),
+        "d_model": args.d_model,
+        "num_layers": args.num_layers,
+        "num_heads": args.num_heads,
+        "num_kv_heads": args.num_kv_heads,
+        "d_ff": args.d_ff,
+        "dropout": args.dropout,
+        "max_seq_len": max_seq_len,
+        "pad_token_id": tokenizer.pad_id,
+        "tie_weights": args.tie_weights,
+        "use_flash_attn": args.use_flash_attn,
+    }
 
     log_interval = 50
     for epoch in range(start_epoch, epochs):
@@ -270,7 +262,7 @@ def main():
                 "optimizer": optimizer.state_dict(),
                 "scaler": scaler.state_dict(),
                 "train_loss": epoch_loss,
-                "args": train_ns,
+                "_config": _ckpt_cfg,
             },
             os.path.join(save_dir, ckpt_name),
         )
@@ -282,7 +274,7 @@ def main():
                 {
                     "epoch": epoch,
                     "model_state_dict": model.state_dict(),
-                    "args": train_ns,
+                    "_config": _ckpt_cfg,
                 },
                 best_path,
             )

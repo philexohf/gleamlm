@@ -47,12 +47,7 @@ def load_model_for_inference(
 
     config = extract_checkpoint_config(checkpoint)
 
-    if "args" in checkpoint:
-        tokenizer_path = getattr(checkpoint["args"], "tokenizer_path", None)
-    elif "config" in checkpoint:
-        tokenizer_path = checkpoint["config"].get("tokenizer_path", None)
-    else:
-        tokenizer_path = None
+    tokenizer_path = None  # 旧 args/config 格式的 tokenizer_path 读取已随格式统一移除
 
     config["dropout"] = 0.0
 

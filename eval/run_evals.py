@@ -19,10 +19,6 @@ from gleamlm.utils.config import DEFAULT_TOKENIZER_PATH, extract_checkpoint_conf
 from hf.hf_config import gleamlm_config_from_core
 from hf.hf_model import GleamLMForCausalLM, load_from_checkpoint
 
-# PyTorch ≥2.6 的 weights_only 默认白名单不含 argparse.Namespace，
-# 而训练产物（pretrain/sft 等）嵌有 "args" 元数据（Namespace）→ 显式放行
-torch.serialization.add_safe_globals([argparse.Namespace])
-
 
 def _build_hf_tokenizer(tokenizer_dir: str, output_dir: str) -> PreTrainedTokenizerFast:
     """自研 BBPE → HF tokenizer.json → PreTrainedTokenizerFast（lm-eval HFLM 需要）。"""
