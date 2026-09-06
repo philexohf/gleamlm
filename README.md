@@ -76,7 +76,7 @@ GleamLM 面向大语言模型预训练与后训练工程师，目标是理解原
 | **分词器** | BBPE 12K（纯 Python 自研） | 理解词表构建全流程 |
 | **推理加速** | KV Cache + 流式生成 + Flash Attention | 推理延迟优化 |
 | **对齐** | SFT → 对齐（DPO / PPO / GRPO 并列可选）→ OPD（可选） | 完整后训练链条 |
-| **LoRA** | 手写 + PEFT 双版本 | 理解低秩适应的数学原理 |
+| **LoRA（可选）** | 手写 + PEFT 双版本 | 理解低秩适应的数学原理 |
 | **HF 集成** | `from_pretrained` / `GleamLMForCausalLM` | 自定义模型接入标准姿势 |
 | **部署** | vLLM + ONNX + FastAPI | 模型上线全链路 |
 
@@ -293,12 +293,15 @@ $env:WANDB_API_KEY = "<你的API_KEY>"
 # 全量微调（--model_path 指定预训练基座；缺省会找不存在的 checkpoints/nano/best_model.pt）
 python manual/sft.py --variant nano --model_path checkpoints/nano/final.pt
 
-# LoRA 微调（手写实现，基座用预训练模型）
+# LoRA 微调 —— 可选路线（手写实现，基座用预训练模型），非主链必需
 python manual/sft_lora.py \
     --model checkpoints/nano/final.pt \
     --data data/nano/sft/sft_data.jsonl \
     --output_dir checkpoints/nano/lora
 ```
+
+> LoRA 微调（`sft_lora.py`）为**可选**实验路线（低成本尝鲜 / 理解低秩适应原理），不构成后训练主链步骤；
+> 主链为 SFT 全量微调 → DPO（→ OPD 可选），下游 DPO / 推理默认消费全量微调产物 `sft_best.pt`。
 
 ### 3. DPO 偏好对齐
 
