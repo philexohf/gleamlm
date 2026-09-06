@@ -631,14 +631,14 @@ def _show_full_help():
     p.add_argument("--data", type=str, required=True)
     p.add_argument("--output_dir", type=str, default="./checkpoints")
     p.add_argument("--resume", type=str, default=None)
-    p.add_argument("--epochs", type=int, default=3)
-    p.add_argument("--batch_size", type=int, default=4)
+    p.add_argument("--epochs", type=int, default=1)
+    p.add_argument("--batch_size", type=int, default=8)
     p.add_argument("--accumulate", type=int, default=8)
-    p.add_argument("--lr", type=float, default=3e-4)
-    p.add_argument("--lr_scheduler", type=str, default="cosine", choices=["cosine", "wsd"])
-    p.add_argument("--warmup_ratio", type=float, default=0.01)
+    p.add_argument("--lr", type=float, default=4e-4)
+    p.add_argument("--lr_scheduler", type=str, default="wsd", choices=["cosine", "wsd"])
+    p.add_argument("--warmup_ratio", type=float, default=0.02)
     p.add_argument("--stable_ratio", type=float, default=0.80)
-    p.add_argument("--min_lr_ratio", type=float, default=0.05)
+    p.add_argument("--min_lr_ratio", type=float, default=0.1)
     p.add_argument(
         "--wsd_decay_style",
         type=str,
@@ -649,13 +649,13 @@ def _show_full_help():
     p.add_argument(
         "--z_loss",
         type=float,
-        default=1e-5,
+        default=1e-4,
         help="Z-Loss 系数 (SmolLM3 用 1e-5，防 logits 爆炸；0 禁用)",
     )
-    p.add_argument("--weight_decay", type=float, default=0.1)
+    p.add_argument("--weight_decay", type=float, default=0.01)
     p.add_argument("--clip", type=float, default=1.0)
-    p.add_argument("--log_interval", type=int, default=10)
-    p.add_argument("--save_interval", type=int, default=500)
+    p.add_argument("--log_interval", type=int, default=50)
+    p.add_argument("--save_interval", type=int, default=2000)
     p.add_argument("--compile", action="store_true")
     p.add_argument("--tokenizer_path", type=str, default="")
     p.add_argument("--num_workers", type=int, default=2)
@@ -666,7 +666,7 @@ def _show_full_help():
     p.add_argument(
         "--label_smoothing",
         type=float,
-        default=0.0,
+        default=0.1,
         help="CrossEntropy label smoothing (LLaMA 用 0.1)",
     )
     p.add_argument(
@@ -715,13 +715,16 @@ def main():
         help="训练默认超参 YAML (默认复用 --model 的同一文件)",
     )
     # 训练超参
+    # default = _load_training_defaults 读出的 YAML 值 (training/lr/advanced 段);
+    # 兜底数字对齐 configs/base.yaml 与 gleamlm/utils/config.py Pydantic 默认,
+    # YAML 必读字段校验通过后不会触发 (仅无 YAML 兜底的类型占位)
     parser.add_argument("--data", type=str, required=True)
     parser.add_argument("--output_dir", type=str, default="./checkpoints")
     parser.add_argument("--resume", type=str, default=None)
-    parser.add_argument("--epochs", type=int, default=training_defaults.get("epochs", 3))
-    parser.add_argument("--batch_size", type=int, default=training_defaults.get("batch_size", 4))
+    parser.add_argument("--epochs", type=int, default=training_defaults.get("epochs", 1))
+    parser.add_argument("--batch_size", type=int, default=training_defaults.get("batch_size", 8))
     parser.add_argument("--accumulate", type=int, default=training_defaults.get("accumulate", 8))
-    parser.add_argument("--lr", type=float, default=training_defaults.get("lr", 3e-4))
+    parser.add_argument("--lr", type=float, default=training_defaults.get("lr", 4e-4))
     parser.add_argument(
         "--seed",
         type=int,
@@ -731,17 +734,17 @@ def main():
     parser.add_argument(
         "--lr_scheduler",
         type=str,
-        default=training_defaults.get("lr_scheduler", "cosine"),
+        default=training_defaults.get("lr_scheduler", "wsd"),
         choices=["cosine", "wsd"],
     )
     parser.add_argument(
-        "--warmup_ratio", type=float, default=training_defaults.get("warmup_ratio", 0.01)
+        "--warmup_ratio", type=float, default=training_defaults.get("warmup_ratio", 0.02)
     )
     parser.add_argument(
         "--stable_ratio", type=float, default=training_defaults.get("stable_ratio", 0.80)
     )
     parser.add_argument(
-        "--min_lr_ratio", type=float, default=training_defaults.get("min_lr_ratio", 0.05)
+        "--min_lr_ratio", type=float, default=training_defaults.get("min_lr_ratio", 0.1)
     )
     parser.add_argument(
         "--wsd_decay_style",
@@ -753,18 +756,18 @@ def main():
     parser.add_argument(
         "--z_loss",
         type=float,
-        default=training_defaults.get("z_loss", 1e-5),
+        default=training_defaults.get("z_loss", 1e-4),
         help="Z-Loss 系数 (SmolLM3 用 1e-5，防 logits 爆炸；0 禁用)",
     )
     parser.add_argument(
-        "--weight_decay", type=float, default=training_defaults.get("weight_decay", 0.1)
+        "--weight_decay", type=float, default=training_defaults.get("weight_decay", 0.01)
     )
     parser.add_argument("--clip", type=float, default=training_defaults.get("clip", 1.0))
     parser.add_argument(
-        "--log_interval", type=int, default=training_defaults.get("log_interval", 10)
+        "--log_interval", type=int, default=training_defaults.get("log_interval", 50)
     )
     parser.add_argument(
-        "--save_interval", type=int, default=training_defaults.get("save_interval", 500)
+        "--save_interval", type=int, default=training_defaults.get("save_interval", 2000)
     )
     # 执行选项
     parser.add_argument("--compile", action="store_true")
@@ -783,7 +786,7 @@ def main():
     parser.add_argument(
         "--label_smoothing",
         type=float,
-        default=0.0,
+        default=training_defaults.get("label_smoothing", 0.1),
         help="CrossEntropy label smoothing (LLaMA 用 0.1)",
     )
     parser.add_argument("--tensorboard", action="store_true", help="启用 TensorBoard 日志")
