@@ -37,7 +37,10 @@ def main():
         "--variant", type=str, choices=["nano", "lite", "pro"], required=True, help="模型变体"
     )
     parser.add_argument(
-        "--config_dir", type=str, default=os.path.join(_ROOT_DIR, "configs"), help="YAML 配置目录"
+        "--config_dir",
+        type=str,
+        default=os.path.join(_ROOT_DIR, "manual", "configs"),
+        help="YAML 配置目录 (manual 轨专用)",
     )
     parser.add_argument("--epochs", type=int, default=None, help="覆写训练轮数")
     parser.add_argument("--lr", type=float, default=None, help="覆写学习率")
@@ -60,16 +63,26 @@ def main():
         "--lr_scheduler",
         type=str,
         choices=["cosine", "wsd"],
-        default="cosine",
-        help="学习率调度器类型",
+        default=None,
+        help="覆写学习率调度器 (默认取 manual/configs/{variant}.yaml sft.lr_scheduler)",
     )
-    parser.add_argument("--stable_ratio", type=float, default=0.80, help="WSD stable 阶段占比")
-    parser.add_argument("--min_lr_ratio", type=float, default=0.05, help="最小学习率比例")
+    parser.add_argument(
+        "--stable_ratio",
+        type=float,
+        default=None,
+        help="覆写 WSD stable 阶段占比 (默认取 YAML sft.stable_ratio)",
+    )
+    parser.add_argument(
+        "--min_lr_ratio",
+        type=float,
+        default=None,
+        help="覆写最小学习率比例 (默认取 YAML sft.min_lr_ratio)",
+    )
     parser.add_argument(
         "--weight_decay",
         type=float,
         default=None,
-        help="覆写权重衰减 (默认取 configs/{variant}.yaml sft.weight_decay)",
+        help="覆写权重衰减 (默认取 manual/configs/{variant}.yaml sft.weight_decay)",
     )
     parser.add_argument(
         "--warmup_ratio",
@@ -108,9 +121,15 @@ def main():
     )
     inject_system_ratio = cfg.sft.inject_system_ratio
     clip_grad = cfg.training.clip_grad
-    lr_scheduler = cli_args.lr_scheduler
-    stable_ratio = cli_args.stable_ratio
-    min_lr_ratio = cli_args.min_lr_ratio
+    lr_scheduler = (
+        cli_args.lr_scheduler if cli_args.lr_scheduler is not None else cfg.sft.lr_scheduler
+    )
+    stable_ratio = (
+        cli_args.stable_ratio if cli_args.stable_ratio is not None else cfg.sft.stable_ratio
+    )
+    min_lr_ratio = (
+        cli_args.min_lr_ratio if cli_args.min_lr_ratio is not None else cfg.sft.min_lr_ratio
+    )
 
     set_seed(cli_args.seed)
 

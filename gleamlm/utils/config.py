@@ -116,7 +116,7 @@ _SCOPE_REQUIRED: dict[str, dict[str, tuple[str, ...]]] = {
             "seed",
             "label_smoothing",
         ),
-        "lr": ("type", "lr", "warmup_ratio", "stable_ratio", "min_lr_ratio"),
+        "lr": ("type", "lr", "warmup_ratio", "stable_ratio", "min_lr_ratio", "wsd_decay_style"),
         "advanced": ("z_loss_weight", "num_workers"),
         "data": ("tokenizer_path", "data_dir", "checkpoint_dir"),
         "sft": (
@@ -124,7 +124,10 @@ _SCOPE_REQUIRED: dict[str, dict[str, tuple[str, ...]]] = {
             "batch_size",
             "accumulate_grad",
             "lr",
+            "lr_scheduler",
             "warmup_ratio",
+            "stable_ratio",
+            "min_lr_ratio",
             "weight_decay",
             "max_seq_len",
             "inject_system_ratio",
@@ -154,7 +157,7 @@ _SCOPE_REQUIRED: dict[str, dict[str, tuple[str, ...]]] = {
             "seed",
             "label_smoothing",
         ),
-        "lr": ("type", "lr", "warmup_ratio", "stable_ratio", "min_lr_ratio"),
+        "lr": ("type", "lr", "warmup_ratio", "stable_ratio", "min_lr_ratio", "wsd_decay_style"),
         "advanced": ("z_loss_weight", "num_workers"),
         "data": ("tokenizer_path", "data_dir", "checkpoint_dir"),
     },
@@ -177,7 +180,10 @@ _SCOPE_REQUIRED: dict[str, dict[str, tuple[str, ...]]] = {
             "batch_size",
             "accumulate_grad",
             "lr",
+            "lr_scheduler",
             "warmup_ratio",
+            "stable_ratio",
+            "min_lr_ratio",
             "weight_decay",
             "max_seq_len",
             "inject_system_ratio",
@@ -235,7 +241,8 @@ def validate_required_config_fields(data: dict[str, Any], scope: str = "full") -
             missing.append(key)
     if missing:
         raise ConfigValidationError(
-            f"配置缺少必读字段 (scope={scope}, 参考 configs/base.yaml 补全): " + ", ".join(missing)
+            f"配置缺少必读字段 (scope={scope}, 参考 manual/configs/base.yaml 补全): "
+            + ", ".join(missing)
         )
 
 
@@ -244,6 +251,8 @@ class LrConfig(BaseModel):
     # 历史坑: 曾回落 cosine/3e-4/stable 0.0 与实证漂移; 一致性由
     # tests/test_config_defaults.py 锁死
     type: Literal["wsd", "cosine"] = "wsd"
+    # WSD decay 段衰减方式 (linear 对齐 nano_wsd_linear_v2/SmolLM3 实证)
+    wsd_decay_style: Literal["linear", "cosine"] = "linear"
     lr: float = 0.0004
     warmup_ratio: float = 0.02
     min_lr_ratio: float = 0.1
@@ -353,7 +362,11 @@ class SFTConfig(BaseModel):
     accumulate_grad: int = 4
     # 历史坑: 曾误配 5e-6 (=1e-4×min_lr 0.05, 余弦终点值非起点), 与 base.yaml 实证 1e-4 对齐
     lr: float = 1e-4
+    # SFT 基线余弦调度 (终点 = lr × min_lr_ratio)；曾为 sft.py 硬编码 default，现沉淀 YAML
+    lr_scheduler: Literal["cosine", "wsd"] = "cosine"
     warmup_ratio: float = 0.02
+    stable_ratio: float = 0.8
+    min_lr_ratio: float = 0.05
     weight_decay: float = 0.01
     max_seq_len: int = 1024
     inject_system_ratio: float = 0.2

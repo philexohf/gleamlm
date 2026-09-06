@@ -1,7 +1,11 @@
 # ============================================================================
-# GleamLM 公共默认配置 — 所有模型共享的通用参数
-# 各变体配置通过 extends 继承本文件；键的实证来源与历史记录见各变体 yaml
+# GleamLM 公共默认配置 — 新配置模板 / 公共默认参考
 # ============================================================================
+# 本文件本身是完整可运行的配置，同时充当模板：新建模型配置请复制本文件为
+# <my>.yaml 再改值（复制即得全量必读键，不会因缺键在校验时报错）。
+# 内置变体 (nano/lite/pro) 已独立完整展开，不再 extends 本文件，
+# 改动公共默认需同步到各变体或只改目标变体。
+# 键的实证来源与历史记录见各变体 yaml。
 
 # ---- 预训练控制 ----
 training:
@@ -23,6 +27,7 @@ training:
 # ---- 学习率（默认 WSD）----
 lr:
   type: wsd
+  wsd_decay_style: linear          # WSD decay 段衰减方式 (线性对齐 nano/SmolLM3 实证)
   # WSD 起始 lr 4e-4，decay 期线性降至 4e-5（lr × min_lr_ratio）
   lr: 0.0004
   warmup_ratio: 0.02             # warmup 占 2%
@@ -74,7 +79,10 @@ sft:
   accumulate_grad: 4
   # SFT 默认超参（实测基线见各变体 yaml）
   lr: 1.0e-4
+  lr_scheduler: cosine          # SFT 基线余弦调度 (终点 = lr × min_lr_ratio)
   warmup_ratio: 0.02
+  stable_ratio: 0.80           # WSD 专用 (cosine 时忽略)
+  min_lr_ratio: 0.05           # cosine 终点比例
   weight_decay: 0.01
   max_seq_len: 1024
   inject_system_ratio: 0.2

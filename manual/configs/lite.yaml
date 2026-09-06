@@ -1,0 +1,104 @@
+# ============================================================================
+# GleamLM-Lite 87M 配置 — 独立完整配置（不依赖 extends）
+# ============================================================================
+# 本文件所有生效键显式列出：值 = base.yaml 公共默认与 Lite 实证合并后的快照，
+# 可直接独立使用；与 base 同值属刻意锁定，不随 base 漂移。base.yaml 仅作
+# 公共默认参考 / 新配置复制模板（复制 base → 改名 → 改值即可新建配置）。
+# 段序与 base.yaml 对齐，便于对照。
+
+# ---- 预训练控制 ----
+training:
+  seed: 42
+  epochs: 1
+  batch_size: 4
+  accumulate_grad: 16
+  clip_grad: 1.0
+  weight_decay: 0.01
+  label_smoothing: 0.1          # 标签平滑
+  log_interval: 50
+  eval_interval: 500
+  save_interval: 2000
+  max_train_chars: 6130000000   # 6.13B chars (与 nano 统一)
+
+# ---- 学习率（Cosine Annealing + Warmup）----
+lr:
+  type: cosine
+  wsd_decay_style: linear       # 仅 WSD 生效（键位保留）
+  lr: 0.0004
+  warmup_ratio: 0.02
+  stable_ratio: 0.80            # 仅 WSD 生效（键位保留）
+  min_lr_ratio: 0.1
+
+# ---- 优化器 ----
+optimizer:
+  type: adamw
+  betas: [0.9, 0.95]
+  eps: 1.0e-8
+
+# ---- 模型架构 ----
+model:
+  vocab_size: 12002
+  d_model: 768
+  num_layers: 12
+  num_heads: 12
+  num_kv_heads: 6
+  d_ff: 2048
+  max_seq_len: 2048
+  dropout: 0.0
+  tie_weights: true
+  use_flash_attn: true
+
+# ---- 数据路径 ----
+data:
+  data_dir: data/lite/pretrain
+  tokenizer_path: gleamlm/tokenizer/checkpoints/bbpe_12k
+  checkpoint_dir: checkpoints/lite
+  ids_prefix: ""
+  load_checkpoint: null          # 续训起点模型权重（可选）
+
+# ---- 预训练数据源 ----
+data_sources:
+  - {name: edu, type: text, ratio: 0.55}
+  - {name: news, type: news, ratio: 0.27}
+  - {name: wiki, type: text, ratio: 0.12}
+  - {name: baike, type: text, ratio: 0.06}
+
+# ---- 高级 ----
+advanced:
+  z_loss_weight: 0.0001
+  bf16: true
+  pin_memory: true
+  num_workers: 0               # Windows + memmap: 0 is fastest; Linux: try 2-4
+
+# ---- SFT 微调 ----
+sft:
+  # 显式锁定（当前同 base 默认）；Lite 重训时按实测调整
+  epochs: 3
+  batch_size: 8
+  accumulate_grad: 4
+  lr: 1.0e-4
+  lr_scheduler: cosine
+  warmup_ratio: 0.02
+  stable_ratio: 0.80           # WSD 专用 (cosine 时忽略)
+  min_lr_ratio: 0.05           # cosine 终点比例
+  weight_decay: 0.01
+  max_seq_len: 2048
+  inject_system_ratio: 0.2
+  data_path: data/lite/sft/sft_api_clean.jsonl
+
+# ---- DPO 偏好对齐 ----
+dpo:
+  # 显式锁定（当前同 base 默认）；Lite 重训时按实测调整
+  epochs: 1
+  batch_size: 2
+  accumulate_grad: 2
+  lr: 1.0e-6
+  beta: 0.3
+  max_seq_len: 2048
+  warmup_ratio: 0.02
+  min_lr_ratio: 0.05
+  data_path: data/lite/dpo/dpo_data.jsonl
+
+# ---- 分布式 ----
+distributed:
+  backend: auto   # auto: Windows 自动回退 gloo，Linux 使用 nccl

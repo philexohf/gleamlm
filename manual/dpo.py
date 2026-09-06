@@ -45,7 +45,10 @@ def main() -> None:
         "--variant", type=str, choices=["nano", "lite", "pro"], required=True, help="模型变体"
     )
     parser.add_argument(
-        "--config_dir", type=str, default=os.path.join(_ROOT_DIR, "configs"), help="YAML 配置目录"
+        "--config_dir",
+        type=str,
+        default=os.path.join(_ROOT_DIR, "manual", "configs"),
+        help="YAML 配置目录 (manual 轨专用)",
     )
     parser.add_argument("--epochs", type=int, default=None, help="覆写训练轮数")
     parser.add_argument("--lr", type=float, default=None, help="覆写学习率")
@@ -77,7 +80,7 @@ def main() -> None:
         "--weight_decay",
         type=float,
         default=None,
-        help="覆写权重衰减 (默认取 configs/{variant}.yaml training.weight_decay)",
+        help="覆写权重衰减 (默认取 manual/configs/{variant}.yaml training.weight_decay)",
     )
     parser.add_argument(
         "--seed", type=int, default=42, help="随机种子 (对齐 pretrain.py 的 --seed)"

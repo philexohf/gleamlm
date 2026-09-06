@@ -16,7 +16,7 @@ parser.add_argument("--variant", choices=["nano", "lite", "pro"], default="nano"
 args = parser.parse_args()
 
 cfg = load_config(
-    os.path.join(_PROJECT_ROOT, "configs", f"{args.variant}.yaml"), _PROJECT_ROOT
+    os.path.join(_PROJECT_ROOT, "manual", "configs", f"{args.variant}.yaml"), _PROJECT_ROOT
 )
 
 print("=== Path Resolution ===")

@@ -2,7 +2,7 @@
 BBPE tokenizer 训练/扩展脚本
 
 用法:
-  # 按 variant 配比从零训练 (从 configs/{variant}.yaml 读 data_sources)
+  # 按 variant 配比从零训练 (从 manual/configs/{variant}.yaml 读 data_sources)
   python manual/train_tokenizer.py --variant nano --vocab_size 12002 \
     --save_dir gleamlm/tokenizer/checkpoints/bbpe_12k --max-chars 200000000
 
@@ -111,14 +111,14 @@ def verify_tokenizer(path: str):
 def train_from_variant(
     variant: str, vocab_size: int, save_dir: str, max_chars: int
 ) -> BBPETokenizer:
-    """按 configs/{variant}.yaml 的 data_sources 配比训练分词器。
+    """按 manual/configs/{variant}.yaml 的 data_sources 配比训练分词器。
 
     数据文件定位: data/raw/{name}_dedup.txt（与数据 pipeline 约定一致）。
     """
-    cfg = load_config(os.path.join("configs", f"{variant}.yaml"), scope="tokenizer")
+    cfg = load_config(os.path.join("manual", "configs", f"{variant}.yaml"), scope="tokenizer")
     data_sources = cfg.data_sources
     if not data_sources:
-        raise SystemExit(f"ERROR: configs/{variant}.yaml 无 data_sources 配比定义")
+        raise SystemExit(f"ERROR: manual/configs/{variant}.yaml 无 data_sources 配比定义")
 
     files, ratios = [], []
     for s in data_sources:
@@ -146,7 +146,7 @@ if __name__ == "__main__":
         "--variant",
         type=str,
         default="",
-        help="模型变体 (nano/lite/pro): 从 configs/{variant}.yaml 读 data_sources 配比训练",
+        help="模型变体 (nano/lite/pro): 从 manual/configs/{variant}.yaml 读 data_sources 配比训练",
     )
     p.add_argument("--vocab_size", type=int, default=12002)
     p.add_argument(

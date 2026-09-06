@@ -86,7 +86,7 @@ def test_load_config_model_only_under_full_scope_still_rejected():
 
 
 def test_load_config_real_nano():
-    cfg = load_config("configs/nano.yaml")
+    cfg = load_config("manual/configs/nano.yaml")
     assert cfg.model.d_model == 512
     assert cfg.model.num_layers == 12
     assert cfg.model.num_heads == 8
@@ -104,7 +104,7 @@ def test_load_config_missing_consumed_key_raises():
     """单段内缺必读键 (sft.lr) 同样显式报错。"""
     import pytest
 
-    cfg_path = "configs/nano.yaml"
+    cfg_path = "manual/configs/nano.yaml"
     data = load_yaml(cfg_path)
     del data["sft"]["lr"]
     from gleamlm.utils.config import validate_required_config_fields
@@ -117,7 +117,7 @@ def test_load_config_scope_specific_missing_key_raises():
     """scope 收窄后, scope 内缺键仍需报错 (dpo scope 缺 dpo.lr)。"""
     import pytest
 
-    cfg_path = "configs/nano.yaml"
+    cfg_path = "manual/configs/nano.yaml"
     data = load_yaml(cfg_path)
     del data["dpo"]["lr"]
     from gleamlm.utils.config import validate_required_config_fields
@@ -130,7 +130,7 @@ def test_narrow_scope_ignores_irrelevant_missing_keys():
     """收窄收益: dpo scope 只校验自己读的键, 不读的缺失键/s段不报错。"""
     from gleamlm.utils.config import validate_required_config_fields
 
-    cfg_path = "configs/nano.yaml"
+    cfg_path = "manual/configs/nano.yaml"
     data = load_yaml(cfg_path)
 
     # dpo scope 不读 sft 段 / model.num_layers / model.vocab_size → 删除后仍应通过

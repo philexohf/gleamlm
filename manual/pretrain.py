@@ -15,23 +15,23 @@
 
   # 单卡（--data 传 .bin/.idx 前缀，自动识别 mmap 格式；
   #      也可以传 .txt 文本，小数据场景自动走 HF datasets）
-  python manual/pretrain.py --model configs/nano.yaml --data data/processed/wiki_zh
-  python manual/pretrain.py --model configs/nano.yaml --data ./data.txt --resume ./checkpoints/step_1000.pt
+  python manual/pretrain.py --model manual/configs/nano.yaml --data data/processed/wiki_zh
+  python manual/pretrain.py --model manual/configs/nano.yaml --data ./data.txt --resume ./checkpoints/step_1000.pt
 
   # 训练超参默认值来自同一 YAML（training/lr/advanced 段），CLI 可覆盖
-  python manual/pretrain.py --model configs/nano.yaml --data ./data.txt --lr 5e-4 --epochs 2
+  python manual/pretrain.py --model manual/configs/nano.yaml --data ./data.txt --lr 5e-4 --epochs 2
 
   # 观测模式: 默认 tqdm 进度条（仅主进程渲染）；--no-pbar 切回日志式
   # （每 log_interval 步一行，适合输出重定向/无人值守）
-  python manual/pretrain.py --model configs/nano.yaml --data data/nano/pretrain/train
+  python manual/pretrain.py --model manual/configs/nano.yaml --data data/nano/pretrain/train
 
   # 多卡 DDP（单机 4 卡示例）
   torchrun --nproc_per_node=4 manual/pretrain.py \
-      --model configs/lite.yaml --data ./data.txt --output_dir ./checkpoints
+      --model manual/configs/lite.yaml --data ./data.txt --output_dir ./checkpoints
 
   # 多卡 + torch.compile（Ampere+ GPU 额外加速 ~30%）
   torchrun --nproc_per_node=4 manual/pretrain.py \
-      --model configs/lite.yaml --data ./data --compile --num_workers 4
+      --model manual/configs/lite.yaml --data ./data --compile --num_workers 4
 
   # 注: 0.6B 不走手写轨，由工业轨训练 (industrial/: Megatron 预训练 + HF 微调/对齐)
   #     手写轨覆盖 Nano 40M / Lite 87M / Pro 126M
@@ -245,7 +245,7 @@ def train(args, model_cfg: ModelConfig):
 
     # 验证集（可选）
     val_loader = None
-    val_interval = args.val_interval or args.save_interval
+    val_interval = args.save_interval  # 验证间隔 = 保存间隔 (原 --val_interval 语义)
     if args.val_data:
         val_dataset = tokenize_and_group(args.val_data, tokenizer, model_cfg.max_seq_len)
         val_sampler = (
@@ -596,6 +596,7 @@ def _load_training_defaults(training_path: str | None) -> dict[str, Any]:
         "save_interval": t.save_interval,
         "seed": t.seed,
         "lr_scheduler": lr.type,
+        "wsd_decay_style": lr.wsd_decay_style,
         "lr": lr.lr,
         "warmup_ratio": lr.warmup_ratio,
         "stable_ratio": lr.stable_ratio,
@@ -615,60 +616,37 @@ def _show_full_help():
         description="GleamLM pretraining (DDP-ready)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""Examples:
-  python pretrain.py --model configs/nano.yaml --data ./data.txt
-  python pretrain.py --model configs/nano.yaml --data ./data.txt --lr 5e-4
-  torchrun --nproc_per_node=4 pretrain.py --model configs/lite.yaml --data ./data.txt""",
+  python pretrain.py --model manual/configs/nano.yaml --data ./data.txt
+  python pretrain.py --model manual/configs/nano.yaml --data ./data.txt --lr 5e-4
+  torchrun --nproc_per_node=4 pretrain.py --model manual/configs/lite.yaml --data ./data.txt""",
     )
     p.add_argument(
         "--model",
         type=str,
         required=True,
-        help="模型架构 YAML (configs/*.yaml，完整 GleamLMConfig 结构时自动取 model 段) — 必传",
+        help="模型架构 YAML (manual/configs/*.yaml，完整 GleamLMConfig 结构时自动取 model 段) — 必传",
     )
     p.add_argument(
         "--training", type=str, default=None, help="训练默认超参 YAML (默认复用 --model 的同一文件)"
     )
-    p.add_argument("--data", type=str, required=True)
-    p.add_argument("--output_dir", type=str, default="./checkpoints")
+    p.add_argument(
+        "--data", type=str, default=None, help="预训练数据文件/目录 (未传回落 YAML data.data_dir)"
+    )
+    p.add_argument(
+        "--output_dir",
+        type=str,
+        default=None,
+        help="模型保存目录 (未传回落 YAML data.checkpoint_dir)",
+    )
     p.add_argument("--resume", type=str, default=None)
     p.add_argument("--epochs", type=int, default=1)
     p.add_argument("--batch_size", type=int, default=8)
     p.add_argument("--accumulate", type=int, default=8)
     p.add_argument("--lr", type=float, default=4e-4)
-    p.add_argument("--lr_scheduler", type=str, default="wsd", choices=["cosine", "wsd"])
-    p.add_argument("--warmup_ratio", type=float, default=0.02)
-    p.add_argument("--stable_ratio", type=float, default=0.80)
-    p.add_argument("--min_lr_ratio", type=float, default=0.1)
-    p.add_argument(
-        "--wsd_decay_style",
-        type=str,
-        default="linear",
-        choices=["cosine", "linear"],
-        help="WSD decay 段衰减方式: linear 对齐 nano 实际 (nano_wsd_linear_v2/SmolLM3)，lr 线性降到 min_lr_ratio",
-    )
-    p.add_argument(
-        "--z_loss",
-        type=float,
-        default=1e-4,
-        help="Z-Loss 系数 (SmolLM3 用 1e-5，防 logits 爆炸；0 禁用)",
-    )
-    p.add_argument("--weight_decay", type=float, default=0.01)
-    p.add_argument("--clip", type=float, default=1.0)
-    p.add_argument("--log_interval", type=int, default=50)
-    p.add_argument("--save_interval", type=int, default=2000)
     p.add_argument("--compile", action="store_true")
     p.add_argument("--tokenizer_path", type=str, default="")
-    p.add_argument("--num_workers", type=int, default=2)
-    p.add_argument("--prefetch_factor", type=int, default=2)
-    p.add_argument("--ddp_bucket_mb", type=int, default=25)
     p.add_argument("--wandb_project", type=str, default=None)
     p.add_argument("--wandb_run_name", type=str, default=None)
-    p.add_argument(
-        "--label_smoothing",
-        type=float,
-        default=0.1,
-        help="CrossEntropy label smoothing (LLaMA 用 0.1)",
-    )
     p.add_argument(
         "--pbar",
         action=argparse.BooleanOptionalAction,
@@ -706,7 +684,7 @@ def main():
         "--model",
         type=str,
         default=pre_args.model,
-        help="模型架构 YAML (configs/*.yaml，自动取 model 段)",
+        help="模型架构 YAML (manual/configs/*.yaml，自动取 model 段)",
     )
     parser.add_argument(
         "--training",
@@ -714,12 +692,17 @@ def main():
         default=pre_args.training,
         help="训练默认超参 YAML (默认复用 --model 的同一文件)",
     )
-    # 训练超参
-    # default = _load_training_defaults 读出的 YAML 值 (training/lr/advanced 段);
-    # 兜底数字对齐 configs/base.yaml 与 gleamlm/utils/config.py Pydantic 默认,
-    # YAML 必读字段校验通过后不会触发 (仅无 YAML 兜底的类型占位)
-    parser.add_argument("--data", type=str, required=True)
-    parser.add_argument("--output_dir", type=str, default="./checkpoints")
+    # 实验级超参 (CLI 可覆写): default 取 YAML (training_defaults 必读校验后恒有值;
+    # 兜底数字仅为无 YAML 时的类型占位, 对齐 base.yaml 与 Pydantic 默认)
+    parser.add_argument(
+        "--data", type=str, default=None, help="预训练数据文件/目录 (未传回落 YAML data.data_dir)"
+    )
+    parser.add_argument(
+        "--output_dir",
+        type=str,
+        default=None,
+        help="模型保存目录 (未传回落 YAML data.checkpoint_dir)",
+    )
     parser.add_argument("--resume", type=str, default=None)
     parser.add_argument("--epochs", type=int, default=training_defaults.get("epochs", 1))
     parser.add_argument("--batch_size", type=int, default=training_defaults.get("batch_size", 8))
@@ -731,63 +714,13 @@ def main():
         default=training_defaults.get("seed", 42),
         help="随机种子（数据采样/参数初始化的确定性复现基准）",
     )
-    parser.add_argument(
-        "--lr_scheduler",
-        type=str,
-        default=training_defaults.get("lr_scheduler", "wsd"),
-        choices=["cosine", "wsd"],
-    )
-    parser.add_argument(
-        "--warmup_ratio", type=float, default=training_defaults.get("warmup_ratio", 0.02)
-    )
-    parser.add_argument(
-        "--stable_ratio", type=float, default=training_defaults.get("stable_ratio", 0.80)
-    )
-    parser.add_argument(
-        "--min_lr_ratio", type=float, default=training_defaults.get("min_lr_ratio", 0.1)
-    )
-    parser.add_argument(
-        "--wsd_decay_style",
-        type=str,
-        default="linear",
-        choices=["cosine", "linear"],
-        help="WSD decay 段衰减方式: linear 对齐 nano 实际 (nano_wsd_linear_v2/SmolLM3)，lr 线性降到 min_lr_ratio",
-    )
-    parser.add_argument(
-        "--z_loss",
-        type=float,
-        default=training_defaults.get("z_loss", 1e-4),
-        help="Z-Loss 系数 (SmolLM3 用 1e-5，防 logits 爆炸；0 禁用)",
-    )
-    parser.add_argument(
-        "--weight_decay", type=float, default=training_defaults.get("weight_decay", 0.01)
-    )
-    parser.add_argument("--clip", type=float, default=training_defaults.get("clip", 1.0))
-    parser.add_argument(
-        "--log_interval", type=int, default=training_defaults.get("log_interval", 50)
-    )
-    parser.add_argument(
-        "--save_interval", type=int, default=training_defaults.get("save_interval", 2000)
-    )
     # 执行选项
     parser.add_argument("--compile", action="store_true")
     parser.add_argument("--tokenizer_path", type=str, default="")
-    parser.add_argument("--num_workers", type=int, default=training_defaults.get("num_workers", 0))
-    parser.add_argument("--prefetch_factor", type=int, default=2)
-    parser.add_argument("--ddp_bucket_mb", type=int, default=25)
     parser.add_argument("--wandb_project", type=str, default=None)
     parser.add_argument("--wandb_run_name", type=str, default=None)
     parser.add_argument(
         "--val_data", type=str, default=None, help="验证数据路径（可选，用于周期性验证）"
-    )
-    parser.add_argument(
-        "--val_interval", type=int, default=None, help="验证间隔步数（默认=save_interval）"
-    )
-    parser.add_argument(
-        "--label_smoothing",
-        type=float,
-        default=training_defaults.get("label_smoothing", 0.1),
-        help="CrossEntropy label smoothing (LLaMA 用 0.1)",
     )
     parser.add_argument("--tensorboard", action="store_true", help="启用 TensorBoard 日志")
     parser.add_argument(
@@ -799,13 +732,39 @@ def main():
     args = parser.parse_args(remaining)
     args.model = None  # 清掉，不参与训练逻辑
 
+    # ── 方案/基础设施级参数: 不暴露 CLI (YAML 单轨) ────────────────────
+    # 原 --lr_scheduler/--warmup_ratio/.../--ddp_bucket_mb 等 15 个 CLI 口已撤,
+    # 值统一在此从 training_defaults (YAML scope=training 必读校验) 注入 args,
+    # train() 的 args.xxx 消费链不变; prefetch/ddp_bucket 从未进 YAML,
+    # 属数据管道/DDP 基础设施, 维持代码常量。
+    _resolved = {
+        "lr_scheduler": training_defaults.get("lr_scheduler", "wsd"),
+        "warmup_ratio": training_defaults.get("warmup_ratio", 0.02),
+        "stable_ratio": training_defaults.get("stable_ratio", 0.80),
+        "min_lr_ratio": training_defaults.get("min_lr_ratio", 0.1),
+        "wsd_decay_style": training_defaults.get("wsd_decay_style", "linear"),
+        "z_loss": training_defaults.get("z_loss", 1e-4),
+        "weight_decay": training_defaults.get("weight_decay", 0.01),
+        "clip": training_defaults.get("clip", 1.0),
+        "label_smoothing": training_defaults.get("label_smoothing", 0.1),
+        "log_interval": training_defaults.get("log_interval", 50),
+        "save_interval": training_defaults.get("save_interval", 2000),
+        "num_workers": training_defaults.get("num_workers", 0),
+        "prefetch_factor": 2,
+        "ddp_bucket_mb": 25,
+    }
+    for _key, _val in _resolved.items():
+        setattr(args, _key, _val)
+
     # YAML data 路径覆盖（CLI 没传时才从 YAML 取）
     if training_defaults.get("tokenizer_path") and args.tokenizer_path == "":
         args.tokenizer_path = training_defaults["tokenizer_path"]
-    if training_defaults.get("data_dir") and args.data == parser.get_default("data"):
-        pass  # --data is required, must be from CLI
-    if training_defaults.get("checkpoint_dir") and args.output_dir == "./checkpoints":
-        args.output_dir = training_defaults["checkpoint_dir"]
+    if args.data is None:
+        args.data = training_defaults.get("data_dir") or ""
+    if not args.data:
+        parser.error("缺少预训练数据: 传 --data 或在 YAML 配置 data.data_dir")
+    if args.output_dir is None:
+        args.output_dir = training_defaults.get("checkpoint_dir") or "./checkpoints"
 
     # 4. 启动训练
     # 固定 seed（含模型初始化 + 确定性数据采样），保证实验可复现；

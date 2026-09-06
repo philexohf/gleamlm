@@ -1,28 +1,45 @@
 # ============================================================================
-# GleamLM-Nano 40M 配置
+# GleamLM-Nano 40M 配置 — 独立完整配置（不依赖 extends）
 # ============================================================================
-# 继承 base.yaml 兜底；显式键为 Nano 训练生效值（与 base 同值属刻意锁定，
-# 训练以本文件为准，不随 base 变动漂移）
-extends: base.yaml
+# 本文件所有生效键显式列出：值 = base.yaml 公共默认与 Nano 实证合并后的快照，
+# 可直接独立使用；与 base 同值属刻意锁定，不随 base 漂移。base.yaml 仅作
+# 公共默认参考 / 新配置复制模板（复制 base → 改名 → 改值即可新建配置）。
+# 段序与 base.yaml 对齐，便于对照。
 
+# ---- 预训练控制 ----
 training:
+  seed: 42
   # nano 实证：单遍数据预算由 max_train_chars 封顶（README 预训练配置）
   epochs: 1
   # 有效 batch = micro 8 × accumulate 8 = 64（README 预训练配置）
   batch_size: 8
   accumulate_grad: 8
-  # 数据预算 6.13B chars（README 预训练配置）
-  max_train_chars: 6130000000
+  clip_grad: 1.0
+  weight_decay: 0.01
   # nano 实证值（README：label_smoothing 0.1）
   label_smoothing: 0.1
+  log_interval: 50
+  eval_interval: 500
+  save_interval: 2000
+  # 数据预算 6.13B chars（README 预训练配置）
+  max_train_chars: 6130000000
 
+# ---- 学习率（WSD）----
 lr:
   type: wsd                     # WSD 调度（README：WSD 4e-4 → 4e-5）
+  wsd_decay_style: linear       # decay 段线性（nano_wsd_linear_v2/SmolLM3 实证）
   lr: 0.0004                    # nano 实证起始 lr 4e-4
   warmup_ratio: 0.02            # nano 实证 warmup 2%
   stable_ratio: 0.80            # nano 实证 stable 80%
   min_lr_ratio: 0.1             # decay 期线性降至 4e-5（lr × 0.1）
 
+# ---- 优化器 ----
+optimizer:
+  type: adamw
+  betas: [0.9, 0.95]
+  eps: 1.0e-8
+
+# ---- 模型架构 ----
 model:
   vocab_size: 12002
   d_model: 512
@@ -35,16 +52,29 @@ model:
   tie_weights: true
   use_flash_attn: true
 
+# ---- 数据路径 ----
 data:
   data_dir: data/nano/pretrain
   tokenizer_path: gleamlm/tokenizer/checkpoints/bbpe_12k
   checkpoint_dir: checkpoints/nano
   ids_prefix: ""
+  load_checkpoint: null          # 续训起点模型权重（可选）
 
+# ---- 预训练数据源 ----
+data_sources:
+  - {name: edu, type: text, ratio: 0.55}
+  - {name: news, type: news, ratio: 0.27}
+  - {name: wiki, type: text, ratio: 0.12}
+  - {name: baike, type: text, ratio: 0.06}
+
+# ---- 高级 ----
 advanced:
   z_loss_weight: 0.0001        # nano 实证启用 z-loss（防 logits 爆炸）
   bf16: true                   # nano 用 bf16 防 FP16 溢出
+  pin_memory: true
+  num_workers: 0               # Windows + memmap: 0 is fastest; Linux: try 2-4
 
+# ---- SFT 微调 ----
 sft:
   # nano SFT 基线：sft_mix.jsonl 13,413 条、seq 512、lr 1e-4 cosine、3 epochs
   # → loss 2.6283（README §SFT）
@@ -55,13 +85,17 @@ sft:
   accumulate_grad: 4
   # 历史坑：曾误配 5.0e-6——那是 1e-4×min_lr_ratio 0.05 的余弦终点值，非起始 lr
   lr: 1.0e-4
+  lr_scheduler: cosine
   warmup_ratio: 0.02
+  stable_ratio: 0.80           # WSD 专用 (cosine 时忽略)
+  min_lr_ratio: 0.05           # cosine 终点比例
   weight_decay: 0.01
   max_seq_len: 512
   inject_system_ratio: 0.2
   # 混合训练集：基础集 3,415 + QA→SFT 10,000（见 data_tools/sft/mix_sft.py）
   data_path: data/nano/sft/sft_mix.jsonl
 
+# ---- DPO 偏好对齐 ----
 dpo:
   # nano DPO 基线：beta 0.3 定稿、lr 1e-6 cosine → loss 0.3953（README §DPO）
   # 历史坑①：曾默认 beta 0.1（KL 约束偏弱，单次采样评估即见输出漂移），定稿 0.3
@@ -76,8 +110,6 @@ dpo:
   min_lr_ratio: 0.05
   data_path: data/nano/dpo/dpo_data.jsonl
 
-data_sources:
-  - {name: edu, type: text, ratio: 0.55}
-  - {name: news, type: news, ratio: 0.27}
-  - {name: wiki, type: text, ratio: 0.12}
-  - {name: baike, type: text, ratio: 0.06}
+# ---- 分布式 ----
+distributed:
+  backend: auto   # auto: Windows 自动回退 gloo，Linux 使用 nccl

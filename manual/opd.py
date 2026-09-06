@@ -570,12 +570,6 @@ def parse_args():
     p.add_argument("--weight_decay", type=float, default=0.01)
     p.add_argument("--clip", type=float, default=1.0)
     p.add_argument("--entropy_coeff", type=float, default=0.01, help="熵正则: 防止策略过早坍缩")
-    p.add_argument(
-        "--length_norm",
-        action="store_true",
-        help="[已废弃] 优势长度归一化现在始终开启（policy loss 用 per-token 平均，"
-        "数学必需，否则梯度被隐式缩放；此参数仅为向后兼容保留，不再影响行为）",
-    )
     p.add_argument("--log_interval", type=int, default=5)
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--tokenizer_path", type=str, default="")

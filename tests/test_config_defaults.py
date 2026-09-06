@@ -1,6 +1,6 @@
 """配置默认值一致性测试 — base.yaml 与 Pydantic 默认值必须一致 (防漂移)。
 
-背景: gleamlm/utils/config.py 的 Pydantic 默认值与 configs/base.yaml 实证值
+背景: gleamlm/utils/config.py 的 Pydantic 默认值与 manual/configs/base.yaml 实证值
 曾多次漂移 (dpo.lr 1e-7 vs 1e-6、sft.lr 5e-6 vs 1e-4、lr.stable_ratio 0.0
 vs 0.8、epochs 4 vs 1 等), YAML 缺键时会静默回退错误的旧默认值。
 配置体系单轨化 (2026-09, _DictWrapper 轨删除) 后, 必读键缺失由
@@ -29,7 +29,7 @@ from gleamlm.utils.config import (
     validate_required_config_fields,
 )
 
-_CONFIGS = Path(__file__).resolve().parents[1] / "configs"
+_CONFIGS = Path(__file__).resolve().parents[1] / "manual" / "configs"
 
 # 测试侧维护的 full 必读清单，故意与 config.py _SCOPE_REQUIRED["full"] 重复:
 # 任一侧清单被误删, 测试都会先暴露。
@@ -57,7 +57,7 @@ _CONSUMED = {
         "seed",
         "label_smoothing",
     ),
-    "lr": ("type", "lr", "warmup_ratio", "stable_ratio", "min_lr_ratio"),
+    "lr": ("type", "lr", "warmup_ratio", "stable_ratio", "min_lr_ratio", "wsd_decay_style"),
     "advanced": ("z_loss_weight", "num_workers"),
     "data": ("tokenizer_path", "data_dir", "checkpoint_dir"),
     "sft": (
@@ -65,7 +65,10 @@ _CONSUMED = {
         "batch_size",
         "accumulate_grad",
         "lr",
+        "lr_scheduler",
         "warmup_ratio",
+        "stable_ratio",
+        "min_lr_ratio",
         "weight_decay",
         "max_seq_len",
         "inject_system_ratio",
@@ -114,7 +117,7 @@ def test_pydantic_defaults_match_base_yaml() -> None:
 
 @pytest.mark.parametrize("name", ["base", "nano", "lite", "pro"])
 def test_full_consumed_fields_present_in_variant(name: str) -> None:
-    """full 必读字段在每个变体 (extends 合并后) 都必须齐全。"""
+    """full 必读字段在每个变体 (已独立展开, 不依赖 extends) 都必须齐全。"""
     data = load_yaml(str(_CONFIGS / f"{name}.yaml"))
     missing: list[str] = []
     for section, keys in _CONSUMED.items():
@@ -223,6 +226,7 @@ lr:
   warmup_ratio: 0.02
   stable_ratio: 0.8
   min_lr_ratio: 0.1
+  wsd_decay_style: linear
 advanced:
   z_loss_weight: 0.0001
   num_workers: 0

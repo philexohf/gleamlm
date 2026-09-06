@@ -130,7 +130,7 @@ def train(args, model_cfg: ModelConfig):
 
 def parse_args():
     p = argparse.ArgumentParser(description="GleamLM FSDP training")
-    p.add_argument("--model", type=str, required=True, help="模型架构 YAML (configs/models/*.yaml)")
+    p.add_argument("--model", type=str, required=True, help="模型架构 YAML (manual/configs/*.yaml)")
     p.add_argument("--data", type=str, required=True)
     p.add_argument("--epochs", type=int, default=3)
     p.add_argument("--batch_size", type=int, default=4)
