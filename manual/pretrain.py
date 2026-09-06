@@ -468,6 +468,12 @@ def train(args, model_cfg: ModelConfig):
                             },
                             step=step,
                         )
+                    # TensorBoard 与 wandb 同节奏同指标（--tensorboard 时启用，
+                    # 与 wandb 相互独立：未装/未开 wandb 也能本地看训练曲线）
+                    if writer is not None:
+                        writer.add_scalar("Train/Loss", loss.item(), step)
+                        writer.add_scalar("Train/LR", optimizer.param_groups[0]["lr"], step)
+                        writer.add_scalar("Train/TokPerSec", tok_per_sec, step)
                 if args.pbar:
                     # 每步刷新（旧 base_trainer 组末 set_postfix 同款），
                     # 数值连续变化；重绘频率由 mininterval=5 节流

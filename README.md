@@ -242,6 +242,51 @@ torchrun --nproc_per_node=4 manual/pretrain.py \
     --model configs/lite.yaml --data data/lite/pretrain/train --output_dir ./checkpoints
 ```
 
+**训练监控（wandb / TensorBoard，可选）**：`manual/pretrain.py` 内置 wandb 与 TensorBoard 两条**相互独立**的日志链路，未装/未开其一不影响另一条，也可同时启用：
+
+| 日志 | 启用方式 | 记录内容 | 查看方式 |
+|---|---|---|---|
+| **wandb** | 安装 `wandb` 即自动启用；可选 `--wandb_project` / `--wandb_run_name` 覆盖默认 project（`gleamlm`）与 run 名 | train loss / lr / tok/s / GPU 显存 + val loss/ppl | wandb 网页 |
+| **TensorBoard** | 训练命令加 `--tensorboard`（无需 wandb） | `Train/Loss`、`Train/LR`、`Train/TokPerSec` + `Eval/Loss`、`Eval/Perplexity`，事件写入 `<output_dir>/runs/` | `tensorboard --logdir <output_dir>/runs` |
+
+```bash
+# 仅 TensorBoard（本地可视化，无需安装 wandb）
+python manual/pretrain.py --model configs/nano.yaml --data data/nano/pretrain/train --tensorboard
+tensorboard --logdir ./checkpoints/runs
+
+# 仅 wandb（需 pip install wandb 且已登录）
+python manual/pretrain.py --model configs/nano.yaml --data data/nano/pretrain/train \
+    --wandb_project gleamlm --wandb_run_name nano_pretrain
+
+# 两者同时启用（各记各的，互不影响）
+python manual/pretrain.py --model configs/nano.yaml --data data/nano/pretrain/train \
+    --tensorboard --wandb_project gleamlm
+```
+
+**wandb API key 注入**：首次使用需先在 [wandb.ai/authorize](https://wandb.ai/authorize) 生成 API key。客户端按「环境变量 `WANDB_API_KEY` → `~/.netrc` → 交互输入」顺序读取凭据，任选一种方式即可：
+
+```bash
+# ① 交互式登录（推荐，个人本机）：key 写入 ~/.netrc，之后自动生效
+wandb login                 # conda 环境找不到命令时改用: python -m wandb login
+
+# ② 直接带 key 登录（同 ①，免交互）
+wandb login <你的API_KEY>
+
+# ③ 环境变量 —— Linux/macOS（临时 / 永久写入 ~/.bashrc）
+export WANDB_API_KEY=<你的API_KEY>
+echo 'export WANDB_API_KEY=<你的API_KEY>' >> ~/.bashrc && source ~/.bashrc
+```
+
+```powershell
+# ④ 环境变量 —— Windows PowerShell（临时 / 永久用户级，新终端生效）
+$env:WANDB_API_KEY = "<你的API_KEY>"
+[Environment]::SetEnvironmentVariable("WANDB_API_KEY", "<你的API_KEY>", "User")
+```
+
+验证：`echo $env:WANDB_API_KEY`（PowerShell）或 `echo $WANDB_API_KEY`（bash）能打印出 key 即成功。API key 等同密码，勿写入代码或提交仓库；个人本机推荐 ①②，环境变量注入适合 CI / 服务器等非交互场景。
+
+> 说明：手写轨 `manual/pretrain.py` 支持以上两者；Megatron 工业轨 `industrial/pretrain.py` 仅支持 wandb（装即启用，无 TensorBoard）。若已安装 wandb 但暂不想记录，可用环境变量 `WANDB_MODE=disabled` 一键禁用（无需卸载）。
+
 ### 2. SFT 指令微调
 
 ```bash
