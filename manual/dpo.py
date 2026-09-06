@@ -87,7 +87,7 @@ def main() -> None:
 
     config_path = os.path.join(cli_args.config_dir, f"{cli_args.variant}.yaml")
     # 单轨 Pydantic 配置: 字段校验/默认值唯一来源 (gleamlm/utils/config.py)
-    cfg = load_config(config_path, _ROOT_DIR)
+    cfg = load_config(config_path, _ROOT_DIR, scope="dpo")
 
     model_path = cli_args.model_path or os.path.join(cfg.data.checkpoint_dir, "sft", "sft_best.pt")
     data_path = cli_args.data_path or cfg.dpo.data_path

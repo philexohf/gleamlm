@@ -57,18 +57,23 @@ def main():
     parser.add_argument("--save_dir", type=str, default=None, help="SFT 模型保存目录")
     parser.add_argument("--resume", type=str, default=None, help="从 checkpoint 续训")
     parser.add_argument(
-        "--lr_scheduler", type=str, choices=["cosine", "wsd"], default="cosine",
-        help="学习率调度器类型"
+        "--lr_scheduler",
+        type=str,
+        choices=["cosine", "wsd"],
+        default="cosine",
+        help="学习率调度器类型",
     )
     parser.add_argument("--stable_ratio", type=float, default=0.80, help="WSD stable 阶段占比")
     parser.add_argument("--min_lr_ratio", type=float, default=0.05, help="最小学习率比例")
-    parser.add_argument("--seed", type=int, default=42, help="随机种子 (对齐 pretrain.py 的 --seed)")
+    parser.add_argument(
+        "--seed", type=int, default=42, help="随机种子 (对齐 pretrain.py 的 --seed)"
+    )
 
     cli_args = parser.parse_args()
 
     config_path = os.path.join(cli_args.config_dir, f"{cli_args.variant}.yaml")
     # 单轨 Pydantic 配置: 字段校验/默认值唯一来源 (gleamlm/utils/config.py)
-    cfg = load_config(config_path, _ROOT_DIR)
+    cfg = load_config(config_path, _ROOT_DIR, scope="sft")
 
     model_path = cli_args.model_path or os.path.join(cfg.data.checkpoint_dir, "best_model.pt")
     data_path = cli_args.data_path or cfg.sft.data_path
@@ -222,19 +227,29 @@ def main():
                     ignore_index=-100,
                 )
 
-            is_accum_step = (batch_idx + 1) % accumulate_grad == 0 or (batch_idx + 1) == len(train_loader)
+            is_accum_step = (batch_idx + 1) % accumulate_grad == 0 or (batch_idx + 1) == len(
+                train_loader
+            )
             # 残差批 (末尾不足 accumulate) 按实际批数除，避免归一化过头导致梯度偏小
-            denom = ((batch_idx % accumulate_grad) + 1) if (batch_idx + 1) == len(train_loader) else accumulate_grad
+            denom = (
+                ((batch_idx % accumulate_grad) + 1)
+                if (batch_idx + 1) == len(train_loader)
+                else accumulate_grad
+            )
             loss = loss / denom
             scaler.scale(loss).backward()
             if is_accum_step:
                 if lr_scheduler == "wsd":
-                    lr_mult = get_lr_wsd(global_step, total_steps, warmup_ratio, stable_ratio, min_lr_ratio)
+                    lr_mult = get_lr_wsd(
+                        global_step, total_steps, warmup_ratio, stable_ratio, min_lr_ratio
+                    )
                 else:
                     lr_mult = get_lr_cosine(global_step, total_steps, warmup_ratio, min_lr_ratio)
                 for pg in optimizer.param_groups:
                     pg["lr"] = lr * lr_mult
-                optimizer_step(optimizer, scaler, parameters=model.parameters(), clip_grad=clip_grad)
+                optimizer_step(
+                    optimizer, scaler, parameters=model.parameters(), clip_grad=clip_grad
+                )
                 global_step += 1
 
             epoch_loss += loss.item() * denom
@@ -242,7 +257,9 @@ def main():
 
             if batch_idx % log_interval == 0:
                 if lr_scheduler == "wsd":
-                    lr_mult = get_lr_wsd(global_step, total_steps, warmup_ratio, stable_ratio, min_lr_ratio)
+                    lr_mult = get_lr_wsd(
+                        global_step, total_steps, warmup_ratio, stable_ratio, min_lr_ratio
+                    )
                 else:
                     lr_mult = get_lr_cosine(global_step, total_steps, warmup_ratio, min_lr_ratio)
                 cur_lr = lr * lr_mult

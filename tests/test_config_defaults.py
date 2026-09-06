@@ -4,9 +4,13 @@
 曾多次漂移 (dpo.lr 1e-7 vs 1e-6、sft.lr 5e-6 vs 1e-4、lr.stable_ratio 0.0
 vs 0.8、epochs 4 vs 1 等), YAML 缺键时会静默回退错误的旧默认值。
 配置体系单轨化 (2026-09, _DictWrapper 轨删除) 后, 必读键缺失由
-validate_required_config_fields 显式报错; 本文件继续锁死仍可能回退的
-默认值 —— 任何一边被单独改动都会让用例变红, 必须显式决定
-"哪边为真"再同步另一边。
+validate_required_config_fields 显式报错; 必读清单按消费方拆分 (scope):
+  - full      : 全量并集
+  - training  : pretrain 训练默认值加载器
+  - tokenizer : train_tokenizer (仅 data_sources)
+  - sft / dpo : manual/{sft,dpo}.py
+本文件继续锁死仍可能回退的默认值 —— 任何一边被单独改动都会让用例变红,
+必须显式决定 "哪边为真"再同步另一边。
 """
 
 from __future__ import annotations
@@ -17,7 +21,8 @@ import pytest
 
 from gleamlm.types import ConfigValidationError
 from gleamlm.utils.config import (
-    _REQUIRED_CONFIG_SECTIONS,
+    _SCOPE_REQUIRED,
+    _SCOPE_TOP_KEYS,
     GleamLMConfig,
     load_config,
     load_yaml,
@@ -26,9 +31,8 @@ from gleamlm.utils.config import (
 
 _CONFIGS = Path(__file__).resolve().parents[1] / "configs"
 
-# load_config 消费方 (manual/pretrain.py _load_training_defaults +
-# manual/train_tokenizer.py + manual/{sft,dpo}.py) 必读字段。故意与
-# config.py 的 _REQUIRED_CONFIG_SECTIONS 重复: 任一侧清单被误删, 测试都会先暴露。
+# 测试侧维护的 full 必读清单，故意与 config.py _SCOPE_REQUIRED["full"] 重复:
+# 任一侧清单被误删, 测试都会先暴露。
 _CONSUMED = {
     "model": (
         "d_model",
@@ -81,6 +85,10 @@ _CONSUMED = {
 }
 
 
+def _scopes() -> list[str]:
+    return sorted(_SCOPE_REQUIRED)
+
+
 def test_pydantic_defaults_match_base_yaml() -> None:
     """base.yaml 显式定义的每个标量键, 必须与 GleamLMConfig 默认值一致。"""
     base = load_yaml(str(_CONFIGS / "base.yaml"))
@@ -105,8 +113,8 @@ def test_pydantic_defaults_match_base_yaml() -> None:
 
 
 @pytest.mark.parametrize("name", ["base", "nano", "lite", "pro"])
-def test_consumed_fields_present_in_variant(name: str) -> None:
-    """消费方必读字段在每个变体 (extends 合并后) 都必须齐全。"""
+def test_full_consumed_fields_present_in_variant(name: str) -> None:
+    """full 必读字段在每个变体 (extends 合并后) 都必须齐全。"""
     data = load_yaml(str(_CONFIGS / f"{name}.yaml"))
     missing: list[str] = []
     for section, keys in _CONSUMED.items():
@@ -119,17 +127,52 @@ def test_consumed_fields_present_in_variant(name: str) -> None:
                 missing.append(f"{section}.{key}")
     if "data_sources" not in data:
         missing.append("data_sources")
-    assert not missing, f"{name}.yaml 缺少消费方必读字段: {', '.join(missing)}"
+    assert not missing, f"{name}.yaml 缺少 full 必读字段: {', '.join(missing)}"
 
 
-def test_consumed_matches_required_sections() -> None:
-    """测试侧 _CONSUMED 与运行侧 _REQUIRED_CONFIG_SECTIONS 必须逐字一致。
+@pytest.mark.parametrize("scope", ["training", "tokenizer", "sft", "dpo"])
+@pytest.mark.parametrize("name", ["base", "nano", "lite", "pro"])
+def test_scope_fields_present_in_variant(scope: str, name: str) -> None:
+    """每个 scope 的必读字段在变体中都必须齐全 (full ⊇ scope 关系护栏)。"""
+    data = load_yaml(str(_CONFIGS / f"{name}.yaml"))
+    missing: list[str] = []
+    for section, keys in _SCOPE_REQUIRED[scope].items():
+        sec = data.get(section)
+        if not isinstance(sec, dict):
+            missing.append(section)
+            continue
+        for key in keys:
+            if key not in sec:
+                missing.append(f"{section}.{key}")
+    for key in _SCOPE_TOP_KEYS[scope]:
+        if key not in data:
+            missing.append(key)
+    assert not missing, f"{name}.yaml 缺少 scope={scope} 必读字段: {', '.join(missing)}"
+
+
+def test_full_matches_required_sections() -> None:
+    """测试侧 _CONSUMED 与运行侧 _SCOPE_REQUIRED["full"] 必须逐字一致。
 
     任一侧清单被单独改动（加字段/删字段/改键）都会让本用例变红 —— 消除
-    _DictWrapper 轨后仍可能出现的"清单漂移"第二来源：生产代码与测试各自
-    维护一份必读字段清单。锁定后必须显式决定"哪边为真"再同步另一边。
+    清单漂移的第二来源：生产代码与测试各自维护一份必读字段清单。
     """
-    assert _CONSUMED == _REQUIRED_CONFIG_SECTIONS
+    assert _SCOPE_REQUIRED["full"] == _CONSUMED
+    assert _SCOPE_TOP_KEYS["full"] == ("data_sources",)
+
+
+@pytest.mark.parametrize("scope", _scopes())
+def test_scope_is_subset_of_full(scope: str) -> None:
+    """每个 scope 的段/键必须是 full 的子集, 防止 scope 出现 full 没有的键。"""
+    if scope == "full":
+        return
+    for section, keys in _SCOPE_REQUIRED[scope].items():
+        assert section in _SCOPE_REQUIRED["full"], f"scope={scope} 段 {section} 不在 full"
+        for key in keys:
+            assert key in _SCOPE_REQUIRED["full"][section], (
+                f"scope={scope} {section}.{key} 不在 full"
+            )
+    for key in _SCOPE_TOP_KEYS[scope]:
+        assert key in _SCOPE_TOP_KEYS["full"], f"scope={scope} 顶层键 {key} 不在 full"
 
 
 def test_missing_field_raises_config_error() -> None:
@@ -140,8 +183,79 @@ def test_missing_field_raises_config_error() -> None:
         validate_required_config_fields(data)
 
 
+def test_missing_scope_field_raises() -> None:
+    """scope 内部缺键同样报错 (sft scope 缺 sft.lr)。"""
+    data = load_yaml(str(_CONFIGS / "nano.yaml"))
+    del data["sft"]["lr"]
+    with pytest.raises(ConfigValidationError, match="sft.lr"):
+        validate_required_config_fields(data, scope="sft")
+
+
+def test_unknown_scope_raises() -> None:
+    with pytest.raises(ConfigValidationError, match="scope"):
+        validate_required_config_fields({}, scope="nope")
+
+
 def test_all_variants_load_via_load_config() -> None:
-    """现有变体配置都能通过 load_config 完整校验 (回归护栏)。"""
+    """现有变体配置都能通过 load_config(full) 完整校验 (回归护栏)。"""
     for name in ("base", "nano", "lite", "pro"):
         cfg = load_config(str(_CONFIGS / f"{name}.yaml"))
         assert cfg.model.d_model >= 64
+
+
+# ── 反向护栏: scope 收窄后, 最小 YAML 应能在对应 scope 下通过 ──────────
+# (full 对这些最小文件仍应报错: 收窄不等于放松全局默认)
+
+_TRAINING_ONLY_YAML = """
+training:
+  epochs: 1
+  batch_size: 8
+  accumulate_grad: 8
+  weight_decay: 0.01
+  clip_grad: 1.0
+  log_interval: 50
+  save_interval: 2000
+  seed: 42
+  label_smoothing: 0.1
+lr:
+  type: wsd
+  lr: 0.0004
+  warmup_ratio: 0.02
+  stable_ratio: 0.8
+  min_lr_ratio: 0.1
+advanced:
+  z_loss_weight: 0.0001
+  num_workers: 0
+data:
+  tokenizer_path: ""
+  data_dir: ""
+  checkpoint_dir: ""
+"""
+
+_TOKENIZER_ONLY_YAML = """
+data_sources: []
+"""
+
+
+def _write(tmp_path: Path, name: str, body: str) -> str:
+    p = tmp_path / name
+    p.write_text(body, encoding="utf-8")
+    return str(p)
+
+
+def test_training_only_yaml_accepted_under_training_scope(tmp_path: Path) -> None:
+    """pretrain 训练默认值加载器: 只有 training/lr/advanced/data 的 YAML 可用。"""
+    path = _write(tmp_path, "training_only.yaml", _TRAINING_ONLY_YAML)
+    cfg = load_config(path, scope="training")
+    assert cfg.training.epochs == 1
+    with pytest.raises(ConfigValidationError):
+        load_config(path, scope="full")
+
+
+def test_tokenizer_only_yaml_accepted_under_tokenizer_scope(tmp_path: Path) -> None:
+    """train_tokenizer: 只有 data_sources 的 YAML 可用。"""
+    path = _write(tmp_path, "data_only.yaml", _TOKENIZER_ONLY_YAML)
+    cfg = load_config(path, scope="tokenizer")
+    assert cfg.data_sources == []
+    with pytest.raises(ConfigValidationError):
+        load_config(path, scope="full")

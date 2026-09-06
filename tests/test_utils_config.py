@@ -68,6 +68,23 @@ def test_load_config_requires_full_sections():
             load_config(cfg_path)
 
 
+def test_load_config_model_only_under_full_scope_still_rejected():
+    """即使 YAML 含 model 段, 缺 training/lr 等段时 full 仍报错 (防全局放松)。"""
+    import pytest
+
+    with tempfile.TemporaryDirectory() as tmp:
+        cfg_path = os.path.join(tmp, "model_only.yaml")
+        with open(cfg_path, "w", encoding="utf-8") as f:
+            f.write(
+                "model:\n"
+                "  d_model: 512\n  num_layers: 12\n  num_heads: 8\n  num_kv_heads: 4\n"
+                "  d_ff: 1365\n  max_seq_len: 1024\n  vocab_size: 12002\n"
+                "  dropout: 0.1\n  tie_weights: true\n  use_flash_attn: false\n"
+            )
+        with pytest.raises(ConfigValidationError, match="training"):
+            load_config(cfg_path, scope="full")
+
+
 def test_load_config_real_nano():
     cfg = load_config("configs/nano.yaml")
     assert cfg.model.d_model == 512
@@ -94,6 +111,39 @@ def test_load_config_missing_consumed_key_raises():
 
     with pytest.raises(ConfigValidationError, match="sft.lr"):
         validate_required_config_fields(data)
+
+
+def test_load_config_scope_specific_missing_key_raises():
+    """scope 收窄后, scope 内缺键仍需报错 (dpo scope 缺 dpo.lr)。"""
+    import pytest
+
+    cfg_path = "configs/nano.yaml"
+    data = load_yaml(cfg_path)
+    del data["dpo"]["lr"]
+    from gleamlm.utils.config import validate_required_config_fields
+
+    with pytest.raises(ConfigValidationError, match="dpo.lr"):
+        validate_required_config_fields(data, scope="dpo")
+
+
+def test_narrow_scope_ignores_irrelevant_missing_keys():
+    """收窄收益: dpo scope 只校验自己读的键, 不读的缺失键/s段不报错。"""
+    from gleamlm.utils.config import validate_required_config_fields
+
+    cfg_path = "configs/nano.yaml"
+    data = load_yaml(cfg_path)
+
+    # dpo scope 不读 sft 段 / model.num_layers / model.vocab_size → 删除后仍应通过
+    del data["sft"]
+    for k in ("num_layers", "vocab_size", "d_model", "d_ff", "tie_weights"):
+        del data["model"][k]
+    validate_required_config_fields(data, scope="dpo")
+
+    # 反之, full scope 对同一份"删了 model.num_layers 等键"的 YAML 会报错
+    import pytest
+
+    with pytest.raises(ConfigValidationError):
+        validate_required_config_fields(data, scope="full")
 
 
 # ── extract_checkpoint_config: checkpoint 结构快照，唯一格式 `_config` ──

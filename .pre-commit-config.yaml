@@ -10,6 +10,13 @@ repos:
     hooks:
       # language: system — 直接复用项目 conda 环境(已装 mypy/torch/numpy)，
       # 避免独立 venv 重复下载 torch(~2GB)。CI 亦用同一环境跑 mypy，无漂移。
+      #
+      # pass_filenames: false — 只对 gleamlm/ 包做 mypy 门禁。mypy 的 --exclude
+      # 只作用于"发现"的文件, 对显式传入的路径不生效; 而 pre-commit 默认把
+      # 暂存文件名逐个传给 mypy, 会导致 manual/tests 等豁免目录里的文件被
+      # 强行类型检查而误报。改成固定检查 gleamlm/ 与门禁目标一致
+      # ("清偿 gleamlm/ mypy 存量债")。
       - id: mypy
         language: system
-        args: [--exclude, "tools/|data_tools/|tests/|configs/|scripts/|manual/|industrial/|hf/|eval/|serve/|deploy/", "--follow-imports=silent"]
+        pass_filenames: false
+        args: [gleamlm, "--follow-imports=silent"]

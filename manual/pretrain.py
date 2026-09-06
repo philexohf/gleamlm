@@ -64,7 +64,7 @@ except ImportError:
     SummaryWriter = None
 import torch.distributed as dist
 import torch.nn.functional as F
-from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.nn.parallel import DistributedDataParallel as DDP  # noqa: N817  (framework 约定缩写)
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm
@@ -85,7 +85,7 @@ from gleamlm.trainer.schedulers import get_lr_cosine, get_lr_wsd
 from gleamlm.utils.config import DEFAULT_TOKENIZER_PATH, ModelConfig, load_config
 from gleamlm.utils.torch_utils import safe_autocast
 
-    # 变体注册表: CLI string → class
+# 变体注册表: CLI string → class
 ATTN_REGISTRY = {"gqa": GQA, "nope": NoPEGQA, "alibi": AliBiGQA, "sliding": SlidingWindowGQA}
 FFN_REGISTRY = {"mlp": MLP, "moe": MoE}
 
@@ -120,8 +120,15 @@ def _gpu_stats(device, local_rank):
             # 表现为退出卡住）；新进程组使其不受 SIGINT 影响，正常跑完即退。
             kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
         out = subprocess.check_output(
-            ["nvidia-smi", "--query-gpu=utilization.gpu,memory.used,memory.total",
-             "--format=csv,noheader,nounits"], text=True, timeout=3, **kwargs)
+            [
+                "nvidia-smi",
+                "--query-gpu=utilization.gpu,memory.used,memory.total",
+                "--format=csv,noheader,nounits",
+            ],
+            text=True,
+            timeout=3,
+            **kwargs,
+        )
         lines = [ln.strip() for ln in out.strip().splitlines() if ln.strip()]
         # 多卡按 local_rank 取对应 GPU 行
         u, mem_mib, total_mib = lines[min(local_rank, len(lines) - 1)].split(",")
@@ -139,7 +146,9 @@ def train(args, model_cfg: ModelConfig):
         local_rank = 0
 
     if is_main_process():
-        print(f"Device: {device}  (world_size={dist.get_world_size() if dist.is_initialized() else 1})")
+        print(
+            f"Device: {device}  (world_size={dist.get_world_size() if dist.is_initialized() else 1})"
+        )
 
     # GPU 性能开关: cudnn.benchmark 自动选最优卷积算法；
     # TF32 matmul (19 位尾数) 精度略降但速度 ~2×，训练 loss 不受影响。
@@ -208,7 +217,8 @@ def train(args, model_cfg: ModelConfig):
         if wandb is not None:
             wandb.init(
                 project=args.wandb_project or "gleamlm",
-                name=args.wandb_run_name or f"pretrain_{model_cfg.d_model}d_{model_cfg.num_layers}l",
+                name=args.wandb_run_name
+                or f"pretrain_{model_cfg.d_model}d_{model_cfg.num_layers}l",
                 config=vars(args),
             )
 
@@ -238,10 +248,15 @@ def train(args, model_cfg: ModelConfig):
     val_interval = args.val_interval or args.save_interval
     if args.val_data:
         val_dataset = tokenize_and_group(args.val_data, tokenizer, model_cfg.max_seq_len)
-        val_sampler = DistributedSampler(val_dataset, shuffle=False) if dist.is_initialized() else None
+        val_sampler = (
+            DistributedSampler(val_dataset, shuffle=False) if dist.is_initialized() else None
+        )
         val_loader = DataLoader(
-            val_dataset, batch_size=args.batch_size, sampler=val_sampler,
-            num_workers=args.num_workers, pin_memory=True,
+            val_dataset,
+            batch_size=args.batch_size,
+            sampler=val_sampler,
+            num_workers=args.num_workers,
+            pin_memory=True,
             prefetch_factor=args.prefetch_factor if args.num_workers > 0 else None,
         )
         if is_main_process():
@@ -280,7 +295,7 @@ def train(args, model_cfg: ModelConfig):
         ckpt = torch.load(args.resume, map_location="cpu", weights_only=False)
         sd = ckpt.get("model_state_dict") or ckpt.get("model") or ckpt
         if isinstance(sd, dict) and any(k.startswith("module.") for k in sd):
-            sd = {k[len("module."):]: v for k, v in sd.items()}
+            sd = {k[len("module.") :]: v for k, v in sd.items()}
         raw_model.load_state_dict(sd, strict=True)
         if "optimizer" in ckpt:
             optimizer.load_state_dict(ckpt["optimizer"])
@@ -318,8 +333,7 @@ def train(args, model_cfg: ModelConfig):
     # 第 1 步即有真实值
     gpu_util, gpu_mem, gpu_mem_max, gpu_mem_total = 0.0, 0.0, 0.0, 0.0
     if args.pbar and is_main_process():
-        pbar = tqdm(total=total_steps, initial=step, desc="pretrain",
-                    mininterval=5, unit="step")
+        pbar = tqdm(total=total_steps, initial=step, desc="pretrain", mininterval=5, unit="step")
         if device.type == "cuda":
             gpu_util, gpu_mem, gpu_mem_max, gpu_mem_total = _gpu_stats(device, local_rank)
 
@@ -352,8 +366,14 @@ def train(args, model_cfg: ModelConfig):
             # 每个 step 手动设置 lr（不用 scheduler.step()）:
             # 断点续训时 step 从 start_step 继续，手动乘 mult 更直观。
             if args.lr_scheduler == "wsd":
-                lr_mult = get_lr_wsd(step, total_steps, args.warmup_ratio, args.stable_ratio,
-                                       args.min_lr_ratio, args.wsd_decay_style)
+                lr_mult = get_lr_wsd(
+                    step,
+                    total_steps,
+                    args.warmup_ratio,
+                    args.stable_ratio,
+                    args.min_lr_ratio,
+                    args.wsd_decay_style,
+                )
             else:
                 lr_mult = get_lr_cosine(step, total_steps, args.warmup_ratio, args.min_lr_ratio)
             lr = args.lr * lr_mult
@@ -364,7 +384,9 @@ def train(args, model_cfg: ModelConfig):
             # all-reduce，最后一步才同步一次 → 通信量 ÷ accumulate；
             # epoch 末尾不足 accumulate 的残差批也强制触发 step，避免梯度悬置。
             is_last_acc = (acc_steps + 1) % args.accumulate == 0 or batch_idx == len(loader) - 1
-            sync_ctx = model.no_sync() if (dist.is_initialized() and not is_last_acc) else nullcontext()
+            sync_ctx = (
+                model.no_sync() if (dist.is_initialized() and not is_last_acc) else nullcontext()
+            )
 
             # 前向 + loss: safe_autocast BF16 自动混合精度 (GPU/CPU 自适应)
             with sync_ctx, safe_autocast(enabled=(device.type == "cuda")):
@@ -376,7 +398,8 @@ def train(args, model_cfg: ModelConfig):
                 eod_id = tokenizer.eos_id  # 预训练文档边界 = <|im_end|> (2)
                 doc_mask = (x != eod_id).float()
                 loss = F.cross_entropy(
-                    logits.view(-1, logits.size(-1)), y.view(-1),
+                    logits.view(-1, logits.size(-1)),
+                    y.view(-1),
                     reduction="none",
                     label_smoothing=args.label_smoothing,
                 )
@@ -390,7 +413,11 @@ def train(args, model_cfg: ModelConfig):
 
             # loss 除本周期实际 micro-batch 数 (梯度平均而非求和，与 sft/dpo 一致)；
             # 残差批按实际批数除，避免归一化过头导致梯度偏小。
-            denom = ((acc_steps % args.accumulate) + 1) if batch_idx == len(loader) - 1 else args.accumulate
+            denom = (
+                ((acc_steps % args.accumulate) + 1)
+                if batch_idx == len(loader) - 1
+                else args.accumulate
+            )
 
             # AMP 协议: scale(loss).backward → unscale → clip → step → update；
             # clip 必须 unscale 后 (阈值作用于 ×scale 梯度会失准)；
@@ -422,55 +449,73 @@ def train(args, model_cfg: ModelConfig):
                     tok_per_sec = args.batch_size * model_cfg.max_seq_len / dt
                     progress_pct = 100.0 * step / max(1, total_steps)
                     if not args.pbar:
-                        print(f"step {step}/{total_steps} ({progress_pct:.1f}%)  loss={loss.item():.4f}  lr={lr:.6f}  {tok_per_sec/1e3:.1f}k tok/s  GPU:{gpu_mem:.1f}/{gpu_mem_total:.1f}G")
+                        print(
+                            f"step {step}/{total_steps} ({progress_pct:.1f}%)  loss={loss.item():.4f}  lr={lr:.6f}  {tok_per_sec / 1e3:.1f}k tok/s  GPU:{gpu_mem:.1f}/{gpu_mem_total:.1f}G"
+                        )
                     if wandb is not None:
-                        wandb.log({
-                            "loss": loss.item(),
-                            "lr": optimizer.param_groups[0]["lr"],
-                            "step": step,
-                            "epoch": epoch,
-                            "progress_pct": progress_pct,
-                            "tok_per_sec": tok_per_sec,
-                            "time_per_step_ms": dt * 1000,
-                            "gpu_util": gpu_util,
-                            "gpu_mem_gb": gpu_mem,
-                            "gpu_mem_peak_gb": gpu_mem_max,
-                        }, step=step)
+                        wandb.log(
+                            {
+                                "loss": loss.item(),
+                                "lr": optimizer.param_groups[0]["lr"],
+                                "step": step,
+                                "epoch": epoch,
+                                "progress_pct": progress_pct,
+                                "tok_per_sec": tok_per_sec,
+                                "time_per_step_ms": dt * 1000,
+                                "gpu_util": gpu_util,
+                                "gpu_mem_gb": gpu_mem,
+                                "gpu_mem_peak_gb": gpu_mem_max,
+                            },
+                            step=step,
+                        )
                 if args.pbar:
                     # 每步刷新（旧 base_trainer 组末 set_postfix 同款），
                     # 数值连续变化；重绘频率由 mininterval=5 节流
                     tok_per_sec = args.batch_size * model_cfg.max_seq_len / dt
-                    pbar.set_postfix({
-                        "loss": f"{loss.item():.4f}",
-                        "lr": f"{lr:.6f}",
-                        "tok/s": f"{tok_per_sec/1e3:.1f}k",
-                        "GPU": f"{gpu_mem:.1f}/{gpu_mem_total:.1f}G",
-                    })
+                    pbar.set_postfix(
+                        {
+                            "loss": f"{loss.item():.4f}",
+                            "lr": f"{lr:.6f}",
+                            "tok/s": f"{tok_per_sec / 1e3:.1f}k",
+                            "GPU": f"{gpu_mem:.1f}/{gpu_mem_total:.1f}G",
+                        }
+                    )
 
             # 周期保存/验证与日志同规则：只在组末判定一次，否则命中步会
             # 被组内每个 micro-batch 重复执行（save 重复全量写盘、val 重复跑整集）。
             if is_main_process() and is_last_acc and step > 0 and step % args.save_interval == 0:
                 ckpt_path = os.path.join(args.output_dir, f"step_{step}.pt")
-                torch.save({
-                    "step": step, "epoch": epoch, "batch": batch_idx + 1,
-                    "acc": acc_steps % args.accumulate,
-                    "consumed_train_samples": consumed_train_samples,
-                    "_config": _ckpt_model_config(model_cfg, tokenizer.get_vocab_size()),
-                    "model_state_dict": raw_model.state_dict(),
-                    "optimizer": optimizer.state_dict(),
-                    "scaler": scaler.state_dict(),
-                    "loss": loss.item(),
-                }, ckpt_path)
+                torch.save(
+                    {
+                        "step": step,
+                        "epoch": epoch,
+                        "batch": batch_idx + 1,
+                        "acc": acc_steps % args.accumulate,
+                        "consumed_train_samples": consumed_train_samples,
+                        "_config": _ckpt_model_config(model_cfg, tokenizer.get_vocab_size()),
+                        "model_state_dict": raw_model.state_dict(),
+                        "optimizer": optimizer.state_dict(),
+                        "scaler": scaler.state_dict(),
+                        "loss": loss.item(),
+                    },
+                    ckpt_path,
+                )
                 print(f"Saved: {ckpt_path}")
 
             # 周期验证 + best model
-            if is_main_process() and is_last_acc and val_loader is not None and step > 0 and step % val_interval == 0:
+            if (
+                is_main_process()
+                and is_last_acc
+                and val_loader is not None
+                and step > 0
+                and step % val_interval == 0
+            ):
                 raw_model.eval()
                 # 仅 rank 0 跑完整 val 集 (val_loader 只在 rank 0 构建)；
                 # world_size=1 跳过 all_reduce，避免其他 rank 不参与验证导致的死锁。
-                val_loss, val_ppl = evaluate(raw_model, val_loader, device,
-                                             pad_token_id=tokenizer.pad_id,
-                                             world_size=1)
+                val_loss, val_ppl = evaluate(
+                    raw_model, val_loader, device, pad_token_id=tokenizer.pad_id, world_size=1
+                )
                 raw_model.train()
                 print(f"  Val step {step}: loss={val_loss:.4f}  ppl={val_ppl:.2f}")
                 if writer is not None:
@@ -481,17 +526,22 @@ def train(args, model_cfg: ModelConfig):
                 if val_loss < best_val_loss:
                     best_val_loss = val_loss
                     best_path = os.path.join(args.output_dir, "best_model.pt")
-                    torch.save({
-                        "step": step, "epoch": epoch,
-                        "_config": _ckpt_model_config(model_cfg, tokenizer.get_vocab_size()),
-                        "model_state_dict": raw_model.state_dict(),
-                        "val_loss": val_loss, "val_ppl": val_ppl,
-                    }, best_path)
+                    torch.save(
+                        {
+                            "step": step,
+                            "epoch": epoch,
+                            "_config": _ckpt_model_config(model_cfg, tokenizer.get_vocab_size()),
+                            "model_state_dict": raw_model.state_dict(),
+                            "val_loss": val_loss,
+                            "val_ppl": val_ppl,
+                        },
+                        best_path,
+                    )
                     print(f"  Best model saved (val_loss={val_loss:.4f}) -> {best_path}")
 
         epoch_duration = time.perf_counter() - epoch_start
         if is_main_process():
-            print(f"Epoch {epoch} done: {epoch_duration:.0f}s = {epoch_duration/60:.1f} min")
+            print(f"Epoch {epoch} done: {epoch_duration:.0f}s = {epoch_duration / 60:.1f} min")
             if wandb is not None:
                 wandb.log({"epoch": epoch, "epoch_duration": epoch_duration}, step=step)
 
@@ -500,11 +550,15 @@ def train(args, model_cfg: ModelConfig):
 
     if is_main_process():
         ckpt_path = os.path.join(args.output_dir, "final.pt")
-        torch.save({
-            "step": step, "epoch": args.epochs,
-            "_config": _ckpt_model_config(model_cfg, tokenizer.get_vocab_size()),
-            "model_state_dict": raw_model.state_dict(),
-        }, ckpt_path)
+        torch.save(
+            {
+                "step": step,
+                "epoch": args.epochs,
+                "_config": _ckpt_model_config(model_cfg, tokenizer.get_vocab_size()),
+                "model_state_dict": raw_model.state_dict(),
+            },
+            ckpt_path,
+        )
         print(f"Done. Final checkpoint: {ckpt_path}")
         if writer is not None:
             writer.close()
@@ -523,18 +577,24 @@ def _load_training_defaults(training_path: str | None) -> dict[str, Any]:
     """从训练 YAML 加载超参默认值，CLI 可覆盖。"""
     if training_path is None:
         return {}
-    cfg = load_config(training_path)
+    cfg = load_config(training_path, scope="training")
     t = cfg.training
     lr = cfg.lr
     return {
-        "epochs": t.epochs, "batch_size": t.batch_size,
-        "accumulate": t.accumulate_grad, "weight_decay": t.weight_decay,
-        "clip": t.clip_grad, "log_interval": t.log_interval,
+        "epochs": t.epochs,
+        "batch_size": t.batch_size,
+        "accumulate": t.accumulate_grad,
+        "weight_decay": t.weight_decay,
+        "clip": t.clip_grad,
+        "log_interval": t.log_interval,
         "save_interval": t.save_interval,
         "seed": t.seed,
-        "lr_scheduler": lr.type, "lr": lr.lr,
-        "warmup_ratio": lr.warmup_ratio, "stable_ratio": lr.stable_ratio,
-        "min_lr_ratio": lr.min_lr_ratio, "z_loss": cfg.advanced.z_loss_weight,
+        "lr_scheduler": lr.type,
+        "lr": lr.lr,
+        "warmup_ratio": lr.warmup_ratio,
+        "stable_ratio": lr.stable_ratio,
+        "min_lr_ratio": lr.min_lr_ratio,
+        "z_loss": cfg.advanced.z_loss_weight,
         "label_smoothing": t.label_smoothing,
         "num_workers": cfg.advanced.num_workers or 0,
         "tokenizer_path": cfg.data.tokenizer_path or "",
@@ -545,16 +605,23 @@ def _load_training_defaults(training_path: str | None) -> dict[str, Any]:
 
 def _show_full_help():
     """不带 --model 时也能显示完整帮助。"""
-    p = argparse.ArgumentParser(description="GleamLM pretraining (DDP-ready)",
-                                formatter_class=argparse.RawDescriptionHelpFormatter,
-                                epilog="""Examples:
+    p = argparse.ArgumentParser(
+        description="GleamLM pretraining (DDP-ready)",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""Examples:
   python pretrain.py --model configs/nano.yaml --data ./data.txt
   python pretrain.py --model configs/nano.yaml --data ./data.txt --lr 5e-4
-  torchrun --nproc_per_node=4 pretrain.py --model configs/lite.yaml --data ./data.txt""")
-    p.add_argument("--model", type=str, required=True,
-                   help="模型架构 YAML (configs/*.yaml，完整 GleamLMConfig 结构时自动取 model 段) — 必传")
-    p.add_argument("--training", type=str, default=None,
-                   help="训练默认超参 YAML (默认复用 --model 的同一文件)")
+  torchrun --nproc_per_node=4 pretrain.py --model configs/lite.yaml --data ./data.txt""",
+    )
+    p.add_argument(
+        "--model",
+        type=str,
+        required=True,
+        help="模型架构 YAML (configs/*.yaml，完整 GleamLMConfig 结构时自动取 model 段) — 必传",
+    )
+    p.add_argument(
+        "--training", type=str, default=None, help="训练默认超参 YAML (默认复用 --model 的同一文件)"
+    )
     p.add_argument("--data", type=str, required=True)
     p.add_argument("--output_dir", type=str, default="./checkpoints")
     p.add_argument("--resume", type=str, default=None)
@@ -566,11 +633,19 @@ def _show_full_help():
     p.add_argument("--warmup_ratio", type=float, default=0.01)
     p.add_argument("--stable_ratio", type=float, default=0.80)
     p.add_argument("--min_lr_ratio", type=float, default=0.05)
-    p.add_argument("--wsd_decay_style", type=str, default="linear",
-                   choices=["cosine", "linear"],
-                   help="WSD decay 段衰减方式: linear 对齐 nano 实际 (nano_wsd_linear_v2/SmolLM3)，lr 线性降到 min_lr_ratio")
-    p.add_argument("--z_loss", type=float, default=1e-5,
-                   help="Z-Loss 系数 (SmolLM3 用 1e-5，防 logits 爆炸；0 禁用)")
+    p.add_argument(
+        "--wsd_decay_style",
+        type=str,
+        default="linear",
+        choices=["cosine", "linear"],
+        help="WSD decay 段衰减方式: linear 对齐 nano 实际 (nano_wsd_linear_v2/SmolLM3)，lr 线性降到 min_lr_ratio",
+    )
+    p.add_argument(
+        "--z_loss",
+        type=float,
+        default=1e-5,
+        help="Z-Loss 系数 (SmolLM3 用 1e-5，防 logits 爆炸；0 禁用)",
+    )
     p.add_argument("--weight_decay", type=float, default=0.1)
     p.add_argument("--clip", type=float, default=1.0)
     p.add_argument("--log_interval", type=int, default=10)
@@ -582,14 +657,24 @@ def _show_full_help():
     p.add_argument("--ddp_bucket_mb", type=int, default=25)
     p.add_argument("--wandb_project", type=str, default=None)
     p.add_argument("--wandb_run_name", type=str, default=None)
-    p.add_argument("--label_smoothing", type=float, default=0.0, help="CrossEntropy label smoothing (LLaMA 用 0.1)")
-    p.add_argument("--pbar", action=argparse.BooleanOptionalAction, default=True,
-                   help="用 tqdm 进度条输出（默认开；--no-pbar 切日志式；仅主进程渲染）")
+    p.add_argument(
+        "--label_smoothing",
+        type=float,
+        default=0.0,
+        help="CrossEntropy label smoothing (LLaMA 用 0.1)",
+    )
+    p.add_argument(
+        "--pbar",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="用 tqdm 进度条输出（默认开；--no-pbar 切日志式；仅主进程渲染）",
+    )
     p.print_help()
 
 
 # 有 LOCAL_RANK → torchrun 启动走 DDP 初始化；没有 → 单卡直接训练。
 # 一个脚本两种用法，无需用户判断。
+
 
 def main():
     # 1. --help 不带 --model 时直接显示
@@ -611,10 +696,18 @@ def main():
     # 即为训练默认值；纯模型架构文件则全部回落 argparse 内置默认）
     training_defaults = _load_training_defaults(pre_args.training or pre_args.model)
     parser = argparse.ArgumentParser(description="GleamLM pretraining (DDP-ready)")
-    parser.add_argument("--model", type=str, default=pre_args.model,
-                        help="模型架构 YAML (configs/*.yaml，自动取 model 段)")
-    parser.add_argument("--training", type=str, default=pre_args.training,
-                        help="训练默认超参 YAML (默认复用 --model 的同一文件)")
+    parser.add_argument(
+        "--model",
+        type=str,
+        default=pre_args.model,
+        help="模型架构 YAML (configs/*.yaml，自动取 model 段)",
+    )
+    parser.add_argument(
+        "--training",
+        type=str,
+        default=pre_args.training,
+        help="训练默认超参 YAML (默认复用 --model 的同一文件)",
+    )
     # 训练超参
     parser.add_argument("--data", type=str, required=True)
     parser.add_argument("--output_dir", type=str, default="./checkpoints")
@@ -623,22 +716,50 @@ def main():
     parser.add_argument("--batch_size", type=int, default=training_defaults.get("batch_size", 4))
     parser.add_argument("--accumulate", type=int, default=training_defaults.get("accumulate", 8))
     parser.add_argument("--lr", type=float, default=training_defaults.get("lr", 3e-4))
-    parser.add_argument("--seed", type=int, default=training_defaults.get("seed", 42),
-                        help="随机种子（数据采样/参数初始化的确定性复现基准）")
-    parser.add_argument("--lr_scheduler", type=str, default=training_defaults.get("lr_scheduler", "cosine"),
-                        choices=["cosine", "wsd"])
-    parser.add_argument("--warmup_ratio", type=float, default=training_defaults.get("warmup_ratio", 0.01))
-    parser.add_argument("--stable_ratio", type=float, default=training_defaults.get("stable_ratio", 0.80))
-    parser.add_argument("--min_lr_ratio", type=float, default=training_defaults.get("min_lr_ratio", 0.05))
-    parser.add_argument("--wsd_decay_style", type=str, default="linear",
-                        choices=["cosine", "linear"],
-                        help="WSD decay 段衰减方式: linear 对齐 nano 实际 (nano_wsd_linear_v2/SmolLM3)，lr 线性降到 min_lr_ratio")
-    parser.add_argument("--z_loss", type=float, default=training_defaults.get("z_loss", 1e-5),
-                        help="Z-Loss 系数 (SmolLM3 用 1e-5，防 logits 爆炸；0 禁用)")
-    parser.add_argument("--weight_decay", type=float, default=training_defaults.get("weight_decay", 0.1))
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=training_defaults.get("seed", 42),
+        help="随机种子（数据采样/参数初始化的确定性复现基准）",
+    )
+    parser.add_argument(
+        "--lr_scheduler",
+        type=str,
+        default=training_defaults.get("lr_scheduler", "cosine"),
+        choices=["cosine", "wsd"],
+    )
+    parser.add_argument(
+        "--warmup_ratio", type=float, default=training_defaults.get("warmup_ratio", 0.01)
+    )
+    parser.add_argument(
+        "--stable_ratio", type=float, default=training_defaults.get("stable_ratio", 0.80)
+    )
+    parser.add_argument(
+        "--min_lr_ratio", type=float, default=training_defaults.get("min_lr_ratio", 0.05)
+    )
+    parser.add_argument(
+        "--wsd_decay_style",
+        type=str,
+        default="linear",
+        choices=["cosine", "linear"],
+        help="WSD decay 段衰减方式: linear 对齐 nano 实际 (nano_wsd_linear_v2/SmolLM3)，lr 线性降到 min_lr_ratio",
+    )
+    parser.add_argument(
+        "--z_loss",
+        type=float,
+        default=training_defaults.get("z_loss", 1e-5),
+        help="Z-Loss 系数 (SmolLM3 用 1e-5，防 logits 爆炸；0 禁用)",
+    )
+    parser.add_argument(
+        "--weight_decay", type=float, default=training_defaults.get("weight_decay", 0.1)
+    )
     parser.add_argument("--clip", type=float, default=training_defaults.get("clip", 1.0))
-    parser.add_argument("--log_interval", type=int, default=training_defaults.get("log_interval", 10))
-    parser.add_argument("--save_interval", type=int, default=training_defaults.get("save_interval", 500))
+    parser.add_argument(
+        "--log_interval", type=int, default=training_defaults.get("log_interval", 10)
+    )
+    parser.add_argument(
+        "--save_interval", type=int, default=training_defaults.get("save_interval", 500)
+    )
     # 执行选项
     parser.add_argument("--compile", action="store_true")
     parser.add_argument("--tokenizer_path", type=str, default="")
@@ -647,12 +768,25 @@ def main():
     parser.add_argument("--ddp_bucket_mb", type=int, default=25)
     parser.add_argument("--wandb_project", type=str, default=None)
     parser.add_argument("--wandb_run_name", type=str, default=None)
-    parser.add_argument("--val_data", type=str, default=None, help="验证数据路径（可选，用于周期性验证）")
-    parser.add_argument("--val_interval", type=int, default=None, help="验证间隔步数（默认=save_interval）")
-    parser.add_argument("--label_smoothing", type=float, default=0.0, help="CrossEntropy label smoothing (LLaMA 用 0.1)")
+    parser.add_argument(
+        "--val_data", type=str, default=None, help="验证数据路径（可选，用于周期性验证）"
+    )
+    parser.add_argument(
+        "--val_interval", type=int, default=None, help="验证间隔步数（默认=save_interval）"
+    )
+    parser.add_argument(
+        "--label_smoothing",
+        type=float,
+        default=0.0,
+        help="CrossEntropy label smoothing (LLaMA 用 0.1)",
+    )
     parser.add_argument("--tensorboard", action="store_true", help="启用 TensorBoard 日志")
-    parser.add_argument("--pbar", action=argparse.BooleanOptionalAction, default=True,
-                        help="用 tqdm 进度条输出（默认开；--no-pbar 切日志式；仅主进程渲染）")
+    parser.add_argument(
+        "--pbar",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="用 tqdm 进度条输出（默认开；--no-pbar 切日志式；仅主进程渲染）",
+    )
     args = parser.parse_args(remaining)
     args.model = None  # 清掉，不参与训练逻辑
 
@@ -670,9 +804,11 @@ def main():
     set_seed(args.seed)
     if is_main_process():
         print(f"Model: {pre_args.model}")
-        print(f"  d_model={model_cfg.d_model}  layers={model_cfg.num_layers}  "
-              f"heads={model_cfg.num_heads}/{model_cfg.num_kv_heads}  "
-              f"d_ff={model_cfg.d_ff}  seq_len={model_cfg.max_seq_len}")
+        print(
+            f"  d_model={model_cfg.d_model}  layers={model_cfg.num_layers}  "
+            f"heads={model_cfg.num_heads}/{model_cfg.num_kv_heads}  "
+            f"d_ff={model_cfg.d_ff}  seq_len={model_cfg.max_seq_len}"
+        )
     if "LOCAL_RANK" in os.environ:
         ddp_setup()
     try:
@@ -682,9 +818,11 @@ def main():
         # 此处只做提示；step_*.pt 每 save_interval 步已落盘，可断点续训。
         if is_main_process():
             print("\n训练被中断 (Ctrl+C)。")
-            print(f"续训: python manual/pretrain.py --model {pre_args.model} "
-                  f"--data {args.data} --resume {args.output_dir}/step_*.pt")
-        raise SystemExit(130)
+            print(
+                f"续训: python manual/pretrain.py --model {pre_args.model} "
+                f"--data {args.data} --resume {args.output_dir}/step_*.pt"
+            )
+        raise SystemExit(130) from None
     finally:
         if dist.is_initialized():
             ddp_cleanup()

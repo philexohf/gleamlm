@@ -2,7 +2,8 @@
 
 唯一入口: load_config → GleamLMConfig（Pydantic v2），字段校验与默认值的
 唯一来源 = Pydantic 模型。消费方: manual/{pretrain, train_tokenizer,
-sft, dpo}.py。
+sft, dpo}.py。各入口经 load_config 的 scope 参数声明自己真正读取的 YAML
+段/键子集（见 _SCOPE_REQUIRED），不再被全量清单绑定。
 
 历史 _DictWrapper 轨（v1: load_config/cfg_to_namespace + _CONFIG_VALIDATORS
 手工校验表 + 7 处 getattr 魔法默认）已于 2026-09 随配置体系单轨化删除 ——
@@ -73,71 +74,155 @@ def extract_checkpoint_config(checkpoint: dict[str, Any]) -> dict[str, Any]:
     return raw
 
 
-# ── load_config 消费方必读字段 ───────────────────────────────────────
-# manual/pretrain.py (_load_training_defaults)、manual/train_tokenizer.py
-# 与 manual/{sft,dpo}.py 消费的 YAML 键全集。YAML 缺键时直接报错, 禁止
-# 静默回退 Pydantic 默认 —— 默认值曾多次漂移 (dpo.lr 1e-7 / sft.lr 5e-6 /
+# ── load_config 消费方必读字段（按消费方拆分子集, scope）────────────────
+# 不同入口只读自己那几段 YAML: YAML 缺键时直接报错, 禁止静默回退
+# Pydantic 默认 —— 默认值曾多次漂移 (dpo.lr 1e-7 / sft.lr 5e-6 /
 # stable_ratio 0.0 等历史坑), 一致性由 tests/test_config_defaults.py 锁死。
-# data_sources 允许空列表 (键存在即可, train_tokenizer.py 自带防空)。
+#
+# 各 scope 取值 = 对应消费方真正读取的段/键; 与全量清单的解耦:
+#   - full      : 全量并集 (默认, 兼容测试/verify_paths 等通用加载)
+#   - training  : manual/pretrain.py _load_training_defaults 只读训练超参
+#   - tokenizer : manual/train_tokenizer.py 只读 data_sources
+#   - sft       : manual/sft.py 读 model(架构子集)+sft+data.checkpoint_dir+training.clip_grad
+#   - dpo       : manual/dpo.py 读 dpo+model.{dropout,use_flash_attn}+data.checkpoint_dir
+#                 +training.{clip_grad,weight_decay}
+#
+# data_sources 以顶层键单独记账 (允许空列表, 键存在即可, train_tokenizer 自带防空)。
 # model 段不含可选键 (use_gradient_checkpointing / attn_type / ffn_type /
-# rope_* / layer_configs 等), 缺失时走 Pydantic 默认, 与 v1 getattr 兜底
-# 语义一致。vocab_size 的运行时权威是分词器 (sft.py 用 tokenizer 值覆盖)。
-_REQUIRED_CONFIG_SECTIONS: dict[str, tuple[str, ...]] = {
-    "model": (
-        "d_model",
-        "num_layers",
-        "num_heads",
-        "num_kv_heads",
-        "d_ff",
-        "max_seq_len",
-        "vocab_size",
-        "dropout",
-        "tie_weights",
-        "use_flash_attn",
-    ),
-    "training": (
-        "epochs",
-        "batch_size",
-        "accumulate_grad",
-        "weight_decay",
-        "clip_grad",
-        "log_interval",
-        "save_interval",
-        "seed",
-        "label_smoothing",
-    ),
-    "lr": ("type", "lr", "warmup_ratio", "stable_ratio", "min_lr_ratio"),
-    "advanced": ("z_loss_weight", "num_workers"),
-    "data": ("tokenizer_path", "data_dir", "checkpoint_dir"),
-    "sft": (
-        "epochs",
-        "batch_size",
-        "accumulate_grad",
-        "lr",
-        "warmup_ratio",
-        "weight_decay",
-        "max_seq_len",
-        "inject_system_ratio",
-        "data_path",
-    ),
-    "dpo": (
-        "epochs",
-        "batch_size",
-        "accumulate_grad",
-        "lr",
-        "beta",
-        "max_seq_len",
-        "warmup_ratio",
-        "min_lr_ratio",
-        "data_path",
-    ),
+# rope_* / layer_configs 等), 缺失时走 Pydantic 默认。vocab_size 的运行时
+# 权威是分词器 (sft.py 用 tokenizer 值覆盖) → 不进 sft 的必读清单。
+_SCOPE_REQUIRED: dict[str, dict[str, tuple[str, ...]]] = {
+    "full": {
+        "model": (
+            "d_model",
+            "num_layers",
+            "num_heads",
+            "num_kv_heads",
+            "d_ff",
+            "max_seq_len",
+            "vocab_size",
+            "dropout",
+            "tie_weights",
+            "use_flash_attn",
+        ),
+        "training": (
+            "epochs",
+            "batch_size",
+            "accumulate_grad",
+            "weight_decay",
+            "clip_grad",
+            "log_interval",
+            "save_interval",
+            "seed",
+            "label_smoothing",
+        ),
+        "lr": ("type", "lr", "warmup_ratio", "stable_ratio", "min_lr_ratio"),
+        "advanced": ("z_loss_weight", "num_workers"),
+        "data": ("tokenizer_path", "data_dir", "checkpoint_dir"),
+        "sft": (
+            "epochs",
+            "batch_size",
+            "accumulate_grad",
+            "lr",
+            "warmup_ratio",
+            "weight_decay",
+            "max_seq_len",
+            "inject_system_ratio",
+            "data_path",
+        ),
+        "dpo": (
+            "epochs",
+            "batch_size",
+            "accumulate_grad",
+            "lr",
+            "beta",
+            "max_seq_len",
+            "warmup_ratio",
+            "min_lr_ratio",
+            "data_path",
+        ),
+    },
+    "training": {
+        "training": (
+            "epochs",
+            "batch_size",
+            "accumulate_grad",
+            "weight_decay",
+            "clip_grad",
+            "log_interval",
+            "save_interval",
+            "seed",
+            "label_smoothing",
+        ),
+        "lr": ("type", "lr", "warmup_ratio", "stable_ratio", "min_lr_ratio"),
+        "advanced": ("z_loss_weight", "num_workers"),
+        "data": ("tokenizer_path", "data_dir", "checkpoint_dir"),
+    },
+    "tokenizer": {},
+    "sft": {
+        "model": (
+            "d_model",
+            "num_layers",
+            "num_heads",
+            "num_kv_heads",
+            "d_ff",
+            "dropout",
+            "tie_weights",
+            "use_flash_attn",
+        ),
+        "training": ("clip_grad",),
+        "data": ("checkpoint_dir",),
+        "sft": (
+            "epochs",
+            "batch_size",
+            "accumulate_grad",
+            "lr",
+            "warmup_ratio",
+            "weight_decay",
+            "max_seq_len",
+            "inject_system_ratio",
+            "data_path",
+        ),
+    },
+    "dpo": {
+        "model": ("dropout", "use_flash_attn"),
+        "training": ("clip_grad", "weight_decay"),
+        "data": ("checkpoint_dir",),
+        "dpo": (
+            "epochs",
+            "batch_size",
+            "accumulate_grad",
+            "lr",
+            "beta",
+            "max_seq_len",
+            "warmup_ratio",
+            "min_lr_ratio",
+            "data_path",
+        ),
+    },
 }
 
+# tokenizer scope 只需要顶层 data_sources 键存在 (可空)
+_SCOPE_TOP_KEYS: dict[str, tuple[str, ...]] = {
+    "full": ("data_sources",),
+    "training": (),
+    "tokenizer": ("data_sources",),
+    "sft": (),
+    "dpo": (),
+}
 
-def validate_required_config_fields(data: dict[str, Any]) -> None:
-    """校验训练消费方必读字段齐全; 缺失即报错, 不静默回退默认值。"""
+# 向后兼容别名: 早期/外部引用 _REQUIRED_CONFIG_SECTIONS 即 full 子集
+_REQUIRED_CONFIG_SECTIONS: dict[str, tuple[str, ...]] = _SCOPE_REQUIRED["full"]
+
+
+def validate_required_config_fields(data: dict[str, Any], scope: str = "full") -> None:
+    """校验 scope 对应消费方必读字段齐全; 缺失即报错, 不静默回退默认值。"""
+    if scope not in _SCOPE_REQUIRED:
+        raise ConfigValidationError(
+            f"未知配置校验 scope: {scope!r} (可选: {sorted(_SCOPE_REQUIRED)})"
+        )
     missing: list[str] = []
-    for section, keys in _REQUIRED_CONFIG_SECTIONS.items():
+    for section, keys in _SCOPE_REQUIRED[scope].items():
         sec = data.get(section)
         if not isinstance(sec, dict):
             missing.append(section)
@@ -145,11 +230,12 @@ def validate_required_config_fields(data: dict[str, Any]) -> None:
         for key in keys:
             if key not in sec:
                 missing.append(f"{section}.{key}")
-    if "data_sources" not in data:
-        missing.append("data_sources")
+    for key in _SCOPE_TOP_KEYS[scope]:
+        if key not in data:
+            missing.append(key)
     if missing:
         raise ConfigValidationError(
-            "配置缺少训练消费方必读字段 (参考 configs/base.yaml 补全): " + ", ".join(missing)
+            f"配置缺少必读字段 (scope={scope}, 参考 configs/base.yaml 补全): " + ", ".join(missing)
         )
 
 
@@ -313,9 +399,9 @@ class GleamLMConfig(BaseModel):
     distributed: DistributedConfig = Field(default_factory=DistributedConfig)
 
     @classmethod
-    def from_yaml(cls, path: str) -> GleamLMConfig:
+    def from_yaml(cls, path: str, scope: str = "full") -> GleamLMConfig:
         data = load_yaml(path)
-        validate_required_config_fields(data)
+        validate_required_config_fields(data, scope=scope)
         return cls(**data)
 
     def resolve_paths(self, root_dir: str) -> GleamLMConfig:
@@ -334,13 +420,16 @@ class GleamLMConfig(BaseModel):
         return self
 
 
-def load_config(config_file: str, root_dir: str = "") -> GleamLMConfig:
-    """单轨配置加载 — extends 继承 + 必读字段校验 + 可选相对路径解析。
+def load_config(config_file: str, root_dir: str = "", scope: str = "full") -> GleamLMConfig:
+    """单轨配置加载 — extends 继承 + scope 必读字段校验 + 可选相对路径解析。
+
+    scope 决定校验哪些段/键 (按消费方拆分, 见 _SCOPE_REQUIRED):
+      full / training / tokenizer / sft / dpo。
 
     pydantic 为核心依赖 (pyproject.toml dependencies)，不再提供
     _DictWrapper 等无 pydantic 降级路径。
     """
-    cfg = GleamLMConfig.from_yaml(config_file)
+    cfg = GleamLMConfig.from_yaml(config_file, scope=scope)
     if root_dir:
         cfg.resolve_paths(root_dir)
     return cfg

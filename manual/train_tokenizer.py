@@ -115,7 +115,7 @@ def train_from_variant(
 
     数据文件定位: data/raw/{name}_dedup.txt（与数据 pipeline 约定一致）。
     """
-    cfg = load_config(os.path.join("configs", f"{variant}.yaml"))
+    cfg = load_config(os.path.join("configs", f"{variant}.yaml"), scope="tokenizer")
     data_sources = cfg.data_sources
     if not data_sources:
         raise SystemExit(f"ERROR: configs/{variant}.yaml 无 data_sources 配比定义")
@@ -128,22 +128,39 @@ def train_from_variant(
         files.append(path)
         ratios.append(s.ratio)
 
-    print(f"[配比] {variant}.yaml data_sources → {','.join(f'{r:.0%}:{os.path.basename(f)}' for f, r in zip(files, ratios))}")
+    print(
+        f"[配比] {variant}.yaml data_sources → {','.join(f'{r:.0%}:{os.path.basename(f)}' for f, r in zip(files, ratios, strict=True))}"
+    )
     return BBPETokenizer.train_from_files(
-        files, vocab_size=vocab_size, save_dir=save_dir,
-        max_train_chars=max_chars, ratios=ratios,
+        files,
+        vocab_size=vocab_size,
+        save_dir=save_dir,
+        max_train_chars=max_chars,
+        ratios=ratios,
     )
 
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
-    p.add_argument("--variant", type=str, default="",
-                   help="模型变体 (nano/lite/pro): 从 configs/{variant}.yaml 读 data_sources 配比训练")
+    p.add_argument(
+        "--variant",
+        type=str,
+        default="",
+        help="模型变体 (nano/lite/pro): 从 configs/{variant}.yaml 读 data_sources 配比训练",
+    )
     p.add_argument("--vocab_size", type=int, default=12002)
-    p.add_argument("--max_chars", type=int, default=200_000_000,
-                   help="训练语料字符预算 (默认 200M，足够 12K 词表)")
-    p.add_argument("--data_dir", type=str, default="", help="Raw text directory for training from scratch")
-    p.add_argument("--base_tokenizer", type=str, default="", help="Extend from existing tokenizer dir")
+    p.add_argument(
+        "--max_chars",
+        type=int,
+        default=200_000_000,
+        help="训练语料字符预算 (默认 200M，足够 12K 词表)",
+    )
+    p.add_argument(
+        "--data_dir", type=str, default="", help="Raw text directory for training from scratch"
+    )
+    p.add_argument(
+        "--base_tokenizer", type=str, default="", help="Extend from existing tokenizer dir"
+    )
     p.add_argument("--save_dir", type=str, default="gleamlm/tokenizer/checkpoints/bbpe_12k")
     p.add_argument("--verify_only", type=str, default="", help="Verify tokenizer structure")
     args = p.parse_args()
@@ -156,7 +173,13 @@ if __name__ == "__main__":
         tokenizer = train_from_variant(args.variant, args.vocab_size, args.save_dir, args.max_chars)
         print(f"完成! vocab_size={tokenizer.get_vocab_size()}, saved={args.save_dir}")
     elif args.data_dir:
-        files = [os.path.join(args.data_dir, f) for f in os.listdir(args.data_dir) if f.endswith(".txt")]
-        tokenizer = BBPETokenizer.train_from_files(files, vocab_size=args.vocab_size, save_dir=args.save_dir)
+        files = [
+            os.path.join(args.data_dir, f) for f in os.listdir(args.data_dir) if f.endswith(".txt")
+        ]
+        tokenizer = BBPETokenizer.train_from_files(
+            files, vocab_size=args.vocab_size, save_dir=args.save_dir
+        )
     else:
-        print("Provide --variant / --data_dir (from scratch) or --base_tokenizer (extend) or --verify_only")
+        print(
+            "Provide --variant / --data_dir (from scratch) or --base_tokenizer (extend) or --verify_only"
+        )
