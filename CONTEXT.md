@@ -19,7 +19,7 @@
 - **ChatML tokens**: `<|endoftext|>`=0 (pad/unk, only for aligning sample lengths in batches), `<|im_start|>`=1 (bos), `<|im_end|>`=2 (eos). Pre-train document boundary token = eos(id 2) — each doc in `.bin` ends with `<|im_end|>`, same token also terminates SFT turns. `<|buffer1|>`-`<|buffer10|>` at IDs 3-12 for future extensions.
 - **CJK pre-tokenization**: Each Chinese character is a separate token unit; non-CJK kept as contiguous segments.
 - **Frequency-aggregated training**: `train_from_files` dedupes repeated words via `Counter` (bytes → count) and indexes pairs as `pair → {(word_idx, pos)}` with frequency weighting. Memory drops from O(total words) to O(unique words) — 200M chars uses ~1.2GB vs 40GB+, ~9× faster, merge results bit-identical to the old position-level algorithm (verified by equivalence test).
-- **Variant-driven training entry**: `manual/train_tokenizer.py --variant nano` reads `data_sources` ratios from `configs/{variant}.yaml` (edu 55 / news 27 / wiki 12 / baike 6) and trains from `data/raw/{name}_dedup.txt`; `--data_dir` / `--base_tokenizer` / `--verify_only` modes remain backward-compatible.
+- **Variant-driven training entry**: `manual/train_tokenizer.py --variant nano` reads `data_sources` ratios from `manual/configs/{variant}.yaml` (edu 55 / news 27 / wiki 12 / baike 6) and trains from `data/raw/{name}_dedup.txt`; `--data_dir` / `--base_tokenizer` / `--verify_only` modes remain backward-compatible.
 
 ## Architecture Philosophy
 
@@ -52,7 +52,7 @@
 ## Repo Architecture
 
 - **Core library (`gleamlm/`)**: Provides importable, variant-agnostic functions and classes (model, tokenizer, dataset, training loops, inference engine, evaluation, preprocessing, deployment). All symbols are parameterized — no hardcoded variant-specific defaults.
-- **Variant configuration (`configs/nano.yaml`, `configs/lite.yaml`, `configs/pro.yaml`)**: YAML config files with inheritance from `base.yaml`, defining model architecture, training hyperparameters, data paths, and SFT/DPO settings for each model variant.
+- **Variant configuration (`manual/configs/nano.yaml`, `manual/configs/lite.yaml`, `manual/configs/pro.yaml`)**: Manual-track-only YAML config files (industrial track has its own `industrial/configs/`); each variant is fully self-contained — no `extends` inheritance, a snapshot of public defaults + variant values — defining model architecture, training hyperparameters, data paths, and SFT/DPO settings. `base.yaml` serves as the public-default reference / template for new configs (copy & modify).
 - **Recipe test**: Copy a variant script to a fresh directory, change a few parameters, and it should run. If imports break or the reader can't trace what each step does, the script fails the test.
 - **Orchestration-visible principle**: `main()` must be readable without jumping to other files. Steps are listed explicitly; implementation details are delegated to `gleamlm/` imports.
 - **Deletion test**: If removing a function from `gleamlm/` would break variant scripts, it belongs in `gleamlm/`. If it would only affect one variant, it belongs in that variant's directory.

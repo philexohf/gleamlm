@@ -10,7 +10,7 @@ GleamLM 是一套从零实现的 LLM 工程实践项目，基于 PyTorch 原生�
 
 - **数据管道**：多源数据自动下载、粗去重、文本清洗、SimHash/MinHash 精细去重和字符级配比均衡；
 
-- **分词系统**：纯 Python 自研 BBPE 分词器，支持按 `configs/*.yaml` 配比从零训练（词频聚合内存优化，200M 字符仅 ~1.2GB）、编码解码与 HF 格式导出；
+- **分词系统**：纯 Python 自研 BBPE 分词器，支持按 `manual/configs/*.yaml` 配比从零训练（词频聚合内存优化，200M 字符仅 ~1.2GB）、编码解码与 HF 格式导出；
 
 - **模型架构**：Decoder-only，原生实现 SwiGLU FFN、GQA、RoPE、QK-Norm 和 Mamba 等结构；
 
@@ -135,7 +135,11 @@ GleamLM/
 │   ├── distill.py                 #   知识蒸馏
 │   ├── deepspeed.py / fsdp.py     #   分布式训练
 │   ├── infer.py                   #   交互式推理（命令行入口）
-│   └── train_tokenizer.py         #   BBPE 分词器训练（--variant 读配比 / --data_dir / 扩展 / 验证）
+│   ├── train_tokenizer.py         #   BBPE 分词器训练（--variant 读配比 / --data_dir / 扩展 / 验证）
+│   └── configs/                   #   手动轨专用 YAML（仅 manual 轨脚本消费）
+│       ├── base.yaml              #   公共默认 / 新配置模板（复制改名即可新建）
+│       ├── nano.yaml / lite.yaml / pro.yaml  #   各变体独立完整配置（不依赖继承）
+│       └── deepspeed_config.json / deepspeed_zero2.json  #   DeepSpeed 引擎参数
 │
 ├── industrial/                    # 工业训练脚本（对接 Megatron / TRL / PEFT / DeepSpeed）
 │   ├── pretrain.py                #   Megatron 轨预训练（GPTDataset / BlendedMegatronDatasetBuilder）
@@ -165,10 +169,6 @@ GleamLM/
 │   └── export_onnx.py             #   ONNX 导出
 ├── serve/                         # FastAPI OpenAI 兼容服务（含网页聊天界面）
 ├── eval/                          # 评测入口（lm-evaluation-harness：CEVAL / CMMLU / MMLU）
-├── configs/                       # YAML 配置
-│   ├── base.yaml                  #   基础共享
-│   ├── nano.yaml / lite.yaml / pro.yaml  # 各变体
-│   └── deepspeed_config.json / deepspeed_zero2.json
 ├── tests/                         # 单元测试 + 集成测试
 ├── tools/                         # 辅助工具（checkpoint 检查/转换、快速运行、RAG demo）
 ├── CODE_STANDARDS.md / CONTEXT.md # 编码规范 / 项目上下文
@@ -213,7 +213,7 @@ python data_tools/download_data.py --sources fineweb wiki
 python data_tools/pretrain/run_pipeline.py --variant nano
 
 # ③ 可选：基于 ② 的 data/raw/{name}_dedup.txt 训练自己的 BBPE 分词器
-#    （按 configs/{variant}.yaml 的 data_sources 配比，默认 200M 字符预算）。
+#    （按 manual/configs/{variant}.yaml 的 data_sources 配比，默认 200M 字符预算）。
 #    注意：新词表不会自动参与 ② 已打包的 .bin/.idx —— 需删除旧产物（或换
 #    --output-prefix）后重跑 ②，并追加 --tokenizer-path <新词表目录>。
 python manual/train_tokenizer.py --variant nano \
@@ -235,11 +235,11 @@ python data_tools/pretrain/run_pipeline.py \
 # 单卡（Nano 40M 入门）
 # --data 传 .bin/.idx 前缀（推荐：§0 ModelScope 产物 data/nano/pretrain/train）；
 # 也可传 .txt 路径/目录（小数据示例，文件需自行准备）
-python manual/pretrain.py --model configs/nano.yaml --data data/nano/pretrain/train
+python manual/pretrain.py --model manual/configs/nano.yaml --data data/nano/pretrain/train
 
 # 多卡 DDP（Lite 87M，4 卡；数据用 §0 同管线 --variant lite 的产物）
 torchrun --nproc_per_node=4 manual/pretrain.py \
-    --model configs/lite.yaml --data data/lite/pretrain/train --output_dir ./checkpoints
+    --model manual/configs/lite.yaml --data data/lite/pretrain/train --output_dir ./checkpoints
 ```
 
 **训练监控（wandb / TensorBoard，可选）**：`manual/pretrain.py` 内置 wandb 与 TensorBoard 两条**相互独立**的日志链路，未装/未开其一不影响另一条，也可同时启用：
@@ -251,15 +251,15 @@ torchrun --nproc_per_node=4 manual/pretrain.py \
 
 ```bash
 # 仅 TensorBoard（本地可视化，无需安装 wandb）
-python manual/pretrain.py --model configs/nano.yaml --data data/nano/pretrain/train --tensorboard
+python manual/pretrain.py --model manual/configs/nano.yaml --data data/nano/pretrain/train --tensorboard
 tensorboard --logdir ./checkpoints/runs
 
 # 仅 wandb（需 pip install wandb 且已登录）
-python manual/pretrain.py --model configs/nano.yaml --data data/nano/pretrain/train \
+python manual/pretrain.py --model manual/configs/nano.yaml --data data/nano/pretrain/train \
     --wandb_project gleamlm --wandb_run_name nano_pretrain
 
 # 两者同时启用（各记各的，互不影响）
-python manual/pretrain.py --model configs/nano.yaml --data data/nano/pretrain/train \
+python manual/pretrain.py --model manual/configs/nano.yaml --data data/nano/pretrain/train \
     --tensorboard --wandb_project gleamlm
 ```
 
@@ -438,7 +438,7 @@ Nano 与 Lite 同为四源（含 [Chinese FineWeb Edu](https://huggingface.co/da
 **数据**：13,413 条/epoch = 基础集 3,415（模板/API 蒸馏/多轮，dedup 清洗后）+ QA→SFT 10,000（知乎知识问答，占 74.5%）。训练集 `data/nano/sft/sft_mix.jsonl`，由 `data_tools/sft/mix_sft.py` 混合 `sft_data.jsonl`（基础）与 `qa_sft.jsonl`（QA 源，20,000 条由 `data_tools/sft/qa_to_sft.py` 从 qa_dedup 语料规则抽取）。
 
 
-**配置**：以预训练 `final.pt`（step 68108）为基座，ChatML 格式，loss mask 仅 assistant 回复，lr 1e-4 cosine，3 epochs，batch 8 × accumulate 4，seq 512。默认值来自 base.yaml。
+**配置**：以预训练 `final.pt`（step 68108）为基座，ChatML 格式，loss mask 仅 assistant 回复，lr 1e-4 cosine，3 epochs，batch 8 × accumulate 4，seq 512。默认值来自 `manual/configs/nano.yaml`（变体已独立展开，base.yaml 为公共默认模板）。
 
 | 项目 | 值 |
 |---|---|
