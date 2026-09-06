@@ -6,6 +6,7 @@ GRPO / PPO 共用。
 from __future__ import annotations
 
 import json
+from typing import Any
 
 import torch
 from torch.utils.data import Dataset
@@ -32,10 +33,12 @@ class RLHFDataset(Dataset):
                     continue
                 prompt = item.get("prompt", item.get("instruction", ""))
                 if prompt:
-                    self.data.append({
-                        "prompt": prompt,
-                        "ground_truth": item.get("ground_truth"),
-                    })
+                    self.data.append(
+                        {
+                            "prompt": prompt,
+                            "ground_truth": item.get("ground_truth"),
+                        }
+                    )
 
     def __len__(self) -> int:
         return len(self.data)
@@ -44,7 +47,7 @@ class RLHFDataset(Dataset):
         return self.data[idx]
 
 
-def tokenize_prompts(prompts: list[str], tokenizer, max_seq_len: int) -> torch.Tensor:
+def tokenize_prompts(prompts: list[str], tokenizer: Any, max_seq_len: int) -> torch.Tensor:
     """批量 tokenize + pad prompts。
 
     预留 max_new_tokens 空间 (8 token buffer)，防止 prompt + 生成超过 max_seq_len。

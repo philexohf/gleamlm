@@ -5,8 +5,8 @@ from gleamlm.data.dataset import (
     lm_collate,
     tokenize_and_group,
 )
-from gleamlm.data.pipeline import run_pipeline
 from gleamlm.data.dpo_data import DPODataset, dpad_collate
+from gleamlm.data.pipeline import run_pipeline
 from gleamlm.data.preprocess import (
     MinHash,
     MinHashIndex,
@@ -26,7 +26,7 @@ from gleamlm.data.preprocess import (
     stream_split,
 )
 from gleamlm.data.rl_data import RLHFDataset, tokenize_prompts
-from gleamlm.data.sft_data import SFTDataset, SYSTEM_PROMPTS
+from gleamlm.data.sft_data import SYSTEM_PROMPTS, SFTDataset
 
 __all__ = [
     # dataset

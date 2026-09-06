@@ -26,6 +26,7 @@
 import argparse
 import os
 import struct
+from typing import Protocol, cast
 
 import numpy as np
 
@@ -62,7 +63,18 @@ def load_text(path: str) -> list[str]:
     return docs
 
 
-def get_tokenizer(name: str, tokenizer_path: str | None = None):
+# pack 轨需要的 tokenizer 最小接口（HF 风格属性别名）
+class _TokenizerLike(Protocol):
+    def encode(self, text: str) -> list[int]: ...
+
+    @property
+    def eos_token_id(self) -> int: ...
+
+    @property
+    def vocab_size(self) -> int: ...
+
+
+def get_tokenizer(name: str, tokenizer_path: str | None = None) -> _TokenizerLike:
     """获取 tokenizer。
 
     bbpe — 项目自研 BBPE（零 HuggingFace 依赖），默认选项。
@@ -71,29 +83,24 @@ def get_tokenizer(name: str, tokenizer_path: str | None = None):
     if name == "gpt2":
         from transformers import GPT2TokenizerFast
 
-        return GPT2TokenizerFast.from_pretrained("gpt2")
+        return cast(_TokenizerLike, GPT2TokenizerFast.from_pretrained("gpt2"))
     if name == "bbpe":
         if tokenizer_path is None:
             raise ValueError("--tokenizer bbpe 需要 --tokenizer-path <BBPE checkpoint 目录>")
         from gleamlm.tokenizer import BBPETokenizer
 
         tokenizer = BBPETokenizer.load(tokenizer_path)
-        # 统一为 HF 风格 API（encode + eos_token_id + vocab_size）
-        tokenizer.eos_token_id = tokenizer.eos_id
-        tokenizer.vocab_size = tokenizer.get_vocab_size()
-        # BBPE 的 eos_id 是 ChatML 的 <|im_end|>（SFT 轨终止符），
-        # 预训练文档边界符是 <|endoftext|> (= pad_id)，两者必须区分
-        tokenizer.eod_token_id = tokenizer.pad_id
+        # eos_token_id / eod_token_id / vocab_size 由 BBPETokenizer 原生提供（HF 风格别名）
         return tokenizer
     raise ValueError(f"不支持的 tokenizer: {name} (目前支持 bbpe / gpt2)")
 
 
 # 进程池 worker 的全局状态（initializer 注入，避免 pickle tokenizer 对象）
-_WORKER_TOK: dict = {}
-_WORKER_EOD: dict = {}
+_WORKER_TOK: dict[str, _TokenizerLike] = {}
+_WORKER_EOD: dict[str, int] = {}
 
 
-def _init_worker(tok) -> None:
+def _init_worker(tok: _TokenizerLike) -> None:
     _WORKER_TOK["tok"] = tok
 
 
@@ -104,9 +111,9 @@ def _tokenize_one(doc: str) -> list[int]:
 _TOKENIZE_CHUNK = 4096  # 每批 tokenize 的文档数；批内驻留内存，写盘后回收
 
 
-def _tokenize_batch(batch: list[str], tokenizer, workers: int) -> list[list[int]]:
+def _tokenize_batch(batch: list[str], tokenizer: _TokenizerLike, workers: int) -> list[list[int]]:
     """并行 tokenize 一批文档（<= _TOKENIZE_CHUNK 个），返回其 token 列表。"""
-    eod = getattr(tokenizer, "eod_token_id", tokenizer.eos_token_id)
+    eod: int = getattr(tokenizer, "eod_token_id", tokenizer.eos_token_id)
     if workers > 1:
         from concurrent.futures import ProcessPoolExecutor
 
@@ -140,7 +147,7 @@ def write_indexed_dataset(prefix: str, docs_tokens: list[list[int]], vocab_size:
     lengths = np.array([len(t) for t in docs_tokens], dtype=np.int32)
     total_tokens = int(lengths.sum())
     _write_idx(prefix, lengths)
-    print(f"  {prefix}.bin: {total_tokens:,} tokens ({total_tokens*2/1e6:.1f} MB)")
+    print(f"  {prefix}.bin: {total_tokens:,} tokens ({total_tokens * 2 / 1e6:.1f} MB)")
     print(f"  {prefix}.idx: {len(docs_tokens):,} documents")
     return prefix + ".bin"
 
@@ -156,20 +163,20 @@ def _write_idx(prefix: str, sequence_lengths: np.ndarray) -> int:
     document_indices = np.arange(num_docs + 1, dtype=np.int64)
     with open(prefix + ".idx", "wb") as f:
         f.write(_INDEX_HEADER)
-        f.write(struct.pack("<Q", _VERSION))            # version (8B, uint64)
+        f.write(struct.pack("<Q", _VERSION))  # version (8B, uint64)
         f.write(struct.pack("<B", _DTYPE_CODE_UINT16))  # dtype code (1B)
-        f.write(struct.pack("<Q", num_docs))            # sequence_count
-        f.write(struct.pack("<Q", num_docs + 1))        # document_count (含前导 0)
-        f.write(sequence_lengths.tobytes())             # int32 × N
-        f.write(sequence_pointers.tobytes())            # int64 × N
-        f.write(document_indices.tobytes())             # int64 × (N+1)
+        f.write(struct.pack("<Q", num_docs))  # sequence_count
+        f.write(struct.pack("<Q", num_docs + 1))  # document_count (含前导 0)
+        f.write(sequence_lengths.tobytes())  # int32 × N
+        f.write(sequence_pointers.tobytes())  # int64 × N
+        f.write(document_indices.tobytes())  # int64 × (N+1)
     return int(sequence_lengths.sum())
 
 
 def build_indexed_dataset(
     prefix: str,
     docs: list[str],
-    tokenizer,
+    tokenizer: _TokenizerLike,
     workers: int = 4,
     vocab_size: int | None = None,
     chunk_size: int = _TOKENIZE_CHUNK,
@@ -199,22 +206,34 @@ def build_indexed_dataset(
                 lengths.append(len(toks))
             total_tokens += sum(len(x) for x in batch)
             if print_progress and (i // chunk_size) % 25 == 0:
-                print(f"    tokenized {min(i + chunk_size, n_docs):,}/{n_docs:,} docs"
-                      f" (written {total_tokens * 2 / 1e6:.0f} MB)", flush=True)
+                print(
+                    f"    tokenized {min(i + chunk_size, n_docs):,}/{n_docs:,} docs"
+                    f" (written {total_tokens * 2 / 1e6:.0f} MB)",
+                    flush=True,
+                )
     written = _write_idx(prefix, np.array(lengths, dtype=np.int32))
-    print(f"  {prefix}.bin: {written:,} tokens ({written*2/1e6:.1f} MB)")
+    print(f"  {prefix}.bin: {written:,} tokens ({written * 2 / 1e6:.1f} MB)")
     print(f"  {prefix}.idx: {n_docs:,} documents")
     if not skip_verify:
-        verify_indexed_dataset(prefix, n_docs, sample=sample_verify,
-                               tokenizer=tokenizer, source=docs, workers=workers)
+        verify_indexed_dataset(
+            prefix, n_docs, sample=sample_verify, tokenizer=tokenizer, source=docs, workers=workers
+        )
     return prefix + ".bin"
 
 
-def verify_indexed_dataset(prefix, n_docs, sample=8, tokenizer=None, source=None,
-                           workers=4) -> None:
+def verify_indexed_dataset(
+    prefix: str,
+    n_docs: int,
+    sample: int = 8,
+    tokenizer: _TokenizerLike | None = None,
+    source: list[str] | None = None,
+    workers: int = 4,
+) -> None:
     """读回验证 .bin/.idx。tokenizer/source 提供时，随机抽样重新 tokenize 比对内容。"""
     try:
-        from megatron.core.datasets.indexed_dataset import IndexedDataset
+        from megatron.core.datasets.indexed_dataset import (  # type: ignore[import-untyped]
+            IndexedDataset,
+        )
 
         ds = IndexedDataset(prefix)
         assert len(ds) == n_docs, f"文档数不符: {len(ds)} vs {n_docs}"
@@ -224,8 +243,9 @@ def verify_indexed_dataset(prefix, n_docs, sample=8, tokenizer=None, source=None
 
             rng = random.Random(0)
             for idx in rng.sample(range(len(source)), min(sample, len(source))):
-                expect = (tokenizer.encode(source[idx])
-                          + [getattr(tokenizer, "eod_token_id", tokenizer.eos_token_id)])
+                expect = tokenizer.encode(source[idx]) + [
+                    getattr(tokenizer, "eod_token_id", tokenizer.eos_token_id)
+                ]
                 got = ds[idx].tolist()
                 assert got == expect, f"文档 {idx} 内容不符"
             print(f"  [OK] 抽取 {min(sample, len(source))} 篇重新 tokenize 内容比对通过")
@@ -237,16 +257,13 @@ def verify_indexed_dataset(prefix, n_docs, sample=8, tokenizer=None, source=None
             data = f.read()
         assert data[:9] == _INDEX_HEADER
         seq_count = struct.unpack("<Q", data[18:26])[0]
-        ptr_offset = 34 + 4 * seq_count
-        seq_ptr = np.frombuffer(data[ptr_offset:ptr_offset + 8 * seq_count],
-                                dtype=np.int64, count=seq_count)
         assert seq_count == n_docs, f"文档数不符: {seq_count} vs {n_docs}"
         with open(prefix + ".bin", "rb") as f:
             mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
         toks0 = np.frombuffer(mm, dtype=np.uint16, count=seq_count, offset=0)
         del toks0
         mm.close()
-        print(f"  [OK] 裸 mmap 验证通过（megatron 未安装，用标准库验证）")
+        print("  [OK] 裸 mmap 验证通过（megatron 未安装，用标准库验证）")
 
 
 def verify(prefix: str, docs_tokens: list[list[int]]) -> None:
@@ -273,35 +290,36 @@ def verify(prefix: str, docs_tokens: list[list[int]]) -> None:
         seq_count = struct.unpack("<Q", data[18:26])[0]
         ptr_offset = 34 + 4 * seq_count
         seq_ptr = np.frombuffer(
-            data[ptr_offset:ptr_offset + 8 * seq_count], dtype=np.int64,
+            data[ptr_offset : ptr_offset + 8 * seq_count],
+            dtype=np.int64,
             count=seq_count,
         )
         with open(prefix + ".bin", "rb") as f:
             mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
-        toks0 = np.frombuffer(mm, dtype=np.uint16,
-                              count=len(docs_tokens[0]), offset=seq_ptr[0])
+        toks0 = np.frombuffer(mm, dtype=np.uint16, count=len(docs_tokens[0]), offset=seq_ptr[0])
         assert toks0.tolist() == docs_tokens[0]
         del toks0  # np.frombuffer 持有 mmap 缓冲引用，不释放则 close 报 BufferError
         mm.close()
-        print(f"  [OK] 裸 mmap 验证通过（megatron 未安装，用标准库验证）")
+        print("  [OK] 裸 mmap 验证通过（megatron 未安装，用标准库验证）")
 
 
 # ──── CLI（独立使用: python -m gleamlm.data.pack） ────────────────────
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="文本 → Megatron .bin/.idx 预处理")
     p.add_argument("--input", required=True, help="输入 txt（每行一文档）或 jsonl")
     p.add_argument("--output-prefix", required=True, help="输出前缀 (生成 .bin/.idx)")
     p.add_argument("--tokenizer", default="bbpe", help="tokenizer (bbpe 或 gpt2)")
-    p.add_argument("--tokenizer-path", default=None,
-                   help="BBPE checkpoint 目录 (--tokenizer bbpe 时必填)")
+    p.add_argument(
+        "--tokenizer-path", default=None, help="BBPE checkpoint 目录 (--tokenizer bbpe 时必填)"
+    )
     p.add_argument("--workers", type=int, default=4, help="并行进程数")
     p.add_argument("--skip-verify", action="store_true", help="跳过写后验证")
     return p.parse_args()
 
 
-def main():
+def main() -> None:
     args = parse_args()
     os.makedirs(os.path.dirname(args.output_prefix) or ".", exist_ok=True)
 
@@ -314,7 +332,7 @@ def main():
     print(f"[2/3] tokenize ({len(docs)} docs, workers={args.workers})")
     tokenizer = get_tokenizer(args.tokenizer, args.tokenizer_path)
 
-    print(f"[3/3] 流式写入 .bin/.idx")
+    print("[3/3] 流式写入 .bin/.idx")
     build_indexed_dataset(
         args.output_prefix,
         docs,

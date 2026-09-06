@@ -61,27 +61,27 @@ _SIMHASH_MAX_ROWS = 500_000
 # ──── 路径约定（断点续跑的关键：固定产物路径） ──────────────────────────
 
 
-def _raw_path(input_dir, name):
+def _raw_path(input_dir: str, name: str) -> str:
     return os.path.join(input_dir, f"{name}_raw.txt")
 
 
-def _raw_dedup_path(input_dir, name):
+def _raw_dedup_path(input_dir: str, name: str) -> str:
     return os.path.join(input_dir, f"{name}_raw_dedup.txt")
 
 
-def _clean_path(input_dir, name):
+def _clean_path(input_dir: str, name: str) -> str:
     return os.path.join(input_dir, f"{name}_clean.txt")
 
 
-def _quality_path(input_dir, name):
+def _quality_path(input_dir: str, name: str) -> str:
     return os.path.join(input_dir, f"{name}_quality.txt")
 
 
-def _final_path(input_dir, name):
+def _final_path(input_dir: str, name: str) -> str:
     return os.path.join(input_dir, f"{name}_dedup.txt")
 
 
-def _fps_path(input_dir, name):
+def _fps_path(input_dir: str, name: str) -> str:
     return os.path.join(input_dir, f"{name}_dedup.fps")
 
 
@@ -101,7 +101,7 @@ def _rows(path: str) -> int:
         total_lines, _ = _estimate_total(path, _estimate_avg_chars(path, n=1000))
         return total_lines
     except Exception:
-        return compute_stats(path)["rows"]
+        return int(compute_stats(path)["rows"])
 
 
 def _save_fingerprints(filepath: str, fps: set[int]) -> None:
@@ -131,11 +131,9 @@ def _estimate_avg_chars(filepath: str, n: int = 1000) -> float:
             if seg > 0:
                 f.seek(int(size * seg / 3))
                 f.readline()  # 丢弃半行（errors=replace 容忍多字节截断）
-            count = 0
-            for line in f:
+            for count, line in enumerate(f, 1):
                 total += len(line)
                 lines += 1
-                count += 1
                 if count >= n:
                     break
     return total / max(1, lines)
@@ -154,11 +152,9 @@ def _estimate_total(filepath: str, avg_chars: float, n_segments: int = 3) -> tup
             if seg > 0:
                 f.seek(int(size * seg / n_segments))
                 f.readline()  # 丢弃半行（errors=replace 容忍多字节截断）
-            count = 0
-            for line in f:
+            for count, line in enumerate(f, 1):
                 byte_total += len(line.encode("utf-8"))
                 char_total += len(line)
-                count += 1
                 if count >= 2000:
                     break
     bytes_per_char = byte_total / max(1, char_total)
@@ -231,7 +227,9 @@ def _bernoulli_sample(
                     out_count += 1
                 if in_count % 500000 == 0:
                     rate = 100 * out_count / max(1, in_count)
-                    print(f"    {s['name']}: {in_count:,} → {out_count:,} ({rate:.0f}%)", flush=True)
+                    print(
+                        f"    {s['name']}: {in_count:,} → {out_count:,} ({rate:.0f}%)", flush=True
+                    )
         actual = 100 * out_count / max(1, in_count)
         print(f"    {s['name']}: 完成 {out_count:,} 行 ({actual:.1f}%)")
 
@@ -346,8 +344,9 @@ def run_pipeline(
             f"{', '.join(lang_info)}，news 滤广告 / wiki 滤垃圾）"
         )
         for s in all_sources:
-            src = _pick_first(_raw_dedup_path(input_dir, s["name"]),
-                              _raw_path(input_dir, s["name"]))
+            src = _pick_first(
+                _raw_dedup_path(input_dir, s["name"]), _raw_path(input_dir, s["name"])
+            )
             clean = _clean_path(input_dir, s["name"])
             if src is None:
                 print(f"  Skip {s['name']}: no source found")
@@ -397,9 +396,7 @@ def run_pipeline(
     else:
         mode = "minhash" if use_minhash else "simhash"
         extra = (
-            f", jaccard>={minhash_threshold}"
-            if use_minhash
-            else f", hamming<={simhash_threshold}"
+            f", jaccard>={minhash_threshold}" if use_minhash else f", hamming<={simhash_threshold}"
         )
         print(f"\n[4/6] 细去重（mode={mode}{extra}）")
         for s in all_sources:
@@ -434,8 +431,9 @@ def run_pipeline(
                     minhash_dedup_file(src, final, threshold=minhash_threshold)
                 else:
                     print(f"  SimHash: {s['name']} (threshold={simhash_threshold})")
-                    fps = dedup_file(src, final, mode="simhash",
-                                     simhash_threshold=simhash_threshold)
+                    fps = dedup_file(
+                        src, final, mode="simhash", simhash_threshold=simhash_threshold
+                    )
                     _save_fingerprints(_fps_path(input_dir, s["name"]), fps)
 
     # ──── step 5: 配比切分（字符占比 + Bernoulli 采样） ──────────────────────
@@ -467,10 +465,15 @@ def run_pipeline(
         tmp_dir = os.path.join(os.path.dirname(output_prefix) or ".", ".bernoulli_samples")
         combined_source_dicts = [s for s in all_sources if s["name"] in final_names]
         sampled_paths = _bernoulli_sample(
-            combined_source_dicts, final_paths, final_ratios, avg_chars_list, max_chars, tmp_dir,
+            combined_source_dicts,
+            final_paths,
+            final_ratios,
+            avg_chars_list,
+            max_chars,
+            tmp_dir,
             train_ratio=train_ratio,
         )
-        effective = [(p, r) for p, r in zip(sampled_paths, final_ratios) if p]
+        effective = [(p, r) for p, r in zip(sampled_paths, final_ratios, strict=False) if p]
         if not effective:
             print("ERROR: Bernoulli 采样后无有效数据")
             return
@@ -538,5 +541,8 @@ def run_pipeline(
         if chain:
             labels = [c[0] for c in chain]
             nums = [f"{_rows(c[1]):,}" for c in chain]
-            print(f"  {name}: " + " → ".join(f"{l}={n}" for l, n in zip(labels, nums)))
+            print(
+                f"  {name}: "
+                + " → ".join(f"{lab}={num}" for lab, num in zip(labels, nums, strict=False))
+            )
     print("完成。训练读取: gleamlm/data/dataset.py → {output_prefix}/{split}.bin/.idx")

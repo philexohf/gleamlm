@@ -10,11 +10,10 @@ SimpleRetriever — BM25 + 分块检索。RAG 链路: Chunking → Retrieval →
 import math
 import re
 from collections import Counter
-from typing import Optional
-
 
 # 按字符切分 (CJK 下 token ≈ 字符)，overlap 弥补横跨切口的信息丢失；
 # 工业级按 ["\n\n", "\n", "。", " "] 优先级递归切。
+
 
 def chunk_text(text: str, chunk_size: int = 512, overlap: int = 50) -> list[str]:
     tokens = list(text)
@@ -45,7 +44,9 @@ class SimpleRetriever:
     def _tokenize(self, text: str) -> list[str]:
         return re.findall(r"\w+|[^\w\s]", text.lower())
 
-    def add_documents(self, docs: list[str], chunk: bool = True, chunk_size: int = 512, chunk_overlap: int = 50) -> list[int]:
+    def add_documents(
+        self, docs: list[str], chunk: bool = True, chunk_size: int = 512, chunk_overlap: int = 50
+    ) -> list[int]:
         if chunk:
             all_chunks = []
             for doc in docs:
@@ -61,7 +62,7 @@ class SimpleRetriever:
     # BM25 改进自 TF-IDF: TF 饱和 (k1)、长度归一化 (b)、IDF 平滑；
     # score(q,d) = Σ_t IDF(t)·tf(k1+1) / (tf + k1(1-b+b·|d|/avgdl))
 
-    def _build_index(self):
+    def _build_index(self) -> None:
         self._tokenized = [Counter(self._tokenize(d)) for d in self.documents]
         self._doc_lens = [sum(t.values()) for t in self._tokenized]
         self._avg_len = sum(self._doc_lens) / max(len(self._doc_lens), 1)
@@ -75,7 +76,10 @@ class SimpleRetriever:
         for term in all_terms:
             self._doc_freq[term] = sum(1 for t in self._tokenized if term in t)
         # IDF 平滑版: log(1 + (N - df + 0.5) / (df + 0.5) + 1)
-        self._idf = {term: math.log(1 + (N - freq + 0.5) / (freq + 0.5) + 1) for term, freq in self._doc_freq.items()}
+        self._idf = {
+            term: math.log(1 + (N - freq + 0.5) / (freq + 0.5) + 1)
+            for term, freq in self._doc_freq.items()
+        }
         for term in self._idf:
             if self._idf[term] < 0:
                 self._idf[term] = 0

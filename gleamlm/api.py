@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import torch
 
 from gleamlm import load_model_for_inference
 from gleamlm.inference.generate import generate_response
+from gleamlm.models.model import GleamLMModel
 from gleamlm.tokenizer.tokenizer import BBPETokenizer
 from gleamlm.types import ConfigValidationError
 
@@ -22,21 +25,29 @@ class GleamLM:
         model = GleamLM(m, tok, cfg, torch.device("cuda"))
     """
 
-    def __init__(self, model, tokenizer, config, device):
+    def __init__(
+        self,
+        model: GleamLMModel,
+        tokenizer: BBPETokenizer,
+        config: dict[str, Any],
+        device: torch.device,
+    ) -> None:
         self._model = model
         self._tokenizer = tokenizer
         self._config = config
         self._device = device
 
     @classmethod
-    def from_checkpoint(cls, checkpoint_path, device="auto", tokenizer_path=None):
+    def from_checkpoint(
+        cls, checkpoint_path: str, device: str = "auto", tokenizer_path: str | None = None
+    ) -> GleamLM:
         """Load model from checkpoint."""
-        device = (
+        dev = (
             torch.device("cuda" if torch.cuda.is_available() else "cpu")
             if device == "auto"
             else torch.device(device)
         )
-        model, config = load_model_for_inference(checkpoint_path, device)
+        model, config = load_model_for_inference(checkpoint_path, dev)
 
         tk_path = tokenizer_path or config.get("tokenizer_path")
         if not tk_path:
@@ -44,20 +55,20 @@ class GleamLM:
         tokenizer = BBPETokenizer.load(tk_path)
 
         total, _ = model.get_num_params()
-        print(f"Model: {total / 1e6:.2f}M params, device: {device}")
+        print(f"Model: {total / 1e6:.2f}M params, device: {dev}")
 
-        return cls(model, tokenizer, config, device)
+        return cls(model, tokenizer, config, dev)
 
     @torch.no_grad()
     def generate(
         self,
-        prompt,
+        prompt: str,
         *,
-        max_new_tokens=256,
-        temperature=0.8,
-        top_k=50,
-        top_p=0.9,
-        repetition_penalty=1.15,
+        max_new_tokens: int = 256,
+        temperature: float = 0.8,
+        top_k: int = 50,
+        top_p: float = 0.9,
+        repetition_penalty: float = 1.15,
     ) -> str:
         """Generate a response with input validation."""
         if not isinstance(prompt, str):
@@ -78,12 +89,12 @@ class GleamLM:
 
     def evaluate(
         self,
-        data_dir,
+        data_dir: str,
         *,
-        dataset="test",
-        max_seq_len=1024,
-        batch_size=4,
-        max_batches=None,
+        dataset: str = "test",
+        max_seq_len: int = 1024,
+        batch_size: int = 4,
+        max_batches: int | None = None,
     ) -> dict:
         """Evaluate PPL on a dataset."""
         from gleamlm.evaluation.ppl import evaluate_ppl

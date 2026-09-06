@@ -6,9 +6,10 @@ and inference code. LR schedulers have been moved to trainer/schedulers.py.
 
 from __future__ import annotations
 
-import torch
 from collections.abc import Generator
 from contextlib import contextmanager
+
+import torch
 
 
 def clean_state_dict(state_dict: dict) -> dict:
@@ -20,12 +21,12 @@ def clean_state_dict(state_dict: dict) -> dict:
     """
     sd = state_dict
     if any(k.startswith("_orig_mod.") for k in sd):
-        sd = {k[len("_orig_mod."):]: v for k, v in sd.items()}
+        sd = {k[len("_orig_mod.") :]: v for k, v in sd.items()}
     if any(k.startswith("module.") for k in sd):
-        sd = {k[len("module."):]: v for k, v in sd.items()}
+        sd = {k[len("module.") :]: v for k, v in sd.items()}
     if any(k.startswith("model.") for k in sd):
         # HF wrapper 产物常见前缀 (旧 gleamlm_hf 格式)
-        sd = {k[len("model."):]: v for k, v in sd.items()}
+        sd = {k[len("model.") :]: v for k, v in sd.items()}
     return sd
 
 
@@ -39,7 +40,7 @@ def safe_autocast(
         return
 
     if torch.cuda.is_available():
-        with torch.amp.autocast("cuda", dtype=dtype):
+        with torch.amp.autocast("cuda", dtype=dtype):  # type: ignore[attr-defined]
             yield
         return
 
@@ -49,7 +50,7 @@ def safe_autocast(
         and callable(getattr(torch.cpu, "is_bf16_supported", None))
         and torch.cpu.is_bf16_supported()  # type: ignore[attr-defined]
     ):
-        with torch.amp.autocast("cpu", dtype=torch.bfloat16):
+        with torch.amp.autocast("cpu", dtype=torch.bfloat16):  # type: ignore[attr-defined]
             yield
         return
 

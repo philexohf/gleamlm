@@ -38,7 +38,10 @@ class SpeculativeGenerator:
 
     @torch.no_grad()
     def generate(
-        self, input_ids: torch.Tensor, gamma: int = 4, max_new_tokens: int = 256,
+        self,
+        input_ids: torch.Tensor,
+        gamma: int = 4,
+        max_new_tokens: int = 256,
         temperature: float = 0.8,
     ) -> torch.Tensor:
         seq = input_ids.to(self.device)

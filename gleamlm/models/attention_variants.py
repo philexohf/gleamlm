@@ -1,9 +1,11 @@
 import math
+from typing import Any
 
 import torch
 import torch.nn.functional as F
 
-from gleamlm.models.model import GQA, RMSNorm, repeat_kv
+from gleamlm.models.model import GQA, repeat_kv
+from gleamlm.types import PastKeyValue
 
 
 # NoPE: 去掉 RoPE，靠 QK-Norm 从上下文语义隐含位置关系；d_model 不够宽时不如 RoPE。
@@ -11,18 +13,20 @@ from gleamlm.models.model import GQA, RMSNorm, repeat_kv
 def get_alibi_slopes(num_heads: int) -> torch.Tensor:
     """ALiBi head-wise slope 生成，几何级数: 2^(-8/num_heads)。"""
     start = 2 ** (-8 / num_heads)
-    return start ** torch.arange(1, num_heads + 1)
+    return torch.pow(start, torch.arange(1, num_heads + 1))
 
 
-def build_alibi_bias(seq_len: int, num_heads: int, device: torch.device, offset: int = 0) -> torch.Tensor:
+def build_alibi_bias(
+    seq_len: int, num_heads: int, device: torch.device, offset: int = 0
+) -> torch.Tensor:
     """构建 [1, n_head, seq_len, total_len] ALiBi bias 矩阵。"""
     total = offset + seq_len
-    slopes = get_alibi_slopes(num_heads).to(device)          # [n_head]
+    slopes = get_alibi_slopes(num_heads).to(device)  # [n_head]
     pos_i = torch.arange(total, device=device).unsqueeze(1)  # [total, 1]
     pos_j = torch.arange(total, device=device).unsqueeze(0)  # [1, total]
-    dist = (pos_i - pos_j).abs()                              # [total, total]
-    bias = -slopes.view(-1, 1, 1) * dist.unsqueeze(0)        # [n_head, total, total]
-    return bias.unsqueeze(0)                                   # [1, n_head, total, total]
+    dist = (pos_i - pos_j).abs()  # [total, total]
+    bias = -slopes.view(-1, 1, 1) * dist.unsqueeze(0)  # [n_head, total, total]
+    return bias.unsqueeze(0)  # [1, n_head, total, total]
 
 
 class NoPEGQA(GQA):
@@ -59,7 +63,10 @@ class NoPEGQA(GQA):
             K_fa = repeat_kv(K, self.num_groups).contiguous()
             V_fa = repeat_kv(V, self.num_groups).contiguous()
             output = F.scaled_dot_product_attention(
-                Q, K_fa, V_fa, is_causal=True,
+                Q,
+                K_fa,
+                V_fa,
+                is_causal=True,
                 dropout_p=self.dropout.p if self.training else 0.0,
             )
             output = output.transpose(1, 2).contiguous().view(batch_size, seq_len, -1)
@@ -148,19 +155,33 @@ class SlidingWindowGQA(GQA):
     """
 
     def __init__(
-        self, d_model: int, num_heads: int, num_kv_heads: int,
-        dropout: float, use_flash_attn: bool = False,
-        window_size: int = 4096, **kwargs,
+        self,
+        d_model: int,
+        num_heads: int,
+        num_kv_heads: int,
+        dropout: float,
+        use_flash_attn: bool = False,
+        window_size: int = 4096,
+        **kwargs: Any,
     ) -> None:
-        super().__init__(d_model=d_model, num_heads=num_heads, num_kv_heads=num_kv_heads,
-                         dropout=dropout, use_flash_attn=use_flash_attn, **kwargs)
+        super().__init__(
+            d_model=d_model,
+            num_heads=num_heads,
+            num_kv_heads=num_kv_heads,
+            dropout=dropout,
+            use_flash_attn=use_flash_attn,
+            **kwargs,
+        )
         self.window_size = window_size
 
     def forward(
-        self, x: torch.Tensor, rope_cos: torch.Tensor, rope_sin: torch.Tensor,
+        self,
+        x: torch.Tensor,
+        rope_cos: torch.Tensor,
+        rope_sin: torch.Tensor,
         mask: torch.Tensor | None = None,
-        past_kv: tuple[torch.Tensor, torch.Tensor] | None = None,
-    ) -> tuple[torch.Tensor, torch.Tensor | None, tuple[torch.Tensor, torch.Tensor]]:
+        past_kv: PastKeyValue | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor | None, PastKeyValue]:
         if mask is not None:
             _, seq_len, _ = x.shape
             offset = past_kv[0].size(2) if past_kv is not None else 0
@@ -169,7 +190,8 @@ class SlidingWindowGQA(GQA):
             k_idx = torch.arange(total, device=x.device).unsqueeze(0)
             window_mask = torch.where(
                 q_idx + offset - k_idx > self.window_size,
-                float("-inf"), 0.0,
+                float("-inf"),
+                0.0,
             )
             mask = mask + window_mask.unsqueeze(0).unsqueeze(0)
 

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from importlib.metadata import PackageNotFoundError, version
 
+import torch
+
 from .models.model import GleamLMModel
 from .utils.config import extract_checkpoint_config
 
@@ -35,10 +37,8 @@ def _model_from_config(config: dict) -> GleamLMModel:
 
 
 def load_model_for_inference(
-    model_path: str, device: str = "cuda", checkpoint: dict | None = None
+    model_path: str, device: str | torch.device = "cuda", checkpoint: dict | None = None
 ) -> tuple[GleamLMModel, dict]:
-    import torch
-
     if checkpoint is None:
         try:
             checkpoint = torch.load(model_path, map_location=device, weights_only=False)

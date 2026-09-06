@@ -2,7 +2,7 @@
 
 from gleamlm.data.dpo_data import DPODataset, dpad_collate
 from gleamlm.data.rl_data import RLHFDataset, tokenize_prompts
-from gleamlm.data.sft_data import SFTDataset, SYSTEM_PROMPTS
+from gleamlm.data.sft_data import SYSTEM_PROMPTS, SFTDataset
 from gleamlm.trainer.base_trainer import (
     create_scaler,
     ddp_cleanup,

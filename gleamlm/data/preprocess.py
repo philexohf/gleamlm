@@ -31,7 +31,7 @@ from collections import OrderedDict
 from typing import TextIO
 
 try:
-    import zhconv
+    import zhconv  # type: ignore[import-untyped]
 
     HAS_ZHCONV = True
 except ImportError:
@@ -216,7 +216,7 @@ def detect_traditional(input_path: str, sample_lines: int = 1000) -> float:
 def convert_zh(text: str) -> str:
     """繁体中文 → 简体中文转换。zhconv 未安装时原样返回。"""
     if HAS_ZHCONV:
-        return zhconv.convert(text, "zh-cn")
+        return str(zhconv.convert(text, "zh-cn"))
     return text
 
 
@@ -360,7 +360,7 @@ class MinHash:
 
     @staticmethod
     def jaccard_from_signatures(sig_a: list[int], sig_b: list[int]) -> float:
-        return sum(1 for a, b in zip(sig_a, sig_b) if a == b) / len(sig_a)
+        return sum(1 for a, b in zip(sig_a, sig_b, strict=False) if a == b) / len(sig_a)
 
 
 class MinHashIndex:
@@ -773,7 +773,11 @@ def stream_split(
     random.seed(seed)
 
     def _out(name: str) -> str:
-        return f"{output_prefix}_{name}.txt" if output_prefix else os.path.join(output_dir, name + ".txt")
+        return (
+            f"{output_prefix}_{name}.txt"
+            if output_prefix
+            else os.path.join(output_dir, name + ".txt")
+        )
 
     train_f = open(_out("train"), "w", encoding="utf-8")  # noqa: SIM115
     valid_f = open(_out("valid"), "w", encoding="utf-8")  # noqa: SIM115

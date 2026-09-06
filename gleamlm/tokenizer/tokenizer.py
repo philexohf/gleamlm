@@ -67,7 +67,7 @@ class BBPETokenizer:
         self._next_id = 0
 
         self._pre_tokenize_fn = _pre_tokenize_re
-        self._special_regex = None
+        self._special_regex: re.Pattern[str] | None = None
 
         self._add_special_tokens()
 
@@ -129,7 +129,7 @@ class BBPETokenizer:
         print("    Building max-heap...", end=" ", flush=True)
         t_heap = time.time()
 
-        def pair_freq(positions) -> int:
+        def pair_freq(positions: set[tuple[int, int]]) -> int:
             # 加权频次: 每个唯一 word 出现 word_counts[wid] 次
             return sum(word_counts[wid] for wid, _ in positions)
 
@@ -255,7 +255,7 @@ class BBPETokenizer:
 
     def _pre_tokenize_files(
         self, text_files: list[str], max_chars: int = 500_000_000, ratios: list[float] | None = None
-    ) -> list[list[int]]:
+    ) -> tuple[list[list[int]], list[int]]:
         """聚合词频统计：返回唯一 word 的字节序列 + 出现次数。
 
         相比旧的"全量 word 序列列表"方案，这里对重复 word 只保留一份
@@ -436,6 +436,21 @@ class BBPETokenizer:
     def __len__(self) -> int:
         return self.get_vocab_size()
 
+    @property
+    def eos_token_id(self) -> int:
+        """HF 风格别名: ChatML 终止符 <|im_end|>（SFT 轨 eos）。"""
+        return self.eos_id
+
+    @property
+    def eod_token_id(self) -> int:
+        """预训练文档边界符 <|endoftext|>（= pad id，与 eos 区分）。"""
+        return self.pad_id
+
+    @property
+    def vocab_size(self) -> int:
+        """HF 风格别名，与 get_vocab_size() 等价。"""
+        return self.get_vocab_size()
+
     def save(self, save_dir: str) -> None:
         os.makedirs(save_dir, exist_ok=True)
 
@@ -523,9 +538,13 @@ class BBPETokenizer:
 
         added_tokens = [
             {
-                "id": tid, "content": tok,
-                "single_word": False, "lstrip": False, "rstrip": False,
-                "normalized": False, "special": True,
+                "id": tid,
+                "content": tok,
+                "single_word": False,
+                "lstrip": False,
+                "rstrip": False,
+                "normalized": False,
+                "special": True,
             }
             for tok, tid in sorted(self.special_tokens.items(), key=lambda kv: kv[1])
         ]
@@ -580,8 +599,7 @@ class BBPETokenizer:
             json.dump(self.to_hf_tokenizer_json(), f, ensure_ascii=False, indent=2)
 
         additional_special = [
-            t for t in _SPECIAL_TOKENS
-            if t not in (self.bos_token, self.eos_token, self.pad_token)
+            t for t in _SPECIAL_TOKENS if t not in (self.bos_token, self.eos_token, self.pad_token)
         ]
         config = {
             "bos_token": self.bos_token,
@@ -596,12 +614,15 @@ class BBPETokenizer:
         with open(os.path.join(save_dir, "tokenizer_config.json"), "w", encoding="utf-8") as f:
             json.dump(config, f, ensure_ascii=False, indent=2)
 
-        print(f"HF tokenizer exported: {os.path.join(save_dir, 'tokenizer.json')} (vocab={self._next_id})")
+        print(
+            f"HF tokenizer exported: {os.path.join(save_dir, 'tokenizer.json')} (vocab={self._next_id})"
+        )
         return save_dir
 
 
 # HF byte-fallback BPE 内部把文本逐字符转成"字节符号"再做合并:
 # 可打印字节保持原样，其余映射到 U+0100 私有区（空格 → "Ġ"）。
+
 
 def _bytes_to_unicode() -> dict[int, str]:
     bs = (
@@ -616,7 +637,7 @@ def _bytes_to_unicode() -> dict[int, str]:
             bs.append(b)
             cs.append(2**8 + n)
             n += 1
-    return dict(zip(bs, [chr(c) for c in cs]))
+    return dict(zip(bs, [chr(c) for c in cs], strict=False))
 
 
 # ChatML 模板: 与 gleamlm/utils/chatml.py 的协议一致，Jinja2 语法 (HF serve 栈通用)。

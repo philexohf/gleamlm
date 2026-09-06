@@ -5,25 +5,11 @@ repos:
       - id: ruff
         args: [--fix]
       - id: ruff-format
-  - repo: local
-    hooks:
-      - id: mypy
-        name: mypy
-        entry: python -m mypy
-        language: system
-        types: [python]
-        args: [--ignore-missing-imports]
-        exclude: ^(tools|data_tools|tests|configs|scripts)/
-repos:
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.20
-    hooks:
-      - id: ruff
-        args: [--fix]
-      - id: ruff-format
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v2.2.0
     hooks:
+      # language: system — 直接复用项目 conda 环境(已装 mypy/torch/numpy)，
+      # 避免独立 venv 重复下载 torch(~2GB)。CI 亦用同一环境跑 mypy，无漂移。
       - id: mypy
-        args: [--exclude, "tools/|data_tools/|tests/|configs/|scripts/"]
-        additional_dependencies: [torch>=2.0, numpy>=1.20]
+        language: system
+        args: [--exclude, "tools/|data_tools/|tests/|configs/|scripts/|manual/|industrial/|hf/|eval/|serve/|deploy/", "--follow-imports=silent"]

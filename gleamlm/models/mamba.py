@@ -1,4 +1,4 @@
-import math
+from typing import Any
 
 import torch
 import torch.nn.functional as F
@@ -37,20 +37,20 @@ def selective_scan(
     d_state = A.size(-1)
     dtype = x.dtype
 
-    delta = F.softplus(delta)                                  # [B, S, d_inner]
-    A_bar = torch.exp(delta.unsqueeze(-1) * A)                 # [B, S, d_inner, d_state]
-    B_bar = delta.unsqueeze(-1) * B.unsqueeze(-2)              # [B, S, d_inner, d_state]
-    u = B_bar * x.unsqueeze(-1)                                # [B, S, d_inner, d_state]
+    delta = F.softplus(delta)  # [B, S, d_inner]
+    A_bar = torch.exp(delta.unsqueeze(-1) * A)  # [B, S, d_inner, d_state]
+    B_bar = delta.unsqueeze(-1) * B.unsqueeze(-2)  # [B, S, d_inner, d_state]
+    u = B_bar * x.unsqueeze(-1)  # [B, S, d_inner, d_state]
 
     # 显式循环 scan（非并行版本）
     h = torch.zeros(batch_size, d_inner, d_state, device=x.device, dtype=dtype)
     ys = []
     for t in range(seq_len):
-        h = A_bar[:, t] * h + u[:, t]                          # [B, d_inner, d_state]
-        y = (C[:, t].unsqueeze(-2) * h).sum(dim=-1)            # [B, d_inner]
+        h = A_bar[:, t] * h + u[:, t]  # [B, d_inner, d_state]
+        y = (C[:, t].unsqueeze(-2) * h).sum(dim=-1)  # [B, d_inner]
         ys.append(y)
 
-    return torch.stack(ys, dim=1)                              # [B, S, d_inner]
+    return torch.stack(ys, dim=1)  # [B, S, d_inner]
 
 
 class MambaBlock(nn.Module):
@@ -72,7 +72,7 @@ class MambaBlock(nn.Module):
         d_conv: int = 4,
         expand_factor: int = 2,
         use_gate: bool = True,
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
         super().__init__()
         self.d_model = d_model
@@ -89,14 +89,16 @@ class MambaBlock(nn.Module):
             out_channels=d_inner,
             kernel_size=d_conv,
             padding=d_conv - 1,  # 因果 padding: 只看过去
-            groups=d_inner,       # depthwise conv
+            groups=d_inner,  # depthwise conv
             bias=False,
         )
 
         # B/C/Δ 由 x' 投影得到（selective）；A 固定，log 参数化保证 exp 后为正
         self.x_proj = nn.Linear(d_inner, d_state * 2 + d_inner, bias=False)
         self.A_log = nn.Parameter(
-            torch.log(torch.arange(1, d_inner * d_state + 1, dtype=torch.float)).view(d_inner, d_state)
+            torch.log(torch.arange(1, d_inner * d_state + 1, dtype=torch.float)).view(
+                d_inner, d_state
+            )
         )
         self.D = nn.Parameter(torch.ones(d_inner))
 
@@ -124,19 +126,17 @@ class MambaBlock(nn.Module):
         xz = self.in_proj(x)
         x_inner, z = xz.chunk(2, dim=-1)  # [B, S, d_inner] each
 
-        x_conv = x_inner.transpose(1, 2)                     # [B, d_inner, S]
-        x_conv = self.conv1d(x_conv)[..., :seq_len]          # 因果裁切
-        x_conv = F.silu(x_conv)                              # [B, d_inner, S]
-        x_conv = x_conv.transpose(1, 2)                      # [B, S, d_inner]
+        x_conv = x_inner.transpose(1, 2)  # [B, d_inner, S]
+        x_conv = self.conv1d(x_conv)[..., :seq_len]  # 因果裁切
+        x_conv = F.silu(x_conv)  # [B, d_inner, S]
+        x_conv = x_conv.transpose(1, 2)  # [B, S, d_inner]
 
         # SSM: A 取负保证衰减，B/C/Δ 由投影得到
-        A = -torch.exp(self.A_log)                            # [d_inner, d_state] (负 → 衰减)
-        bc_delta = self.x_proj(x_conv)                        # [B, S, d_state*2 + d_inner]
-        B, C, delta = bc_delta.split(
-            [self.d_state, self.d_state, self.d_inner], dim=-1
-        )
+        A = -torch.exp(self.A_log)  # [d_inner, d_state] (负 → 衰减)
+        bc_delta = self.x_proj(x_conv)  # [B, S, d_state*2 + d_inner]
+        B, C, delta = bc_delta.split([self.d_state, self.d_state, self.d_inner], dim=-1)
 
-        y_ssm = selective_scan(x_conv, A, B, C, delta)        # [B, S, d_inner]
+        y_ssm = selective_scan(x_conv, A, B, C, delta)  # [B, S, d_inner]
 
         y = y_ssm + self.D * x_conv
 

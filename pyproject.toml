@@ -123,6 +123,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "**/__init__.py" = ["F401"]  # re-exports
+"gleamlm/models/mamba.py" = ["N803"]  # SSM 状态矩阵 A/B/C (Mamba 论文记号)
 "tools/eval_layer_dropout.py" = ["SIM115"]  # stdout redirect
 "tests/test_tokenizer.py" = ["SIM115"]  # NamedTemporaryFile manual cleanup
 "data_tools/pretrain/extract_text.py" = ["F401", "B018"]  # availability probe

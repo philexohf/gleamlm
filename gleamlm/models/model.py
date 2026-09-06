@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from typing import Any
 
 import torch
 import torch.nn.functional as F
@@ -55,9 +56,9 @@ def _compute_yarn_freqs(
     """YaRN frequency blend: interpolate low-freq dims, extrapolate high-freq dims."""
     dim = head_dim // 2
     # 两套频率: 外推保持原始频率，插值除以 factor 拉长
-    pos_freqs = base ** (torch.arange(0, dim, dtype=torch.float) / dim)
-    inv_freq_extrapolation = 1.0 / pos_freqs
-    inv_freq_interpolation = 1.0 / (factor * pos_freqs)
+    pos_freqs = torch.pow(base, torch.arange(0, dim, dtype=torch.float) / dim)
+    inv_freq_extrapolation = torch.div(1.0, pos_freqs)
+    inv_freq_interpolation = torch.div(1.0, torch.mul(factor, pos_freqs))
 
     # 按波长阈值反推维度边界，确定外推/插值的分界
     low = max(0.0, _find_correction_dim(original_max_seq_len, dim, base, beta_fast))
@@ -67,7 +68,7 @@ def _compute_yarn_freqs(
     linear_ramp = (torch.arange(dim, dtype=torch.float) - low) / (high - low + 1e-8)
     ramp = torch.clamp(linear_ramp, 0.0, 1.0)
 
-    inv_freq = inv_freq_extrapolation * ramp + inv_freq_interpolation * (1.0 - ramp)
+    inv_freq = inv_freq_extrapolation * ramp + inv_freq_interpolation * torch.sub(1.0, ramp)
     return inv_freq
 
 
@@ -88,7 +89,9 @@ def precompute_freqs_cis(
     if rope_scale > 1.0 and original_max_seq_len is not None and original_max_seq_len < max_seq_len:
         # YaRN 模式：按维度 blend 频率，不做全局 position 缩放
         freq = _compute_yarn_freqs(
-            head_dim, base=base, factor=rope_scale,
+            head_dim,
+            base=base,
+            factor=rope_scale,
             original_max_seq_len=original_max_seq_len,
         )
         t = torch.arange(max_seq_len, dtype=torch.float)
@@ -140,7 +143,7 @@ class GQA(nn.Module):
         num_kv_heads: int,
         dropout: float = 0.0,
         use_flash_attn: bool = False,
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
         super().__init__()
         self.d_model = d_model
@@ -168,8 +171,8 @@ class GQA(nn.Module):
         rope_cos: torch.Tensor,
         rope_sin: torch.Tensor,
         mask: torch.Tensor | None = None,
-        past_kv: tuple[torch.Tensor, torch.Tensor] | None = None,
-    ) -> tuple[torch.Tensor, torch.Tensor | None, tuple[torch.Tensor, torch.Tensor]]:
+        past_kv: PastKeyValue | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor | None, PastKeyValue]:
         batch_size, seq_len, _ = x.shape
 
         Q = self.W_q(x).view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
@@ -206,13 +209,17 @@ class GQA(nn.Module):
             # 否则 sliding window 与 padding 约束被静默丢弃。
             if mask is None:
                 output = F.scaled_dot_product_attention(
-                    Q, K_fa, V_fa,
+                    Q,
+                    K_fa,
+                    V_fa,
                     is_causal=True,
                     dropout_p=self.dropout.p if self.training else 0.0,
                 )
             else:
                 output = F.scaled_dot_product_attention(
-                    Q, K_fa, V_fa,
+                    Q,
+                    K_fa,
+                    V_fa,
                     attn_mask=mask,
                     dropout_p=self.dropout.p if self.training else 0.0,
                 )
@@ -246,7 +253,7 @@ class GQA(nn.Module):
 class MLP(nn.Module):
     """SwiGLU feed-forward network."""
 
-    def __init__(self, d_model: int, d_ff: int, dropout: float = 0.0, **kwargs) -> None:
+    def __init__(self, d_model: int, d_ff: int, dropout: float = 0.0, **kwargs: Any) -> None:
         super().__init__()
         self.W_gate = nn.Linear(d_model, d_ff, bias=False)
         self.W_up = nn.Linear(d_model, d_ff, bias=False)
@@ -272,15 +279,13 @@ class MoE(nn.Module):
         dropout: float = 0.0,
         num_experts: int = 8,
         top_k: int = 2,
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
         super().__init__()
         self.num_experts = num_experts
         self.top_k = top_k
         self.router = nn.Linear(d_model, num_experts, bias=False)
-        self.experts = nn.ModuleList(
-            [MLP(d_model, d_ff, dropout) for _ in range(num_experts)]
-        )
+        self.experts = nn.ModuleList([MLP(d_model, d_ff, dropout) for _ in range(num_experts)])
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         # x: [batch_size, seq_len, d_model]
@@ -301,9 +306,7 @@ class MoE(nn.Module):
             weight = probs[(top_k_idx == e_id)]
             output[mask] += expert_out * weight.unsqueeze(-1)
 
-        tokens_per_expert = torch.zeros(
-            self.num_experts, device=x.device, dtype=x.dtype
-        )
+        tokens_per_expert = torch.zeros(self.num_experts, device=x.device, dtype=x.dtype)
         for e_id in range(self.num_experts):
             tokens_per_expert[e_id] = (top_k_idx == e_id).any(dim=-1).sum()
         f_i = tokens_per_expert / max(batch_size * seq_len, 1)
@@ -327,27 +330,32 @@ class DecoderLayer(nn.Module):
         dropout: float = 0.0,
         use_flash_attn: bool = False,
         # 可注入子类，方便实验不同 attention / FFN 变体
-
         attn_variant: type = GQA,
         ffn_variant: type = MLP,
         norm_variant: type = RMSNorm,
         # 兼容参数 — MoE / attn 变体各取所需，其余通过 **kwargs 静默 absorb
-
         num_experts: int = 8,
         top_k: int = 2,
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
         super().__init__()
         self.attn_norm = norm_variant(d_model)
         self.attn = attn_variant(
-            d_model=d_model, num_heads=num_heads, num_kv_heads=num_kv_heads,
-            dropout=dropout, use_flash_attn=use_flash_attn,
+            d_model=d_model,
+            num_heads=num_heads,
+            num_kv_heads=num_kv_heads,
+            dropout=dropout,
+            use_flash_attn=use_flash_attn,
             **kwargs,
         )
         self.ffn_norm = norm_variant(d_model)
         self.ffn = ffn_variant(
-            d_model=d_model, d_ff=d_ff, dropout=dropout,
-            num_experts=num_experts, top_k=top_k, **kwargs,
+            d_model=d_model,
+            d_ff=d_ff,
+            dropout=dropout,
+            num_experts=num_experts,
+            top_k=top_k,
+            **kwargs,
         )
 
     def forward(
@@ -356,8 +364,8 @@ class DecoderLayer(nn.Module):
         rope_cos: torch.Tensor,
         rope_sin: torch.Tensor,
         mask: torch.Tensor | None = None,
-        past_kv: tuple[torch.Tensor, torch.Tensor] | None = None,
-    ) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
+        past_kv: PastKeyValue | None = None,
+    ) -> tuple[torch.Tensor, PastKeyValue]:
         residual = x
         x = self.attn_norm(x)
         attn_out, _, current_kv = self.attn(x, rope_cos, rope_sin, mask, past_kv)
@@ -394,12 +402,10 @@ class GleamLMModel(nn.Module):
         num_experts: int = 8,
         top_k: int = 2,
         # YaRN 长度外推参数
-
         rope_scale: float = 1.0,
         rope_factor: float = 8.0,
         rope_theta: float = 10000.0,
         # 按层混合变体配置
-
         layer_configs: list[dict] | None = None,
     ) -> None:
         super().__init__()
@@ -446,12 +452,20 @@ class GleamLMModel(nn.Module):
                     if k in cfg:
                         l_extra[k] = cfg[k]
 
-            self.layers.append(DecoderLayer(
-                d_model, num_heads, num_kv_heads, d_ff, dropout,
-                use_flash_attn,
-                attn_variant=l_attn, ffn_variant=l_ffn, norm_variant=l_norm,
-                **l_extra,
-            ))
+            self.layers.append(
+                DecoderLayer(
+                    d_model,
+                    num_heads,
+                    num_kv_heads,
+                    d_ff,
+                    dropout,
+                    use_flash_attn,
+                    attn_variant=l_attn,
+                    ffn_variant=l_ffn,
+                    norm_variant=l_norm,
+                    **l_extra,
+                )
+            )
 
         self.final_norm = RMSNorm(d_model)
         self.lm_head = nn.Linear(d_model, vocab_size, bias=False)
@@ -463,8 +477,10 @@ class GleamLMModel(nn.Module):
         # RoPE / YaRN 预计算 (persistent=False: 不写入 state_dict，from_pretrained 时重算)
 
         cos, sin = precompute_freqs_cis(
-            self.head_dim, self.rope_max_len,
-            base=self.rope_theta, rope_scale=self.rope_scale,
+            self.head_dim,
+            self.rope_max_len,
+            base=self.rope_theta,
+            rope_scale=self.rope_scale,
             rope_factor=self.rope_factor,
             original_max_seq_len=self.rope_original_max_seq_len,
         )
@@ -498,15 +514,16 @@ class GleamLMModel(nn.Module):
         nn.init.normal_(self.token_embed.weight, mean=0.0, std=self.d_model**-0.5)
         for module in self.modules():
             if isinstance(module, nn.Linear) and module is not self.lm_head:
-                nn.init.normal_(module.weight, mean=0.0, std=module.weight.size(1)**-0.5)
+                nn.init.normal_(module.weight, mean=0.0, std=module.weight.size(1) ** -0.5)
         if self.lm_head.weight is not self.token_embed.weight:
             nn.init.normal_(self.lm_head.weight, mean=0.0, std=0.02)
 
     # 因果掩码 [1, 1, S, total_len]: 上三角 -inf；offset>0 时已有前缀不 mask
     def _create_causal_mask(
-        self, seq_len: int, offset: int = 0, device: torch.device = torch.device("cpu")
+        self, seq_len: int, offset: int = 0, device: torch.device | None = None
     ) -> torch.Tensor:
         total = offset + seq_len
+        device = device or torch.device("cpu")
         # diagonal=offset+1: 让前 offset 列全 0 (已有 KV)，当前序列内上三角 -inf
 
         mask = torch.triu(
@@ -557,7 +574,11 @@ class GleamLMModel(nn.Module):
             if self.training and self.use_gradient_checkpointing:
                 x, current_kv = torch.utils.checkpoint.checkpoint(
                     layer,
-                    x, self.rope_cos, self.rope_sin, attn_mask, past_kv,
+                    x,
+                    self.rope_cos,
+                    self.rope_sin,
+                    attn_mask,
+                    past_kv,
                     use_reentrant=False,
                 )
             else:

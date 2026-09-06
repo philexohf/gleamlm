@@ -118,7 +118,7 @@ def _forward(
 ) -> tuple[torch.Tensor, PastKeyValueList]:
     if use_amp:
         with safe_autocast(dtype=amp_dtype or torch.bfloat16):
-            logits, kv_list, *_ = model(input_ids, past_kv_list=past_kv)  # type: ignore[arg-type]
+            logits, kv_list, *_ = model(input_ids, past_kv_list=past_kv)
     else:
-        logits, kv_list, *_ = model(input_ids, past_kv_list=past_kv)  # type: ignore[arg-type]
+        logits, kv_list, *_ = model(input_ids, past_kv_list=past_kv)
     return logits, kv_list

@@ -6,6 +6,8 @@ GRPO (Group Relative Policy Optimization): group 内归一化优势，无 value 
 
 from __future__ import annotations
 
+from typing import cast
+
 import torch
 import torch.nn.functional as F
 from torch import nn
@@ -95,6 +97,7 @@ def grpo_loss(
 # PPO: clip loss (限制 π_θ/π_old 在 [1-ε, 1+ε]) + value loss + entropy bonus；
 # 优势用 GAE，比 GRPO 的 group baseline 更精确但多一个 value network。
 
+
 class ValueHead(nn.Module):
     """PPO 价值网络 — 从最后一层 hidden states 预测标量 V(s)。"""
 
@@ -107,7 +110,8 @@ class ValueHead(nn.Module):
         )
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        return self.proj(hidden_states).squeeze(-1)
+        out = cast(torch.Tensor, self.proj(hidden_states))
+        return out.squeeze(-1)
 
 
 def ppo_loss(
@@ -161,7 +165,7 @@ def ppo_loss(
     deltas = resp_rewards + gamma * next_vals - resp_vals
 
     adv = torch.zeros_like(deltas)
-    gae = 0.0
+    gae: torch.Tensor = torch.zeros_like(deltas[:, 0])
     for t in reversed(range(R)):
         gae = deltas[:, t] + gamma * lam * gae
         adv[:, t] = gae

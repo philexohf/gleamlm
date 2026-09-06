@@ -35,7 +35,6 @@ from typing import Any
 
 import numpy as np
 import torch
-
 from torch.utils.data import Dataset as TorchDataset
 
 # ── 工业 mmap 格式 (.bin/.idx) 常量 — 与 gleamlm.data.pack 写格式一致 ──
@@ -80,12 +79,8 @@ class IndexedMMapDataset(TorchDataset):
         # ── 解析索引区（header 后依次为 int32 lengths / int64 pointers(N) / int64 doc_idx(N+1)）──
         with open(idx_path, "rb") as f:
             f.seek(_IDX_HEADER_SIZE)
-            seq_lengths = np.frombuffer(
-                f.read(4 * self.num_docs), dtype=np.int32
-            )
-            seq_pointers = np.frombuffer(
-                f.read(8 * self.num_docs), dtype=np.int64
-            )
+            seq_lengths = np.frombuffer(f.read(4 * self.num_docs), dtype=np.int32)
+            seq_pointers = np.frombuffer(f.read(8 * self.num_docs), dtype=np.int64)
             # document_indices 有 N+1 个（含前导 0），这里只读前 N 个起始偏移即可
         # 每文档 token 起始偏移（字节 → token）
         self.doc_starts = seq_pointers // 2
@@ -107,15 +102,14 @@ class IndexedMMapDataset(TorchDataset):
         pos, filled = start, 0
         while filled < length:
             i = bisect.bisect_right(self.doc_starts, pos) - 1
-            doc_start = int(self.doc_starts[i])
             doc_end = int(self.doc_starts[i + 1]) if i + 1 < self.num_docs else self.total_tokens
             n = min(doc_end - pos, length - filled)
-            out[filled:filled + n] = self._mmap[pos:pos + n]
+            out[filled : filled + n] = self._mmap[pos : pos + n]
             filled += n
             pos = doc_end  # 跳到下一文档继续（EOD 在文档尾，不打断拼接）
         return out
 
-    def __getitem__(self, idx: int):
+    def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
         span = self._read_tokens(idx * self.seq_len, self.seq_len + 1)
         input_ids = torch.from_numpy(span[:-1].copy()).long()
         labels = torch.from_numpy(span[1:].copy()).long()
@@ -130,7 +124,7 @@ class IndexedMMapDataset(TorchDataset):
     def __enter__(self) -> "IndexedMMapDataset":
         return self
 
-    def __exit__(self, *exc) -> None:
+    def __exit__(self, *exc: object) -> None:
         self.close()
 
 
@@ -175,7 +169,14 @@ class _TextTokenizeDataset(TorchDataset):
     单进程急切加载（小数据场景，无需多进程）。
     """
 
-    def __init__(self, data_path, tokenizer, seq_len, text_key="text", num_proc=8):
+    def __init__(
+        self,
+        data_path: str | list[str],
+        tokenizer: Any,
+        seq_len: int,
+        text_key: str = "text",
+        num_proc: int = 8,
+    ) -> None:
         _is_bbpe = hasattr(tokenizer, "encode") and hasattr(tokenizer, "get_vocab_size")
         blocks: list[tuple[torch.Tensor, torch.Tensor]] = []
         for t in _read_text_lines(data_path):
@@ -195,7 +196,7 @@ class _TextTokenizeDataset(TorchDataset):
     def __len__(self) -> int:
         return len(self._blocks)
 
-    def __getitem__(self, idx: int):
+    def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
         input_ids, labels = self._blocks[idx]
         return {"input_ids": input_ids, "labels": labels}
 
@@ -207,7 +208,7 @@ def tokenize_and_group(
     text_key: str = "text",
     num_proc: int = 8,
     streaming: bool = False,
-):
+) -> IndexedMMapDataset | _TextTokenizeDataset:
     """
     统一预训练数据入口 — 工业格式 (.bin/.idx) 与文本格式自动识别。
 

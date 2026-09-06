@@ -27,11 +27,9 @@ import torch.distributed as dist
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
-
 from gleamlm.inference.generate import generate_response
 from gleamlm.models.model import GleamLMModel
 from gleamlm.tokenizer.tokenizer import BBPETokenizer
-
 
 # Reproducibility
 
@@ -109,14 +107,18 @@ def build_optimizer_param_groups(
         groups = build_optimizer_param_groups(model, weight_decay=0.1)
         optimizer = torch.optim.AdamW(groups, lr=..., betas=(0.9, 0.95))
     """
-    decay, no_decay = [], []
+    decay: list[torch.nn.Parameter] = []
+    no_decay: list[torch.nn.Parameter] = []
     for name, param in model.named_parameters():
         if not param.requires_grad:
             continue
         skip = False
-        if wd_exclude_embedding and "embed" in name:
-            skip = True
-        elif wd_exclude_norm and (param.ndim <= 1 or "norm" in name):
+        if (
+            wd_exclude_embedding
+            and "embed" in name
+            or wd_exclude_norm
+            and (param.ndim <= 1 or "norm" in name)
+        ):
             skip = True
         (no_decay if skip else decay).append(param)
     groups = [

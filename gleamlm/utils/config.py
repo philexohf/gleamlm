@@ -84,25 +84,52 @@ def extract_checkpoint_config(checkpoint: dict[str, Any]) -> dict[str, Any]:
 # 语义一致。vocab_size 的运行时权威是分词器 (sft.py 用 tokenizer 值覆盖)。
 _REQUIRED_CONFIG_SECTIONS: dict[str, tuple[str, ...]] = {
     "model": (
-        "d_model", "num_layers", "num_heads", "num_kv_heads", "d_ff",
-        "max_seq_len", "vocab_size", "dropout", "tie_weights",
+        "d_model",
+        "num_layers",
+        "num_heads",
+        "num_kv_heads",
+        "d_ff",
+        "max_seq_len",
+        "vocab_size",
+        "dropout",
+        "tie_weights",
         "use_flash_attn",
     ),
     "training": (
-        "epochs", "batch_size", "accumulate_grad", "weight_decay",
-        "clip_grad", "log_interval", "save_interval", "seed",
+        "epochs",
+        "batch_size",
+        "accumulate_grad",
+        "weight_decay",
+        "clip_grad",
+        "log_interval",
+        "save_interval",
+        "seed",
         "label_smoothing",
     ),
     "lr": ("type", "lr", "warmup_ratio", "stable_ratio", "min_lr_ratio"),
     "advanced": ("z_loss_weight", "num_workers"),
     "data": ("tokenizer_path", "data_dir", "checkpoint_dir"),
     "sft": (
-        "epochs", "batch_size", "accumulate_grad", "lr", "warmup_ratio",
-        "weight_decay", "max_seq_len", "inject_system_ratio", "data_path",
+        "epochs",
+        "batch_size",
+        "accumulate_grad",
+        "lr",
+        "warmup_ratio",
+        "weight_decay",
+        "max_seq_len",
+        "inject_system_ratio",
+        "data_path",
     ),
     "dpo": (
-        "epochs", "batch_size", "accumulate_grad", "lr", "beta",
-        "max_seq_len", "warmup_ratio", "min_lr_ratio", "data_path",
+        "epochs",
+        "batch_size",
+        "accumulate_grad",
+        "lr",
+        "beta",
+        "max_seq_len",
+        "warmup_ratio",
+        "min_lr_ratio",
+        "data_path",
     ),
 }
 
@@ -122,8 +149,7 @@ def validate_required_config_fields(data: dict[str, Any]) -> None:
         missing.append("data_sources")
     if missing:
         raise ConfigValidationError(
-            "配置缺少训练消费方必读字段 (参考 configs/base.yaml 补全): "
-            + ", ".join(missing)
+            "配置缺少训练消费方必读字段 (参考 configs/base.yaml 补全): " + ", ".join(missing)
         )
 
 
@@ -296,9 +322,7 @@ class GleamLMConfig(BaseModel):
         for field_name in ("data_dir", "tokenizer_path", "checkpoint_dir"):
             raw = getattr(self.data, field_name)
             if raw and not os.path.isabs(raw):
-                setattr(
-                    self.data, field_name, os.path.normpath(os.path.join(root_dir, raw))
-                )
+                setattr(self.data, field_name, os.path.normpath(os.path.join(root_dir, raw)))
         if self.data.load_checkpoint and not os.path.isabs(self.data.load_checkpoint):
             self.data.load_checkpoint = os.path.normpath(
                 os.path.join(root_dir, self.data.load_checkpoint)
