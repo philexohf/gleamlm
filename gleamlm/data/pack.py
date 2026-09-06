@@ -24,6 +24,7 @@
 """
 
 import argparse
+import importlib
 import os
 import struct
 from typing import Protocol, cast
@@ -81,7 +82,10 @@ def get_tokenizer(name: str, tokenizer_path: str | None = None) -> _TokenizerLik
     gpt2 — GPT-2 BPE，需安装 transformers（示例用，懒加载）。
     """
     if name == "gpt2":
-        from transformers import GPT2TokenizerFast
+        # transformers 未钉版本，4.x 直接导出 / 5.x stub 丢失 GPT2TokenizerFast，且 CI
+        # 不装 → importlib 动态取类：运行时等价（懒加载/ImportError 语义不变），
+        # 同时规避 mypy 对 import 行与属性访问的跨版本分裂报错
+        GPT2TokenizerFast = importlib.import_module("transformers").GPT2TokenizerFast
 
         return cast(_TokenizerLike, GPT2TokenizerFast.from_pretrained("gpt2"))
     if name == "bbpe":
@@ -231,9 +235,9 @@ def verify_indexed_dataset(
 ) -> None:
     """读回验证 .bin/.idx。tokenizer/source 提供时，随机抽样重新 tokenize 比对内容。"""
     try:
-        from megatron.core.datasets.indexed_dataset import (  # type: ignore[import-untyped]
-            IndexedDataset,
-        )
+        # megatron-core 仅 Linux 可装 (industrial extra)，未装时回退纯 py 校验；
+        # mypy 侧由 pyproject overrides 静默该模块，无需行内 ignore
+        from megatron.core.datasets.indexed_dataset import IndexedDataset
 
         ds = IndexedDataset(prefix)
         assert len(ds) == n_docs, f"文档数不符: {len(ds)} vs {n_docs}"

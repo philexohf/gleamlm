@@ -167,6 +167,12 @@ ignore_errors = true
 module = "tqdm"
 ignore_missing_imports = true
 
+# megatron-core: 仅 Linux 可装 (industrial extra，Windows 无轮子)，无 py.typed 且
+# try 块内可选加载；未装/已装均按 Any 处理，避免 import 类误报
+[[tool.mypy.overrides]]
+module = "megatron.core.datasets.indexed_dataset"
+ignore_missing_imports = true
+
 [tool.setuptools_scm]
 
 [tool.pytest.ini_options]
