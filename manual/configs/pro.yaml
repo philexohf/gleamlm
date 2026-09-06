@@ -104,6 +104,38 @@ dpo:
   min_lr_ratio: 0.05
   data_path: data/pro/dpo_data.jsonl
 
+# ---- OPD 在线策略蒸馏 ----
+opd:
+  # Pro 尚未建 OPD prompt 数据: 传 --data 或配置 data_path (参考 nano 的 40 条模板)
+  epochs: 4
+  batch_size: 2
+  n_samples: 2
+  lr: 5.0e-6
+  weight_decay: 0.01
+  clip_grad: 1.0
+  max_seq_len: 4096
+  max_new_tokens: 128
+  temperature: 1.0
+  entropy_coeff: 0.01
+  aux_coeff: 0.01
+  log_interval: 5
+  save_interval: 10
+  seed: 42
+  data_path: ""
+
+# ---- LoRA 微调 (可选路线) ----
+lora:
+  # LoRA 可选实验路线; 数据复用 SFT 集即可
+  epochs: 3
+  batch_size: 4
+  lr: 2.0e-4
+  clip_grad: 1.0
+  max_seq_len: 4096
+  lora_r: 8
+  lora_alpha: 16
+  log_interval: 10
+  data_path: data/pro/sft_data.jsonl
+
 # ---- 分布式 ----
 distributed:
   backend: auto   # auto: Windows 自动回退 gloo，Linux 使用 nccl

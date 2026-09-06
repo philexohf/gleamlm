@@ -1,7 +1,13 @@
 """
 LoRA SFT 微调 — 冻结预训练权重，只更新低秩 adapter。
 
-用法:"""
+用法:
+  python manual/sft_lora.py --variant nano \\
+    --model checkpoints/nano/final.pt \\
+    --output_dir checkpoints/nano/lora
+  (超参默认取 manual/configs/nano.yaml 的 lora 段, CLI 同名参数可覆写;
+   --model 为预训练基座, 数据默认 data/nano/sft/sft_data.jsonl)
+"""
 
 import argparse
 import json
@@ -18,8 +24,15 @@ from gleamlm.models.model import GleamLMModel
 from gleamlm.tokenizer.tokenizer import BBPETokenizer
 from gleamlm.trainer.lora import LoraConfig, apply_lora_to_model, merge_lora_weights
 from gleamlm.utils.chatml import format_chatml
-from gleamlm.utils.config import DEFAULT_TOKENIZER_PATH, extract_checkpoint_config
+from gleamlm.utils.config import (
+    DEFAULT_TOKENIZER_PATH,
+    extract_checkpoint_config,
+    load_config,
+)
 from gleamlm.utils.torch_utils import clean_state_dict
+
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+_ROOT_DIR = os.path.dirname(_SCRIPT_DIR)
 
 
 class SFTDataset(Dataset):
@@ -165,20 +178,56 @@ def train(args):
 
 def parse_args():
     p = argparse.ArgumentParser(description="GleamLM LoRA SFT")
-    p.add_argument("--model", required=True)
-    p.add_argument("--data", required=True)
-    p.add_argument("--output_dir", default="./checkpoints/lora")
-    p.add_argument("--epochs", type=int, default=3)
-    p.add_argument("--batch_size", type=int, default=4)
-    p.add_argument("--seq_len", type=int, default=1024)
-    p.add_argument("--lr", type=float, default=2e-4)
-    p.add_argument("--clip", type=float, default=1.0)
-    p.add_argument("--lora_r", type=int, default=8)
-    p.add_argument("--lora_alpha", type=int, default=16)
-    p.add_argument("--log_interval", type=int, default=10)
-    p.add_argument("--tokenizer_path", default="")
-    p.add_argument("--merge", action="store_true")
-    return p.parse_args()
+    p.add_argument(
+        "--variant",
+        type=str,
+        choices=["nano", "lite", "pro"],
+        required=True,
+        help="模型变体 (读 manual/configs/{variant}.yaml 的 lora 段默认值)",
+    )
+    p.add_argument(
+        "--config_dir",
+        type=str,
+        default=os.path.join(_ROOT_DIR, "manual", "configs"),
+        help="YAML 配置目录 (manual 轨专用)",
+    )
+    p.add_argument("--model", type=str, required=True, help="预训练基座 checkpoint")
+    p.add_argument("--output_dir", type=str, default="./checkpoints/lora")
+    # ── 实验/方案级超参: 默认权威在 YAML lora 段 (default=None + 裁决, 无第二权威) ──
+    p.add_argument(
+        "--epochs", type=int, default=None, help="覆写训练轮数 (默认取 YAML lora.epochs)"
+    )
+    p.add_argument("--batch_size", type=int, default=None, help="覆写 batch size")
+    p.add_argument(
+        "--seq_len", type=int, default=None, help="覆写序列长度 (默认取 YAML lora.max_seq_len)"
+    )
+    p.add_argument("--lr", type=float, default=None, help="覆写学习率 (默认取 YAML lora.lr)")
+    p.add_argument(
+        "--clip", type=float, default=None, help="覆写梯度裁剪 (默认取 YAML lora.clip_grad)"
+    )
+    p.add_argument("--lora_r", type=int, default=None, help="覆写 LoRA rank")
+    p.add_argument("--lora_alpha", type=int, default=None, help="覆写 LoRA alpha")
+    p.add_argument("--log_interval", type=int, default=None, help="覆写日志间隔")
+    p.add_argument(
+        "--data", type=str, default=None, help="JSONL SFT 数据 (未传回落 YAML lora.data_path)"
+    )
+    p.add_argument("--tokenizer_path", type=str, default="")
+    p.add_argument("--merge", action="store_true", help="训练后合并 LoRA 权重到 base")
+    args = p.parse_args()
+
+    # ── 单轨裁决: YAML lora 段为默认权威; CLI 显式传才覆写 ──
+    cfg = load_config(
+        os.path.join(args.config_dir, f"{args.variant}.yaml"), _ROOT_DIR, scope="lora"
+    )
+    for _cli, _key in (("data", "data_path"), ("seq_len", "max_seq_len"), ("clip", "clip_grad")):
+        if getattr(args, _cli) is None:
+            setattr(args, _cli, getattr(cfg.lora, _key))
+    for _key in ("epochs", "batch_size", "lr", "lora_r", "lora_alpha", "log_interval"):
+        if getattr(args, _key) is None:
+            setattr(args, _key, getattr(cfg.lora, _key))
+    if not args.data:
+        p.error("缺少 LoRA 数据: 传 --data 或在 YAML 配置 lora.data_path")
+    return args
 
 
 if __name__ == "__main__":

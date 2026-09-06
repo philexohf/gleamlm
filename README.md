@@ -294,10 +294,10 @@ $env:WANDB_API_KEY = "<你的API_KEY>"
 python manual/sft.py --variant nano --model_path checkpoints/nano/final.pt
 
 # LoRA 微调 —— 可选路线（手写实现，基座用预训练模型），非主链必需
-python manual/sft_lora.py \
+python manual/sft_lora.py --variant nano \
     --model checkpoints/nano/final.pt \
-    --data data/nano/sft/sft_data.jsonl \
     --output_dir checkpoints/nano/lora
+# 数据与超参默认取 nano.yaml 的 lora 段（data/nano/sft/sft_data.jsonl，lr 2e-4，r 8 / alpha 16），CLI 同名参数可覆写
 ```
 
 > LoRA 微调（`sft_lora.py`）为**可选**实验路线（低成本尝鲜 / 理解低秩适应原理），不构成后训练主链步骤；
@@ -338,12 +338,11 @@ python manual/ppo.py \
 ```bash
 # 教师：本地 HF 模型，如 Qwen3-0.6B，下载的教师模型放在checkpoints目录下
 # 教师加载需 transformers，先执行 pip install -e ".[hf]"
-python manual/opd.py \
+python manual/opd.py --variant nano \
     --model checkpoints/nano/dpo/dpo_best.pt \
-    --data data/nano/opd_prompts.jsonl \
     --output_dir checkpoints/nano/opd \
-    --teacher_model_path checkpoints/Qwen3-0.6B \
-    --epochs 4   # 默认已是 4（80 步），显式传以对齐配置记录；其余取默认：lr 5e-6, batch 2, T=1.0, n_samples=2, entropy_coeff 0.01
+    --teacher_model_path checkpoints/Qwen3-0.6B
+# 数据与超参默认取 nano.yaml 的 opd 段：data/nano/opd_prompts.jsonl、lr 5e-6、batch 2、T=1.0、n_samples=2、entropy_coeff 0.01（80 步）
 ```
 
 > **ChatML 帧对齐（THUNLP OPD 论文 §5.2）**：`data/nano/opd_prompts.jsonl` 存裸 user 输入，

@@ -144,6 +144,34 @@ _SCOPE_REQUIRED: dict[str, dict[str, tuple[str, ...]]] = {
             "min_lr_ratio",
             "data_path",
         ),
+        "opd": (
+            "epochs",
+            "batch_size",
+            "n_samples",
+            "lr",
+            "weight_decay",
+            "clip_grad",
+            "max_seq_len",
+            "max_new_tokens",
+            "temperature",
+            "entropy_coeff",
+            "aux_coeff",
+            "log_interval",
+            "save_interval",
+            "seed",
+            "data_path",
+        ),
+        "lora": (
+            "epochs",
+            "batch_size",
+            "lr",
+            "clip_grad",
+            "max_seq_len",
+            "lora_r",
+            "lora_alpha",
+            "log_interval",
+            "data_path",
+        ),
     },
     "training": {
         "training": (
@@ -206,6 +234,38 @@ _SCOPE_REQUIRED: dict[str, dict[str, tuple[str, ...]]] = {
             "data_path",
         ),
     },
+    "opd": {
+        "opd": (
+            "epochs",
+            "batch_size",
+            "n_samples",
+            "lr",
+            "weight_decay",
+            "clip_grad",
+            "max_seq_len",
+            "max_new_tokens",
+            "temperature",
+            "entropy_coeff",
+            "aux_coeff",
+            "log_interval",
+            "save_interval",
+            "seed",
+            "data_path",
+        ),
+    },
+    "lora": {
+        "lora": (
+            "epochs",
+            "batch_size",
+            "lr",
+            "clip_grad",
+            "max_seq_len",
+            "lora_r",
+            "lora_alpha",
+            "log_interval",
+            "data_path",
+        ),
+    },
 }
 
 # tokenizer scope 只需要顶层 data_sources 键存在 (可空)
@@ -215,6 +275,8 @@ _SCOPE_TOP_KEYS: dict[str, tuple[str, ...]] = {
     "tokenizer": ("data_sources",),
     "sft": (),
     "dpo": (),
+    "opd": (),
+    "lora": (),
 }
 
 # 向后兼容别名: 早期/外部引用 _REQUIRED_CONFIG_SECTIONS 即 full 子集
@@ -387,6 +449,42 @@ class DPOConfig(BaseModel):
     data_path: str = ""
 
 
+class OpdConfig(BaseModel):
+    # OPD 默认 = nano 实证/演示标准 (README §OPD): 40 prompt × 4 epochs = 80 步,
+    # T=1.0 / n_samples=2 (组内 LOO) / entropy_coeff 0.01; 曾全部硬编码于
+    # opd.py argparse, 现沉淀 YAML (默认权威, 与 sft/dpo 同构)
+    epochs: int = 4
+    batch_size: int = 2
+    n_samples: int = 2
+    # OPD 用小 lr: 更新方向来自采样轨迹, 大 lr 易崩
+    lr: float = 5e-6
+    weight_decay: float = 0.01
+    clip_grad: float = 1.0
+    max_seq_len: int = 1024
+    max_new_tokens: int = 128
+    temperature: float = 1.0
+    entropy_coeff: float = 0.01
+    aux_coeff: float = 0.01
+    log_interval: int = 5
+    save_interval: int = 10
+    seed: int = 42
+    data_path: str = ""
+
+
+class LoraConfig(BaseModel):
+    # LoRA 可选路线默认 (教学演示, README 标可选): r 8 / alpha 16;
+    # 曾全部硬编码于 sft_lora.py argparse, 现沉淀 YAML
+    epochs: int = 3
+    batch_size: int = 4
+    lr: float = 2e-4
+    clip_grad: float = 1.0
+    max_seq_len: int = 1024
+    lora_r: int = 8
+    lora_alpha: int = 16
+    log_interval: int = 10
+    data_path: str = ""
+
+
 class DistributedConfig(BaseModel):
     backend: str = "auto"
 
@@ -410,6 +508,8 @@ class GleamLMConfig(BaseModel):
     advanced: AdvancedConfig = Field(default_factory=AdvancedConfig)
     sft: SFTConfig = Field(default_factory=SFTConfig)
     dpo: DPOConfig = Field(default_factory=DPOConfig)
+    opd: OpdConfig = Field(default_factory=OpdConfig)
+    lora: LoraConfig = Field(default_factory=LoraConfig)
     distributed: DistributedConfig = Field(default_factory=DistributedConfig)
 
     @classmethod
@@ -431,6 +531,10 @@ class GleamLMConfig(BaseModel):
             self.sft.data_path = os.path.normpath(os.path.join(root_dir, self.sft.data_path))
         if self.dpo.data_path and not os.path.isabs(self.dpo.data_path):
             self.dpo.data_path = os.path.normpath(os.path.join(root_dir, self.dpo.data_path))
+        if self.opd.data_path and not os.path.isabs(self.opd.data_path):
+            self.opd.data_path = os.path.normpath(os.path.join(root_dir, self.opd.data_path))
+        if self.lora.data_path and not os.path.isabs(self.lora.data_path):
+            self.lora.data_path = os.path.normpath(os.path.join(root_dir, self.lora.data_path))
         return self
 
 
@@ -438,7 +542,7 @@ def load_config(config_file: str, root_dir: str = "", scope: str = "full") -> Gl
     """单轨配置加载 — extends 继承 + scope 必读字段校验 + 可选相对路径解析。
 
     scope 决定校验哪些段/键 (按消费方拆分, 见 _SCOPE_REQUIRED):
-      full / training / tokenizer / sft / dpo。
+      full / training / tokenizer / sft / dpo / opd / lora。
 
     pydantic 为核心依赖 (pyproject.toml dependencies)，不再提供
     _DictWrapper 等无 pydantic 降级路径。

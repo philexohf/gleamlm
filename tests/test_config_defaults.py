@@ -9,6 +9,7 @@ validate_required_config_fields 显式报错; 必读清单按消费方拆分 (sc
   - training  : pretrain 训练默认值加载器
   - tokenizer : train_tokenizer (仅 data_sources)
   - sft / dpo : manual/{sft,dpo}.py
+  - opd / lora: manual/{opd,sft_lora}.py
 本文件继续锁死仍可能回退的默认值 —— 任何一边被单独改动都会让用例变红,
 必须显式决定 "哪边为真"再同步另一边。
 """
@@ -85,6 +86,34 @@ _CONSUMED = {
         "min_lr_ratio",
         "data_path",
     ),
+    "opd": (
+        "epochs",
+        "batch_size",
+        "n_samples",
+        "lr",
+        "weight_decay",
+        "clip_grad",
+        "max_seq_len",
+        "max_new_tokens",
+        "temperature",
+        "entropy_coeff",
+        "aux_coeff",
+        "log_interval",
+        "save_interval",
+        "seed",
+        "data_path",
+    ),
+    "lora": (
+        "epochs",
+        "batch_size",
+        "lr",
+        "clip_grad",
+        "max_seq_len",
+        "lora_r",
+        "lora_alpha",
+        "log_interval",
+        "data_path",
+    ),
 }
 
 
@@ -133,7 +162,7 @@ def test_full_consumed_fields_present_in_variant(name: str) -> None:
     assert not missing, f"{name}.yaml 缺少 full 必读字段: {', '.join(missing)}"
 
 
-@pytest.mark.parametrize("scope", ["training", "tokenizer", "sft", "dpo"])
+@pytest.mark.parametrize("scope", [s for s in _scopes() if s != "full"])
 @pytest.mark.parametrize("name", ["base", "nano", "lite", "pro"])
 def test_scope_fields_present_in_variant(scope: str, name: str) -> None:
     """每个 scope 的必读字段在变体中都必须齐全 (full ⊇ scope 关系护栏)。"""

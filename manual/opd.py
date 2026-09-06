@@ -48,11 +48,11 @@ OPD (On-Policy Distillation) — 教师打分 + 序列级 Reverse KL。
   - baseline 降低方差; 组内 leave-one-out 是 GRPO 的贡献
   - 长度归一化: 学生倾向拉长输出刷 logprob (length inflation)，除以长度缓解
  用法:
-  python manual/opd.py \
+  python manual/opd.py --variant nano \
     --model checkpoints/nano/dpo/dpo_best.pt \
-    --data data/opd_prompts.jsonl \
     --output_dir checkpoints/nano/opd \
     --teacher_model_path checkpoints/Qwen3-0.6B
+  (超参默认取 manual/configs/nano.yaml 的 opd 段, CLI 同名参数可覆写)
 
 工程可靠性 (v3):
   - ChatML 帧对齐 (THUNLP OPD 论文 §5.2): 数据文件存裸 user 输入，训练时套成
@@ -89,8 +89,15 @@ from torch.utils.data import DataLoader, Dataset
 from gleamlm.models.model import GleamLMModel
 from gleamlm.tokenizer.tokenizer import BBPETokenizer
 from gleamlm.utils.chatml import format_chatml
-from gleamlm.utils.config import DEFAULT_TOKENIZER_PATH, extract_checkpoint_config
+from gleamlm.utils.config import (
+    DEFAULT_TOKENIZER_PATH,
+    extract_checkpoint_config,
+    load_config,
+)
 from gleamlm.utils.torch_utils import clean_state_dict, safe_autocast
+
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+_ROOT_DIR = os.path.dirname(_SCRIPT_DIR)
 
 
 class OPDDataset(Dataset):
@@ -541,37 +548,41 @@ def train(args):
 
 def parse_args():
     p = argparse.ArgumentParser(description="GleamLM OPD — 本地 HF 教师蒸馏")
+    p.add_argument(
+        "--variant",
+        type=str,
+        choices=["nano", "lite", "pro"],
+        required=True,
+        help="模型变体 (读 manual/configs/{variant}.yaml 的 opd 段默认值)",
+    )
+    p.add_argument(
+        "--config_dir",
+        type=str,
+        default=os.path.join(_ROOT_DIR, "manual", "configs"),
+        help="YAML 配置目录 (manual 轨专用)",
+    )
     p.add_argument("--model", type=str, required=True, help="Student checkpoint")
     p.add_argument(
-        "--data", type=str, required=True, help="JSONL prompts (每行 prompt/instruction 或纯文本)"
+        "--data", type=str, default=None, help="JSONL prompts (未传回落 YAML opd.data_path)"
     )
     p.add_argument("--output_dir", type=str, default="./checkpoints/opd")
+    # ── 实验/方案级超参: 默认权威在 YAML opd 段 (default=None + 裁决, 无第二权威) ──
+    p.add_argument("--epochs", type=int, default=None, help="覆写训练轮数 (默认取 YAML opd.epochs)")
+    p.add_argument("--batch_size", type=int, default=None, help="覆写每 step 的 prompt 数")
+    p.add_argument("--n_samples", type=int, default=None, help="覆写每 prompt 采样条数")
     p.add_argument(
-        "--epochs",
-        type=int,
-        default=4,
-        help="训练轮数 (默认 4, nano 演示标准: 40 prompt × 4 = 80 步)",
+        "--seq_len", type=int, default=None, help="覆写序列长度 (默认取 YAML opd.max_seq_len)"
     )
-    p.add_argument("--batch_size", type=int, default=2, help="每 step 的 prompt 数")
+    p.add_argument("--max_new_tokens", type=int, default=None, help="覆写生成新 token 上限")
+    p.add_argument("--temperature", type=float, default=None, help="覆写采样温度")
+    p.add_argument("--lr", type=float, default=None, help="覆写学习率 (默认取 YAML opd.lr)")
+    p.add_argument("--weight_decay", type=float, default=None, help="覆写权重衰减")
     p.add_argument(
-        "--n_samples",
-        type=int,
-        default=2,
-        help="每个 prompt 采样条数 (THUNLP 用 4; >1 时启用组内 LOO baseline)",
+        "--clip", type=float, default=None, help="覆写梯度裁剪 (默认取 YAML opd.clip_grad)"
     )
-    p.add_argument("--seq_len", type=int, default=1024)
-    p.add_argument("--max_new_tokens", type=int, default=128)
-    p.add_argument(
-        "--temperature", type=float, default=1.0, help="采样温度 (0 = 贪心, 退化为 on-policy SFT)"
-    )
-    p.add_argument(
-        "--lr", type=float, default=5e-6, help="OPD 用小 lr: 更新方向来自采样轨迹, 大 lr 易崩"
-    )
-    p.add_argument("--weight_decay", type=float, default=0.01)
-    p.add_argument("--clip", type=float, default=1.0)
-    p.add_argument("--entropy_coeff", type=float, default=0.01, help="熵正则: 防止策略过早坍缩")
-    p.add_argument("--log_interval", type=int, default=5)
-    p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--entropy_coeff", type=float, default=None, help="覆写熵正则系数")
+    p.add_argument("--log_interval", type=int, default=None, help="覆写日志间隔")
+    p.add_argument("--seed", type=int, default=None, help="覆写随机种子 (默认取 YAML opd.seed)")
     p.add_argument("--tokenizer_path", type=str, default="")
     # ── 教师 (本地 HF 模型，OPD 唯一方式) ──
     p.add_argument(
@@ -581,7 +592,7 @@ def parse_args():
         help="本地 HF 教师模型目录，如 checkpoints/Qwen3-0.6B",
     )
     # ── 工程可靠性 (v2) ──
-    p.add_argument("--aux_coeff", type=float, default=0.01, help="MoE aux loss 系数")
+    p.add_argument("--aux_coeff", type=float, default=None, help="覆写 MoE aux loss 系数")
     p.add_argument(
         "--resume",
         action="store_true",
@@ -590,8 +601,8 @@ def parse_args():
     p.add_argument(
         "--save_interval",
         type=int,
-        default=10,
-        help="每 N 步保存一次周期 checkpoint (opd_checkpoint.pt)",
+        default=None,
+        help="覆写周期 checkpoint 保存间隔 (默认取 YAML opd.save_interval)",
     )
     p.add_argument(
         "--no_score_cache",
@@ -599,6 +610,30 @@ def parse_args():
         help="关闭教师打分结果缓存 (默认开启；同 prompt+completion 重复打分结果一致)",
     )
     args = p.parse_args()
+
+    # ── 单轨裁决: YAML opd 段为默认权威; CLI 显式传才覆写 ──
+    cfg = load_config(os.path.join(args.config_dir, f"{args.variant}.yaml"), _ROOT_DIR, scope="opd")
+    for _cli, _key in (("data", "data_path"), ("seq_len", "max_seq_len"), ("clip", "clip_grad")):
+        if getattr(args, _cli) is None:
+            setattr(args, _cli, getattr(cfg.opd, _key))
+    for _key in (
+        "epochs",
+        "batch_size",
+        "n_samples",
+        "lr",
+        "weight_decay",
+        "max_new_tokens",
+        "temperature",
+        "entropy_coeff",
+        "aux_coeff",
+        "log_interval",
+        "save_interval",
+        "seed",
+    ):
+        if getattr(args, _key) is None:
+            setattr(args, _key, getattr(cfg.opd, _key))
+    if not args.data:
+        p.error("缺少 OPD 数据: 传 --data 或在 YAML 配置 opd.data_path")
     args.api_cache = not args.no_score_cache  # 兼容保留: 打分缓存开关
     return args
 
