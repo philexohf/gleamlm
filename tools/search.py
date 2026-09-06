@@ -12,7 +12,6 @@
   # 每个 config 可以直接传给 pretrain.py 的 --config 或命令行参数
 """
 
-import copy
 import itertools
 import random
 from typing import Any
@@ -52,10 +51,10 @@ def _sample_from_spec(spec: Any) -> Any:
 
 
 def _expand_grid(space: dict[str, Any]) -> list[dict[str, Any]]:
-    keys, values = zip(*space.items())
+    keys, values = list(zip(*space.items(), strict=True))
     configs = []
     for combo in itertools.product(*values):
-        configs.append(dict(zip(keys, combo)))
+        configs.append(dict(zip(keys, combo, strict=True)))
     return configs
 
 

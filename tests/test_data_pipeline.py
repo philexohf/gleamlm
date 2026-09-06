@@ -36,7 +36,9 @@ GOOD_EN = (
     "phases: unsupervised pretraining on general text, followed by supervised "
     "fine-tuning on task-specific data to align the model with human instructions."
 )
-JUNK_SYMBOL = "!!!!!@@@@@#####$$$$$%%%%%^^^^^^^^^&&&&&*****((((())))))~~~~~:::::;;;;;;<<<<<>>>>>|||||"
+JUNK_SYMBOL = (
+    "!!!!!@@@@@#####$$$$$%%%%%^^^^^^^^^&&&&&*****((((())))))~~~~~:::::;;;;;;<<<<<>>>>>|||||"
+)
 
 Z2 = (
     "人工神经网络由大量相互连接的神经元组成，每个神经元接收输入信号，通过激活"
@@ -218,7 +220,7 @@ def test_stream_split_ratios(tmp_path):
     )
     total = sum(len(_read_lines(f"{prefix}_{name}.txt")) for name in ("train", "valid", "test"))
     assert total == 20, "全部行应被分派"
-    assert {s["rows"] for s in stats} == {10, 10}
+    assert {s["rows"] for s in stats} == {10}
     train = len(_read_lines(f"{prefix}_train.txt"))
     assert 0.8 < train / total < 0.98, "概率切分 train ≈ 90%"
 
@@ -294,13 +296,20 @@ def test_pipeline_e2e(tmp_path, monkeypatch):
 
     args = [
         "pipeline",
-        "--input", str(raw),
-        "--sources", "wiki", "news",
-        "--output-prefix", str(tmp_path / "out"),
-        "--tokenizer", "bbpe",
-        "--tokenizer-path", DEFAULT_TOKENIZER_PATH,
+        "--input",
+        str(raw),
+        "--sources",
+        "wiki",
+        "news",
+        "--output-prefix",
+        str(tmp_path / "out"),
+        "--tokenizer",
+        "bbpe",
+        "--tokenizer-path",
+        DEFAULT_TOKENIZER_PATH,
         "--minhash",
-        "--workers", "1",
+        "--workers",
+        "1",
         "--skip-verify",
     ]
     monkeypatch.setattr(sys, "argv", args)

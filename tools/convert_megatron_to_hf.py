@@ -32,6 +32,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 from hf.hf_config import gleamlm_config_from_core
 from hf.hf_model import GleamLMForCausalLM
 
+
 # Megatron 反融合索引（见模块 docstring）
 def _defuse_qkv(fused: torch.Tensor, n_q: int, n_kv: int, head_dim: int):
     """fused (n_q+n_kv+n_kv)*head_dim × d → (W_q, W_k, W_v)。"""
@@ -41,10 +42,10 @@ def _defuse_qkv(fused: torch.Tensor, n_q: int, n_kv: int, head_dim: int):
     Wv = torch.zeros(n_kv * head_dim, fused.size(1), dtype=fused.dtype)
     for g in range(n_kv):
         base = g * (qpg + 2) * head_dim
-        for l in range(qpg):  # q head 全局 id = g*qpg + l
-            i = g * qpg + l
+        for q in range(qpg):  # q head 全局 id = g*qpg + q
+            i = g * qpg + q
             Wq[i * head_dim : (i + 1) * head_dim] = fused[
-                base + l * head_dim : base + (l + 1) * head_dim
+                base + q * head_dim : base + (q + 1) * head_dim
             ]
         Wk[g * head_dim : (g + 1) * head_dim] = fused[
             base + qpg * head_dim : base + (qpg + 1) * head_dim
@@ -61,7 +62,8 @@ def _defuse_glu(fc1: torch.Tensor, d_ff: int):
 
 
 def _core_config_from_yaml(path: str) -> dict:
-    cfg = yaml.safe_load(open(path, encoding="utf-8"))
+    with open(path, encoding="utf-8") as f:
+        cfg = yaml.safe_load(f)
     m = cfg["model"]
     return {
         "vocab_size": m["vocab_size"],
@@ -110,9 +112,7 @@ def convert(megatron_sd: dict, cfg: dict) -> dict:
         out[f"{q}.attn.q_norm.weight"] = sd[f"{p}.self_attention.q_layernorm.weight"]
         out[f"{q}.attn.k_norm.weight"] = sd[f"{p}.self_attention.k_layernorm.weight"]
         # 反融合 QKV + o_proj
-        Wq, Wk, Wv = _defuse_qkv(
-            sd[f"{p}.self_attention.linear_qkv.weight"], n_q, n_kv, head_dim
-        )
+        Wq, Wk, Wv = _defuse_qkv(sd[f"{p}.self_attention.linear_qkv.weight"], n_q, n_kv, head_dim)
         out[f"{q}.attn.W_q.weight"] = Wq
         out[f"{q}.attn.W_k.weight"] = Wk
         out[f"{q}.attn.W_v.weight"] = Wv
@@ -124,12 +124,12 @@ def convert(megatron_sd: dict, cfg: dict) -> dict:
         out[f"{q}.ffn.W_down.weight"] = sd[f"{p}.mlp.linear_fc2.weight"]
 
     # 严格校验: 与 target key 集合一致（防止漏映射/命名错）
-    missing = sorted(set(target_sd) - set(out) - {k for k in target_sd if "rope_cos" in k or "rope_sin" in k})
+    missing = sorted(
+        set(target_sd) - set(out) - {k for k in target_sd if "rope_cos" in k or "rope_sin" in k}
+    )
     unexpected = sorted(set(out) - set(target_sd))
     if missing or unexpected:
-        raise RuntimeError(
-            f"key 不一致 — missing: {missing[:5]} | unexpected: {unexpected[:5]}"
-        )
+        raise RuntimeError(f"key 不一致 — missing: {missing[:5]} | unexpected: {unexpected[:5]}")
     return out
 
 
@@ -138,8 +138,11 @@ def main():
     p.add_argument("--ckpt", required=True, help="Megatron checkpoint .pt")
     p.add_argument("--config", required=True, help="industrial configs/*.yaml")
     p.add_argument("--out", required=True, help="HF 输出目录")
-    p.add_argument("--tokenizer-path", default="gleamlm/tokenizer/checkpoints/bbpe_12k",
-                   help="BBPE 原生 tokenizer 目录（导出 HF tokenizer.json）")
+    p.add_argument(
+        "--tokenizer-path",
+        default="gleamlm/tokenizer/checkpoints/bbpe_12k",
+        help="BBPE 原生 tokenizer 目录（导出 HF tokenizer.json）",
+    )
     p.add_argument("--verify", action="store_true", help="与 Megatron 模型对比 logits")
     args = p.parse_args()
 
@@ -173,11 +176,11 @@ def _verify(args, cfg: dict, hf_sd: dict):
     _os.environ.setdefault("MASTER_PORT", "23456")
     import torch.distributed as dist
     from megatron.core import parallel_state
+    from megatron.core.tensor_parallel.random import model_parallel_cuda_manual_seed
     from megatron.core.transformer import TransformerConfig
 
-    from industrial.pretrain import build_model, build_position_ids
     from gleamlm.tokenizer.tokenizer import BBPETokenizer
-    from megatron.core.tensor_parallel.random import model_parallel_cuda_manual_seed
+    from industrial.pretrain import build_model, build_position_ids
 
     dist.init_process_group(backend="nccl")
     torch.cuda.set_device(dist.get_rank())
@@ -185,7 +188,8 @@ def _verify(args, cfg: dict, hf_sd: dict):
         tensor_model_parallel_size=1, pipeline_model_parallel_size=1, context_parallel_size=1
     )
     model_parallel_cuda_manual_seed(seed=42)
-    mcfg = yaml.safe_load(open(args.config, encoding="utf-8"))
+    with open(args.config, encoding="utf-8") as f:
+        mcfg = yaml.safe_load(f)
     m = mcfg["model"]
     tcfg = TransformerConfig(
         num_layers=m["num_layers"],
@@ -213,17 +217,14 @@ def _verify(args, cfg: dict, hf_sd: dict):
     meg_model.eval()
 
     tok_path = (
-        mcfg.get("data", {}).get("tokenizer_path")
-        or "gleamlm/tokenizer/checkpoints/bbpe_12k"
+        mcfg.get("data", {}).get("tokenizer_path") or "gleamlm/tokenizer/checkpoints/bbpe_12k"
     )
     tok = BBPETokenizer.load(tok_path)
     # 用训练数据前缀不必要；直接用 tokenizer 编一段文本
     txt = "中国的首都是北京，上海是中国最大的城市之一。"
     ids = torch.tensor([tok.encode(txt, add_bos=False, add_eos=False)])[:, :64].cuda()
     s = ids.size(1)
-    causal = torch.triu(
-        torch.ones(s, s, dtype=torch.bool, device=ids.device), diagonal=1
-    )
+    causal = torch.triu(torch.ones(s, s, dtype=torch.bool, device=ids.device), diagonal=1)
     attn = causal.unsqueeze(0).expand(ids.size(0), 1, s, s)
     with torch.no_grad():
         meg_logits = meg_model(

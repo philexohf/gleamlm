@@ -12,30 +12,31 @@ YaRN (Yet another RoPE extensioN) 单元测试。
   python -m pytest tests/test_yarn_rope.py -v
 """
 
-import math
-
 import torch
-import torch.nn.functional as F
 
 from gleamlm.models.model import _compute_yarn_freqs, apply_rope, precompute_freqs_cis, rotate_half
-
 
 # ════════════════════════════════════════════════════
 # 辅助函数
 # ════════════════════════════════════════════════════
+
 
 def _make_cos_sin_standard(head_dim: int, max_seq_len: int, base: float = 10000.0):
     return precompute_freqs_cis(head_dim, max_seq_len, base=base, rope_scale=1.0)
 
 
 def _make_cos_sin_yarn(
-    head_dim: int, max_seq_len: int,
-    original_max_seq_len: int, rope_scale: float,
+    head_dim: int,
+    max_seq_len: int,
+    original_max_seq_len: int,
+    rope_scale: float,
     base: float = 10000.0,
 ):
     return precompute_freqs_cis(
-        head_dim, max_seq_len,
-        base=base, rope_scale=rope_scale,
+        head_dim,
+        max_seq_len,
+        base=base,
+        rope_scale=rope_scale,
         original_max_seq_len=original_max_seq_len,
     )
 
@@ -44,8 +45,8 @@ def _make_cos_sin_yarn(
 # 标准 RoPE 基础测试
 # ════════════════════════════════════════════════════
 
-class TestStandardRoPE:
 
+class TestStandardRoPE:
     def test_rope_shape(self):
         cos, sin = _make_cos_sin_standard(64, 128)
         B, H, S, D = 2, 4, 32, 64
@@ -85,7 +86,6 @@ class TestStandardRoPE:
 
 
 class TestStandardRoPEScaled:
-
     def test_scale_is_pure_position_interpolation(self):
         cos, _ = _make_cos_sin_standard(64, 512)
         cos_pi, _ = precompute_freqs_cis(64, 512, rope_scale=4.0)
@@ -96,8 +96,8 @@ class TestStandardRoPEScaled:
 # YaRN 独立函数测试
 # ════════════════════════════════════════════════════
 
-class TestComputeYarnFreqs:
 
+class TestComputeYarnFreqs:
     def test_output_shape(self):
         freq = _compute_yarn_freqs(64, factor=8.0, original_max_seq_len=4096)
         assert freq.shape == (32,)
@@ -135,8 +135,8 @@ class TestComputeYarnFreqs:
 # YaRN 位置编码测试
 # ════════════════════════════════════════════════════
 
-class TestYaRNPositionUniqueness:
 
+class TestYaRNPositionUniqueness:
     def test_all_positions_unique(self):
         cos, sin = _make_cos_sin_yarn(64, 256, original_max_seq_len=32, rope_scale=8.0)
         for i in range(255):
@@ -150,11 +150,12 @@ class TestYaRNPositionUniqueness:
 
 
 class TestYaRNHighFreqPreserved:
-
     def test_high_freq_not_collapsed(self):
         cos_y, _ = _make_cos_sin_yarn(64, 4097, original_max_seq_len=512, rope_scale=8.0)
-        diffs = [float((cos_y[p, -8:] - cos_y[p + 1, -8:]).abs().max())
-                 for p in [100, 500, 1000, 2000, 3000, 4000, 4090]]
+        diffs = [
+            float((cos_y[p, -8:] - cos_y[p + 1, -8:]).abs().max())
+            for p in [100, 500, 1000, 2000, 3000, 4000, 4090]
+        ]
         assert min(diffs) > 5e-5, f"高频塌缩: min diff={min(diffs):.6e}"
 
     def test_high_freq_comparable_to_standard(self):
@@ -167,17 +168,18 @@ class TestYaRNHighFreqPreserved:
 
 
 class TestYaRNBoundarySmoothness:
-
     def test_boundary_continuous(self):
         cos_y, _ = _make_cos_sin_yarn(64, 256, original_max_seq_len=64, rope_scale=4.0)
-        def l2(p): return (cos_y[p] - cos_y[p + 1]).norm().item()
+
+        def l2(p):
+            return (cos_y[p] - cos_y[p + 1]).norm().item()
+
         b = sum(l2(p) for p in range(56, 72)) / 16
         i = sum(l2(p) for p in range(32, 48)) / 16
         assert b < i * 5.0, f"边界突变: boundary={b:.4f} inner={i:.4f}"
 
 
 class TestYaRNRelativePosition:
-
     def test_relative_position_yarn(self):
         """YaRN: q(m)·k(n) 仍只依赖于 d=m-n（用 ones 向量验证）"""
         cos, sin = _make_cos_sin_yarn(64, 256, original_max_seq_len=64, rope_scale=4.0)
@@ -188,11 +190,10 @@ class TestYaRNRelativePosition:
         dots = [float((qr[0, 0, p] * kr[0, 0, p + d]).sum()) for p in range(5, 55)]
         # YaRN 调整 inv_freq 后某些维度的 theta 变化较大，
         # 导致 cos(d*theta) 对 d 的精度要求更高，允许稍大容差
-        assert max(dots) - min(dots) < 0.1, f"spread={max(dots)-min(dots):.4e}"
+        assert max(dots) - min(dots) < 0.1, f"spread={max(dots) - min(dots):.4e}"
 
 
 class TestYaRNTrainingRange:
-
     def test_position_zero_identical(self):
         cos_s, _ = _make_cos_sin_standard(64, 256)
         cos_y, _ = _make_cos_sin_yarn(64, 256, original_max_seq_len=64, rope_scale=4.0)
@@ -201,8 +202,11 @@ class TestYaRNTrainingRange:
     def test_interpolation_consistency(self):
         """factor=4: 训练范围边界内，YaRN 频率过渡平滑"""
         cos_y, _ = _make_cos_sin_yarn(64, 256, original_max_seq_len=64, rope_scale=4.0)
+
         # 在训练边界前后各取 8 个位置，相邻差异应连续无跳变
-        def l2(p): return (cos_y[p] - cos_y[p + 1]).norm().item()
+        def l2(p):
+            return (cos_y[p] - cos_y[p + 1]).norm().item()
+
         diffs = [l2(p) for p in range(56, 72)]
         # 差异不应有数量级跳变
         assert max(diffs) < min(diffs) * 5.0, f"训练边界频率跳变: {diffs}"
@@ -211,6 +215,7 @@ class TestYaRNTrainingRange:
 # ════════════════════════════════════════════════════
 # 0.6B 模型实际参数回归测试
 # ════════════════════════════════════════════════════
+
 
 class TestGleamLM06BConfig:
     HEAD_DIM = 64
@@ -221,8 +226,10 @@ class TestGleamLM06BConfig:
 
     def test_shape(self):
         cos, sin = precompute_freqs_cis(
-            self.HEAD_DIM, self.ROPE_MAX_LEN,
-            base=self.THETA, rope_scale=self.SCALE,
+            self.HEAD_DIM,
+            self.ROPE_MAX_LEN,
+            base=self.THETA,
+            rope_scale=self.SCALE,
             original_max_seq_len=self.ORIGINAL,
         )
         assert cos.shape == (self.ROPE_MAX_LEN, self.HEAD_DIM)
@@ -231,16 +238,20 @@ class TestGleamLM06BConfig:
     def test_position_zero(self):
         cos_s, _ = precompute_freqs_cis(self.HEAD_DIM, 256, base=self.THETA, rope_scale=1.0)
         cos_y, _ = precompute_freqs_cis(
-            self.HEAD_DIM, self.ROPE_MAX_LEN,
-            base=self.THETA, rope_scale=self.SCALE,
+            self.HEAD_DIM,
+            self.ROPE_MAX_LEN,
+            base=self.THETA,
+            rope_scale=self.SCALE,
             original_max_seq_len=self.ORIGINAL,
         )
         assert torch.allclose(cos_s[0], cos_y[0], atol=1e-6)
 
     def test_high_freq_alive(self):
         cos_y, _ = precompute_freqs_cis(
-            self.HEAD_DIM, self.ROPE_MAX_LEN,
-            base=self.THETA, rope_scale=self.SCALE,
+            self.HEAD_DIM,
+            self.ROPE_MAX_LEN,
+            base=self.THETA,
+            rope_scale=self.SCALE,
             original_max_seq_len=self.ORIGINAL,
         )
         for pos in range(0, min(2000, self.ROPE_MAX_LEN - 1)):
@@ -250,10 +261,12 @@ class TestGleamLM06BConfig:
 
     def test_low_freq_dim_unique(self):
         cos_y, _ = precompute_freqs_cis(
-            self.HEAD_DIM, self.ROPE_MAX_LEN,
-            base=self.THETA, rope_scale=self.SCALE,
+            self.HEAD_DIM,
+            self.ROPE_MAX_LEN,
+            base=self.THETA,
+            rope_scale=self.SCALE,
             original_max_seq_len=self.ORIGINAL,
         )
         vals = cos_y[1000, :8]
         for i in range(0, 6, 2):
-            assert (vals[i:i+2] - vals[i+2:i+4]).abs().max() > 0
+            assert (vals[i : i + 2] - vals[i + 2 : i + 4]).abs().max() > 0

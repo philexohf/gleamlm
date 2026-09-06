@@ -24,22 +24,17 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import torch
 import torch.distributed as dist
 import torch.nn.functional as F
-from torch.distributed.fsdp import (
-    FullyShardedDataParallel as FSDP,
-    MixedPrecision,
-    ShardingStrategy,
-)
-from torch.distributed.fsdp.wrap import (
-    transformer_auto_wrap_policy,
-)
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP  # noqa: N817 (框架约定缩写)
+from torch.distributed.fsdp import MixedPrecision, ShardingStrategy
+from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 
 from gleamlm.data.dataset import tokenize_and_group
-from gleamlm.models.model import GleamLMModel, DecoderLayer
+from gleamlm.models.model import DecoderLayer, GleamLMModel
 from gleamlm.tokenizer.tokenizer import BBPETokenizer
-from gleamlm.utils.config import DEFAULT_TOKENIZER_PATH, ModelConfig
 from gleamlm.trainer.schedulers import get_lr_cosine
+from gleamlm.utils.config import DEFAULT_TOKENIZER_PATH, ModelConfig
 
 
 def train(args, model_cfg: ModelConfig):
@@ -49,7 +44,9 @@ def train(args, model_cfg: ModelConfig):
     device = torch.device(f"cuda:{local_rank}")
 
     if dist.get_rank() == 0:
-        print(f"World size: {dist.get_world_size()}, FSDP stage: ZeRO-{3 if args.full_shard else 2}")
+        print(
+            f"World size: {dist.get_world_size()}, FSDP stage: ZeRO-{3 if args.full_shard else 2}"
+        )
 
     tokenizer = BBPETokenizer.load(args.tokenizer_path or DEFAULT_TOKENIZER_PATH)
     model = GleamLMModel(
@@ -83,7 +80,9 @@ def train(args, model_cfg: ModelConfig):
 
     model = FSDP(
         model,
-        sharding_strategy=ShardingStrategy.FULL_SHARD if args.full_shard else ShardingStrategy.SHARD_GRAD_OP,
+        sharding_strategy=ShardingStrategy.FULL_SHARD
+        if args.full_shard
+        else ShardingStrategy.SHARD_GRAD_OP,
         mixed_precision=mp_policy,
         auto_wrap_policy=wrap_policy,
         device_id=local_rank,
@@ -91,7 +90,9 @@ def train(args, model_cfg: ModelConfig):
 
     dataset = tokenize_and_group(args.data, tokenizer, model_cfg.max_seq_len)
     sampler = DistributedSampler(dataset, shuffle=True)
-    loader = DataLoader(dataset, batch_size=args.batch_size, sampler=sampler, num_workers=4, pin_memory=True)
+    loader = DataLoader(
+        dataset, batch_size=args.batch_size, sampler=sampler, num_workers=4, pin_memory=True
+    )
 
     optimizer = torch.optim.AdamW(
         model.parameters(),
@@ -129,8 +130,7 @@ def train(args, model_cfg: ModelConfig):
 
 def parse_args():
     p = argparse.ArgumentParser(description="GleamLM FSDP training")
-    p.add_argument("--model", type=str, required=True,
-                   help="模型架构 YAML (configs/models/*.yaml)")
+    p.add_argument("--model", type=str, required=True, help="模型架构 YAML (configs/models/*.yaml)")
     p.add_argument("--data", type=str, required=True)
     p.add_argument("--epochs", type=int, default=3)
     p.add_argument("--batch_size", type=int, default=4)
@@ -147,6 +147,8 @@ if __name__ == "__main__":
     args = parse_args()
     model_cfg = ModelConfig.from_yaml(args.model)
     print(f"Model: {args.model}")
-    print(f"  d_model={model_cfg.d_model}  layers={model_cfg.num_layers}  "
-          f"heads={model_cfg.num_heads}/{model_cfg.num_kv_heads}")
+    print(
+        f"  d_model={model_cfg.d_model}  layers={model_cfg.num_layers}  "
+        f"heads={model_cfg.num_heads}/{model_cfg.num_kv_heads}"
+    )
     train(args, model_cfg)

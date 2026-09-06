@@ -28,10 +28,10 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
+from gleamlm.data.rl_data import RLHFDataset, tokenize_prompts
 from gleamlm.models.model import GleamLMModel
 from gleamlm.tokenizer.tokenizer import BBPETokenizer
 from gleamlm.trainer.rl_trainer import compute_reward, grpo_loss
-from gleamlm.data.rl_data import RLHFDataset, tokenize_prompts
 from gleamlm.utils.config import DEFAULT_TOKENIZER_PATH, extract_checkpoint_config
 from gleamlm.utils.torch_utils import clean_state_dict, safe_autocast
 
@@ -49,7 +49,9 @@ def train(args):
 
     dataset = RLHFDataset(args.data, max_seq_len=args.seq_len)
     loader = DataLoader(
-        dataset, batch_size=args.batch_size, shuffle=True,
+        dataset,
+        batch_size=args.batch_size,
+        shuffle=True,
         collate_fn=lambda b: b,
     )
 
@@ -77,7 +79,9 @@ def train(args):
     for p in ref_model.parameters():
         p.requires_grad = False
 
-    optimizer = torch.optim.AdamW(policy_model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    optimizer = torch.optim.AdamW(
+        policy_model.parameters(), lr=args.lr, weight_decay=args.weight_decay
+    )
 
     if rank == 0:
         total = sum(p.numel() for p in policy_model.parameters())
@@ -85,7 +89,7 @@ def train(args):
         os.makedirs(args.output_dir, exist_ok=True)
 
     global_step = 0
-    for epoch in range(args.epochs):
+    for _ in range(args.epochs):
         for batch_items in loader:
             # batch_items: list[{"prompt", "ground_truth"}]（RLHFDataset 返回 dict）
             batch_prompts = [it["prompt"] for it in batch_items]
@@ -126,13 +130,17 @@ def train(args):
                 gen_ids = gen_seqs[g_idx]
                 # reward 只针对回答部分打分 (prompt 是固定条件，不计入)。
                 resp_ids = gen_ids[:, prompt_len:]
-                decoded = [tokenizer.decode(resp_ids[i].tolist(), skip_special=True) for i in range(len(batch_prompts))]
+                decoded = [
+                    tokenizer.decode(resp_ids[i].tolist(), skip_special=True)
+                    for i in range(len(batch_prompts))
+                ]
                 rewards[:, g_idx] = torch.tensor(
                     [
                         compute_reward(d, gt)
-                        for d, gt in zip(decoded, batch_ground_truth)
+                        for d, gt in zip(decoded, batch_ground_truth, strict=True)
                     ],
-                    device=device, dtype=torch.float,
+                    device=device,
+                    dtype=torch.float,
                 )
             adv = (rewards - rewards.mean(dim=-1, keepdim=True)) / (
                 rewards.std(dim=-1, keepdim=True) + 1e-8
@@ -153,8 +161,12 @@ def train(args):
                         r_logits, _, _, _ = ref_model(gen_ids)
 
                 loss = grpo_loss(
-                    p_logits, r_logits, gen_ids, prompt_len,
-                    adv[:, g_idx], beta=args.beta,
+                    p_logits,
+                    r_logits,
+                    gen_ids,
+                    prompt_len,
+                    adv[:, g_idx],
+                    beta=args.beta,
                 )
                 all_losses.append(loss / args.group_size)
 
@@ -169,10 +181,14 @@ def train(args):
             global_step += 1
 
     if rank == 0:
-        torch.save({
-            "model_state_dict": policy_model.state_dict(),
-            "_config": extract_checkpoint_config(ckpt), "step": global_step,
-        }, os.path.join(args.output_dir, "grpo_final.pt"))
+        torch.save(
+            {
+                "model_state_dict": policy_model.state_dict(),
+                "_config": extract_checkpoint_config(ckpt),
+                "step": global_step,
+            },
+            os.path.join(args.output_dir, "grpo_final.pt"),
+        )
 
 
 def parse_args():
@@ -185,7 +201,12 @@ def parse_args():
     p.add_argument("--seq_len", type=int, default=1024)
     p.add_argument("--max_new_tokens", type=int, default=128)
     p.add_argument("--group_size", type=int, default=4)
-    p.add_argument("--temperature", type=float, default=0.8, help="rollout 采样温度 (0 = 贪心, 组内轨迹将完全相同)")
+    p.add_argument(
+        "--temperature",
+        type=float,
+        default=0.8,
+        help="rollout 采样温度 (0 = 贪心, 组内轨迹将完全相同)",
+    )
     p.add_argument("--beta", type=float, default=0.04)
     p.add_argument("--lr", type=float, default=5e-7)
     p.add_argument("--weight_decay", type=float, default=0.01)

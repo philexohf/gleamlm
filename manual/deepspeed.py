@@ -34,11 +34,10 @@ import torch.nn.functional as F  # noqa: E402
 from torch.utils.data import DataLoader  # noqa: E402
 from torch.utils.data.distributed import DistributedSampler  # noqa: E402
 
-from gleamlm.data.dataset import tokenize_and_group
-from gleamlm.models.model import GleamLMModel
-from gleamlm.tokenizer.tokenizer import BBPETokenizer
-from gleamlm.utils.config import DEFAULT_TOKENIZER_PATH, ModelConfig
-from gleamlm.trainer.schedulers import get_lr_cosine
+from gleamlm.data.dataset import tokenize_and_group  # noqa: E402
+from gleamlm.models.model import GleamLMModel  # noqa: E402
+from gleamlm.tokenizer.tokenizer import BBPETokenizer  # noqa: E402
+from gleamlm.utils.config import DEFAULT_TOKENIZER_PATH, ModelConfig  # noqa: E402
 
 
 def train(args, model_cfg: ModelConfig):
@@ -77,7 +76,9 @@ def train(args, model_cfg: ModelConfig):
 
     dataset = tokenize_and_group(args.data, tokenizer, model_cfg.max_seq_len)
     sampler = DistributedSampler(dataset, shuffle=True)
-    loader = DataLoader(dataset, batch_size=args.batch_size, sampler=sampler, num_workers=4, pin_memory=True)
+    loader = DataLoader(
+        dataset, batch_size=args.batch_size, sampler=sampler, num_workers=4, pin_memory=True
+    )
 
     # canonical 用法: launcher 提供 --deepspeed --deepspeed_config，DS 从 args 读配置，
     # initialize 不再重复传 config_params（同时给会触发 assert）
@@ -109,8 +110,7 @@ def train(args, model_cfg: ModelConfig):
 
 def parse_args():
     p = argparse.ArgumentParser(description="GleamLM DeepSpeed training")
-    p.add_argument("--model", type=str, required=True,
-                   help="模型架构 YAML (configs/models/*.yaml)")
+    p.add_argument("--model", type=str, required=True, help="模型架构 YAML (configs/models/*.yaml)")
     p.add_argument("--data", type=str, required=True)
     p.add_argument("--epochs", type=int, default=3)
     p.add_argument("--batch_size", type=int, default=4)
@@ -126,6 +126,8 @@ if __name__ == "__main__":
     args = parse_args()
     model_cfg = ModelConfig.from_yaml(args.model)
     print(f"Model: {args.model}")
-    print(f"  d_model={model_cfg.d_model}  layers={model_cfg.num_layers}  "
-          f"heads={model_cfg.num_heads}/{model_cfg.num_kv_heads}")
+    print(
+        f"  d_model={model_cfg.d_model}  layers={model_cfg.num_layers}  "
+        f"heads={model_cfg.num_heads}/{model_cfg.num_kv_heads}"
+    )
     train(args, model_cfg)

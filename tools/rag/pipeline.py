@@ -7,15 +7,18 @@ RAGPipeline — 检索增强生成完整流程。
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import TYPE_CHECKING
 
 import torch
 
 from gleamlm.rag.retriever import SimpleRetriever
 from gleamlm.tokenizer.tokenizer import BBPETokenizer
+
 # 注意: 不 import hf.hf_model 的 GleamLMForCausalLM —— 它只出现在
-# 类型注解里 (from __future__ import annotations 下为惰性字符串, 不求值),
-# 且 hf 依赖 core, core 反向 import 会形成循环依赖。
+# 类型注解里 (见 TYPE_CHECKING 块, from __future__ import annotations 下为
+# 惰性字符串, 不求值), 且 hf 依赖 core, core 反向 import 会形成循环依赖。
+if TYPE_CHECKING:
+    from hf.hf_model import GleamLMForCausalLM
 
 
 SYSTEM_PROMPT = "基于以下资料回答问题。如果资料不足以回答，请说'资料不足'。"
@@ -36,7 +39,7 @@ class RAGPipeline:
         model: GleamLMForCausalLM,
         tokenizer: BBPETokenizer,
         device: torch.device,
-        retriever: Optional[SimpleRetriever] = None,
+        retriever: SimpleRetriever | None = None,
     ):
         self.model = model.eval().to(device)
         self.tokenizer = tokenizer
@@ -48,8 +51,12 @@ class RAGPipeline:
 
     @torch.no_grad()
     def query(
-        self, question: str, top_k: int = 3, max_new_tokens: int = 256,
-        temperature: float = 0.8, top_k_sampling: int = 50,
+        self,
+        question: str,
+        top_k: int = 3,
+        max_new_tokens: int = 256,
+        temperature: float = 0.8,
+        top_k_sampling: int = 50,
     ) -> dict:
         chunks = self.retriever.retrieve(question, top_k=top_k)
         prompt = _format_prompt(question, [c for c, _ in chunks])

@@ -12,9 +12,7 @@
 import json
 import sqlite3
 import time
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any
+from datetime import datetime
 
 
 class ExperimentTracker:
@@ -88,14 +86,21 @@ class ExperimentTracker:
         ).fetchall()
         return [
             {
-                "id": r[0], "project": r[1], "config": json.loads(r[2]),
-                "tags": json.loads(r[3]), "status": r[4],
-                "created_at": r[5], "finished_at": r[6], "note": r[7],
+                "id": r[0],
+                "project": r[1],
+                "config": json.loads(r[2]),
+                "tags": json.loads(r[3]),
+                "status": r[4],
+                "created_at": r[5],
+                "finished_at": r[6],
+                "note": r[7],
             }
             for r in rows
         ]
 
-    def get_metrics(self, run_id: str, keys: list[str] | None = None) -> dict[str, list[tuple[int, float]]]:
+    def get_metrics(
+        self, run_id: str, keys: list[str] | None = None
+    ) -> dict[str, list[tuple[int, float]]]:
         if keys:
             placeholders = ",".join("?" for _ in keys)
             rows = self._conn.execute(

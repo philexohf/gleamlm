@@ -7,12 +7,10 @@ from __future__ import annotations
 
 import torch
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
 
 from gleamlm.models.attention_variants import NoPEGQA, SlidingWindowGQA
-from gleamlm.models.model import GleamLMModel, MoE, DecoderLayer, GQA, MLP, precompute_freqs_cis
+from gleamlm.models.model import DecoderLayer, GleamLMModel, MoE, precompute_freqs_cis
 from gleamlm.trainer.base_trainer import create_scaler, optimizer_step
-from gleamlm.data.sft_data import SFTDataset
 from gleamlm.trainer.schedulers import get_lr_cosine
 from gleamlm.utils.torch_utils import safe_autocast
 
@@ -25,8 +23,14 @@ VOCAB_SIZE = 12002
 def test_training_step_gradient_decreases_loss():
     """一个完整的 training step 应使同一个 batch 的 loss 下降"""
     model = GleamLMModel(
-        vocab_size=VOCAB_SIZE, d_model=128, num_layers=2, num_heads=4,
-        num_kv_heads=2, d_ff=256, max_seq_len=64, dropout=0.0,
+        vocab_size=VOCAB_SIZE,
+        d_model=128,
+        num_layers=2,
+        num_heads=4,
+        num_kv_heads=2,
+        d_ff=256,
+        max_seq_len=64,
+        dropout=0.0,
     )
     # 固定参数以复现
     torch.manual_seed(42)
@@ -68,8 +72,7 @@ def test_training_step_gradient_decreases_loss():
             ignore_index=0,
         )
     assert loss_after < loss_before, (
-        f"Expected loss to decrease after training step "
-        f"({loss_before:.4f} -> {loss_after:.4f})"
+        f"Expected loss to decrease after training step ({loss_before:.4f} -> {loss_after:.4f})"
     )
 
 
@@ -77,15 +80,21 @@ def test_training_step_multiple_steps():
     """连续多个 training step 不产生 NaN"""
     torch.manual_seed(7)
     model = GleamLMModel(
-        vocab_size=VOCAB_SIZE, d_model=128, num_layers=2, num_heads=4,
-        num_kv_heads=2, d_ff=256, max_seq_len=64, dropout=0.0,
+        vocab_size=VOCAB_SIZE,
+        d_model=128,
+        num_layers=2,
+        num_heads=4,
+        num_kv_heads=2,
+        d_ff=256,
+        max_seq_len=64,
+        dropout=0.0,
     )
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
     scaler = create_scaler()
 
     model.train()
     losses = []
-    for step in range(10):
+    for _ in range(10):
         batch = torch.randint(0, VOCAB_SIZE, (4, 32))
         labels = batch.clone()
 
@@ -113,9 +122,17 @@ def test_moe_aux_loss_in_training():
     """MoE 模型训练时 aux_loss 通过 return 元组正常传递并加入 total loss"""
     torch.manual_seed(3)
     model = GleamLMModel(
-        vocab_size=VOCAB_SIZE, d_model=128, num_layers=2, num_heads=4,
-        num_kv_heads=2, d_ff=256, max_seq_len=64, dropout=0.0,
-        ffn_variant=MoE, num_experts=4, top_k=2,
+        vocab_size=VOCAB_SIZE,
+        d_model=128,
+        num_layers=2,
+        num_heads=4,
+        num_kv_heads=2,
+        d_ff=256,
+        max_seq_len=64,
+        dropout=0.0,
+        ffn_variant=MoE,
+        num_experts=4,
+        top_k=2,
     )
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
     scaler = create_scaler()

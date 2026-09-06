@@ -9,9 +9,8 @@ from pathlib import Path
 
 import torch
 
-from hf.hf_model import GleamLMForCausalLM
 from hf.hf_config import GleamLMConfig
-
+from hf.hf_model import GleamLMForCausalLM
 
 CFG = {
     "vocab_size": 3200,
@@ -33,16 +32,33 @@ CFG = {
 }
 
 SENSITIVE_KEYS = {
-    "rope_scale", "rope_factor", "rope_theta",
-    "attn_type", "ffn_type", "num_experts", "top_k",
+    "rope_scale",
+    "rope_factor",
+    "rope_theta",
+    "attn_type",
+    "ffn_type",
+    "num_experts",
+    "top_k",
 }
 # PretrainedConfig 序列化 self._top_k（带下划线），config.json 里 key 也是 _top_k
 JSON_FIELDS = {
-    "rope_scale", "rope_factor", "rope_theta",
-    "attn_type", "ffn_type", "num_experts", "_top_k",
+    "rope_scale",
+    "rope_factor",
+    "rope_theta",
+    "attn_type",
+    "ffn_type",
+    "num_experts",
+    "_top_k",
 }
-JSON_VALUES = {"rope_scale": 4.0, "rope_factor": 16.0, "rope_theta": 500000.0,
-               "attn_type": "gqa", "ffn_type": "mlp", "num_experts": 8, "_top_k": 2}
+JSON_VALUES = {
+    "rope_scale": 4.0,
+    "rope_factor": 16.0,
+    "rope_theta": 500000.0,
+    "attn_type": "gqa",
+    "ffn_type": "mlp",
+    "num_experts": 8,
+    "_top_k": 2,
+}
 
 
 # ── 1. 权重往返 ──
@@ -97,9 +113,7 @@ def test_config_reload():
 
     for key in SENSITIVE_KEYS:
         loaded_val = getattr(loaded_config, key)
-        assert loaded_val == CFG[key], (
-            f"config 字段 {key} 加载后不匹配: {loaded_val} != {CFG[key]}"
-        )
+        assert loaded_val == CFG[key], f"config 字段 {key} 加载后不匹配: {loaded_val} != {CFG[key]}"
 
     # top_k 用 _top_k 存储，验证属性访问正确
     assert loaded_config.top_k == CFG["top_k"], "top_k 属性访问异常"

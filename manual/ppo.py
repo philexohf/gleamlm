@@ -19,10 +19,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import torch
 from torch.utils.data import DataLoader
 
+from gleamlm.data.rl_data import RLHFDataset, tokenize_prompts
 from gleamlm.models.model import GleamLMModel
 from gleamlm.tokenizer.tokenizer import BBPETokenizer
 from gleamlm.trainer.rl_trainer import ValueHead, compute_reward, ppo_loss
-from gleamlm.data.rl_data import RLHFDataset, tokenize_prompts
 from gleamlm.utils.config import DEFAULT_TOKENIZER_PATH, extract_checkpoint_config
 from gleamlm.utils.torch_utils import clean_state_dict, safe_autocast
 
@@ -39,7 +39,9 @@ def train(args):
     tokenizer = BBPETokenizer.load(args.tokenizer_path or DEFAULT_TOKENIZER_PATH)
     dataset = RLHFDataset(args.data, max_seq_len=args.seq_len)
     loader = DataLoader(
-        dataset, batch_size=args.batch_size, shuffle=True,
+        dataset,
+        batch_size=args.batch_size,
+        shuffle=True,
         collate_fn=lambda b: b,
     )
 
@@ -67,7 +69,9 @@ def train(args):
     for p in old_model.parameters():
         p.requires_grad = False
 
-    policy_optimizer = torch.optim.AdamW(policy_model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    policy_optimizer = torch.optim.AdamW(
+        policy_model.parameters(), lr=args.lr, weight_decay=args.weight_decay
+    )
     value_optimizer = torch.optim.AdamW(value_head.parameters(), lr=args.lr)
 
     if rank == 0:
@@ -76,7 +80,7 @@ def train(args):
         os.makedirs(args.output_dir, exist_ok=True)
 
     global_step = 0
-    for epoch in range(args.epochs):
+    for _ in range(args.epochs):
         for batch_items in loader:
             # batch_items: list[{"prompt", "ground_truth"}]（RLHFDataset 返回 dict）
             batch_prompts = [it["prompt"] for it in batch_items]
@@ -97,10 +101,14 @@ def train(args):
                         break
                 gen_ids = ids
 
-            decoded = [tokenizer.decode(gen_ids[i, prompt_len:].tolist(), skip_special=True) for i in range(len(batch_prompts))]
+            decoded = [
+                tokenizer.decode(gen_ids[i, prompt_len:].tolist(), skip_special=True)
+                for i in range(len(batch_prompts))
+            ]
             rewards = torch.tensor(
-                [compute_reward(d, gt) for d, gt in zip(decoded, batch_ground_truth)],
-                device=device, dtype=torch.float,
+                [compute_reward(d, gt) for d, gt in zip(decoded, batch_ground_truth, strict=True)],
+                device=device,
+                dtype=torch.float,
             )
 
             with safe_autocast():
@@ -109,7 +117,9 @@ def train(args):
                     o_logits, _, _, _ = old_model(gen_ids)
                 values = value_head(hidden)
 
-            loss = ppo_loss(p_logits, o_logits, values, rewards, gen_ids, prompt_len, epsilon=args.epsilon)
+            loss = ppo_loss(
+                p_logits, o_logits, values, rewards, gen_ids, prompt_len, epsilon=args.epsilon
+            )
 
             loss.backward()
             torch.nn.utils.clip_grad_norm_(policy_model.parameters(), args.clip)
@@ -119,7 +129,7 @@ def train(args):
             value_optimizer.step()
             value_optimizer.zero_grad()
 
-            for p, old_p in zip(policy_model.parameters(), old_model.parameters()):
+            for p, old_p in zip(policy_model.parameters(), old_model.parameters(), strict=True):
                 old_p.data.copy_(p.data)
 
             if rank == 0 and global_step % args.log_interval == 0:
@@ -127,11 +137,15 @@ def train(args):
             global_step += 1
 
     if rank == 0:
-        torch.save({
-            "model_state_dict": policy_model.state_dict(),
-            "value_head": value_head.state_dict(),
-            "_config": extract_checkpoint_config(ckpt), "step": global_step,
-        }, os.path.join(args.output_dir, "ppo_final.pt"))
+        torch.save(
+            {
+                "model_state_dict": policy_model.state_dict(),
+                "value_head": value_head.state_dict(),
+                "_config": extract_checkpoint_config(ckpt),
+                "step": global_step,
+            },
+            os.path.join(args.output_dir, "ppo_final.pt"),
+        )
 
 
 def parse_args():

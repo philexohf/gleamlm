@@ -16,10 +16,10 @@ from torch.utils.data import DataLoader, Dataset
 
 from gleamlm.models.model import GleamLMModel
 from gleamlm.tokenizer.tokenizer import BBPETokenizer
+from gleamlm.trainer.lora import LoraConfig, apply_lora_to_model, merge_lora_weights
 from gleamlm.utils.chatml import format_chatml
 from gleamlm.utils.config import DEFAULT_TOKENIZER_PATH, extract_checkpoint_config
 from gleamlm.utils.torch_utils import clean_state_dict
-from gleamlm.trainer.lora import LoraConfig, apply_lora_to_model, merge_lora_weights
 
 
 class SFTDataset(Dataset):
@@ -41,8 +41,7 @@ class SFTDataset(Dataset):
                         continue
                     history = msgs[:-1]
                     prompt_text = (
-                        format_chatml(history, add_generation_prompt=True)
-                        if history else ""
+                        format_chatml(history, add_generation_prompt=True) if history else ""
                     )
                     resp_text = msgs[-1]["content"] + "<|im_end|>"
                 else:
@@ -63,13 +62,13 @@ class SFTDataset(Dataset):
 
 
 def collate_fn(batch, tokenizer, max_seq_len):
-    prompts, responses = zip(*batch)
+    prompts, responses = list(zip(*batch, strict=True))
     input_ids, labels_list = [], []
-    for p, r in zip(prompts, responses):
+    for p, r in zip(prompts, responses, strict=True):
         ids = tokenizer.encode(p + r, add_bos=True)
         ids = ids[:max_seq_len]
         p_len = len(tokenizer.encode(p, add_bos=True))
-        label = [-100] * (p_len - 1) + ids[p_len - 1:]
+        label = [-100] * (p_len - 1) + ids[p_len - 1 :]
         label = label[:max_seq_len]
         if len(label) < len(ids):
             label = label + [-100] * (len(ids) - len(label))
@@ -87,7 +86,12 @@ def train(args):
     tokenizer = BBPETokenizer.load(args.tokenizer_path or DEFAULT_TOKENIZER_PATH)
 
     dataset = SFTDataset(args.data, max_seq_len=args.seq_len)
-    loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, collate_fn=lambda b: collate_fn(b, tokenizer, args.seq_len))
+    loader = DataLoader(
+        dataset,
+        batch_size=args.batch_size,
+        shuffle=True,
+        collate_fn=lambda b: collate_fn(b, tokenizer, args.seq_len),
+    )
 
     ckpt = torch.load(args.model, map_location="cpu", weights_only=False)
     cfg = extract_checkpoint_config(ckpt)
@@ -106,14 +110,18 @@ def train(args):
     model.load_state_dict(clean_state_dict(ckpt["model_state_dict"]), strict=False)
     model.train()
 
-    lora_cfg = LoraConfig(r=args.lora_r, lora_alpha=args.lora_alpha, target_modules=["W_q", "W_k", "W_v", "W_o"])
-    replaced = apply_lora_to_model(model, lora_cfg)
+    lora_cfg = LoraConfig(
+        r=args.lora_r, lora_alpha=args.lora_alpha, target_modules=["W_q", "W_k", "W_v", "W_o"]
+    )
+    apply_lora_to_model(model, lora_cfg)
     lora_params = [p for p in model.parameters() if p.requires_grad]
     lora_count = sum(p.numel() for p in lora_params)
 
     optimizer = torch.optim.AdamW(lora_params, lr=args.lr, weight_decay=0.01)
 
-    print(f"LoRA — base: {sum(p.numel() for p in model.parameters())/1e6:.2f}M, trainable: {lora_count/1e3:.1f}K, r={args.lora_r}")
+    print(
+        f"LoRA — base: {sum(p.numel() for p in model.parameters()) / 1e6:.2f}M, trainable: {lora_count / 1e3:.1f}K, r={args.lora_r}"
+    )
     os.makedirs(args.output_dir, exist_ok=True)
 
     for epoch in range(args.epochs):
@@ -123,7 +131,9 @@ def train(args):
 
             shift_logits = logits[:, :-1, :].contiguous()
             shift_labels = labels[:, 1:].contiguous()
-            loss = nn.CrossEntropyLoss(ignore_index=-100)(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+            loss = nn.CrossEntropyLoss(ignore_index=-100)(
+                shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1)
+            )
             loss = loss + aux_loss * 0.01
 
             loss.backward()
@@ -136,11 +146,18 @@ def train(args):
 
     save_path = os.path.join(args.output_dir, "lora.pt")
     lora_state = {k: v for k, v in model.state_dict().items() if "lora_" in k}
-    torch.save({"lora": lora_state, "_config": cfg, "lora_config": {"r": args.lora_r, "alpha": args.lora_alpha}}, save_path)
+    torch.save(
+        {
+            "lora": lora_state,
+            "_config": cfg,
+            "lora_config": {"r": args.lora_r, "alpha": args.lora_alpha},
+        },
+        save_path,
+    )
     print(f"LoRA weights saved: {save_path}")
 
     if args.merge:
-        merged = merge_lora_weights(model)
+        merge_lora_weights(model)
         full_path = os.path.join(args.output_dir, "merged.pt")
         torch.save({"model_state_dict": model.state_dict(), "_config": cfg}, full_path)
         print(f"Merged model saved: {full_path}")

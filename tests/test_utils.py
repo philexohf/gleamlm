@@ -5,8 +5,8 @@ import math
 import torch
 
 from gleamlm.trainer.dpo_loss import compute_log_probs, dpo_loss
-from gleamlm.utils.chatml import format_chatml
 from gleamlm.trainer.schedulers import get_lr_cosine, get_lr_wsd
+from gleamlm.utils.chatml import format_chatml
 
 
 def assert_same_architecture(

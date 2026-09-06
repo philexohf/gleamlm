@@ -5,14 +5,13 @@ import math
 import pytest
 import torch
 import torch.nn.functional as F
-from torch import nn
 
 from gleamlm.models.attention_variants import AliBiGQA, NoPEGQA, SlidingWindowGQA
 from gleamlm.models.model import (
-    DecoderLayer,
     GQA,
-    GleamLMModel,
     MLP,
+    DecoderLayer,
+    GleamLMModel,
     RMSNorm,
     apply_rope,
     precompute_freqs_cis,

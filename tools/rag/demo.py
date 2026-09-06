@@ -20,12 +20,11 @@ import os
 
 import torch
 
-from hf.hf_config import gleamlm_config_from_core
-from hf.hf_model import GleamLMForCausalLM, load_from_checkpoint
-from gleamlm.rag.retriever import SimpleRetriever
-from tools.rag.pipeline import RAGPipeline
 from gleamlm.tokenizer.tokenizer import BBPETokenizer
 from gleamlm.utils.config import DEFAULT_TOKENIZER_PATH, extract_checkpoint_config
+from hf.hf_config import gleamlm_config_from_core
+from hf.hf_model import GleamLMForCausalLM, load_from_checkpoint
+from tools.rag.pipeline import RAGPipeline
 
 
 def load_model(model_path: str, tokenizer_path: str):

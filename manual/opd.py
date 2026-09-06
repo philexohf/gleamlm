@@ -71,14 +71,12 @@ OPD (On-Policy Distillation) — 教师打分 + 序列级 Reverse KL。
   - 打分缓存 (同轨迹不重复打分) + 周期 checkpoint (opd_checkpoint.pt) 断点续训
 """
 
-
 import argparse
 import itertools
 import json
 import os
 import random
 import sys
-import time
 
 import numpy as np
 
@@ -182,6 +180,8 @@ def sample_with_logprobs(
             if ids.size(1) >= max_len:
                 break
     return ids, logprobs
+
+
 def group_loo_baseline(advantages: torch.Tensor, group_size: int) -> torch.Tensor:
     """组内 leave-one-out baseline (GRPO 风格)。
 
@@ -213,9 +213,14 @@ class LocalTeacher:
 
         self.tok = AutoTokenizer.from_pretrained(model_path)
         self.device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
-        self.model = AutoModelForCausalLM.from_pretrained(
-            model_path, torch_dtype=torch.float16 if self.device.type == "cuda" else torch.float32,
-        ).to(self.device).eval()
+        self.model = (
+            AutoModelForCausalLM.from_pretrained(
+                model_path,
+                torch_dtype=torch.float16 if self.device.type == "cuda" else torch.float32,
+            )
+            .to(self.device)
+            .eval()
+        )
 
     def _seq_logprob(self, ids: torch.Tensor) -> float:
         """一次前向求整条 id 序列的 logprob（shift 后 gather）。"""
@@ -280,8 +285,10 @@ def train(args):
     score_cache: dict[str, float] = {}  # key = prompt+completion → log π_T (同轨迹不重复打分)
 
     total = sum(p.numel() for p in model.parameters())
-    print(f"OPD — student: {total / 1e6:.2f}M, teacher: local ({args.teacher_model_path}), "
-          f"T={args.temperature}, n_samples={args.n_samples}")
+    print(
+        f"OPD — student: {total / 1e6:.2f}M, teacher: local ({args.teacher_model_path}), "
+        f"T={args.temperature}, n_samples={args.n_samples}"
+    )
     os.makedirs(args.output_dir, exist_ok=True)
 
     random.seed(args.seed)
@@ -311,8 +318,10 @@ def train(args):
             random.setstate(r_ckpt["python_rng"])
         if "torch_rng" in r_ckpt:
             torch.random.set_rng_state(r_ckpt["torch_rng"])
-        print(f"[resume] 已从 {resume_path} 续训 (step {global_step}, epoch {start_epoch}, "
-              f"last_batch_idx {last_batch_idx})，随机状态已恢复")
+        print(
+            f"[resume] 已从 {resume_path} 续训 (step {global_step}, epoch {start_epoch}, "
+            f"last_batch_idx {last_batch_idx})，随机状态已恢复"
+        )
     elif args.resume:
         print(f"[warn] --resume 但未找到 {resume_path}，从头训练")
 
@@ -330,7 +339,9 @@ def train(args):
             # 采样用 eval()（关闭 dropout），否则采样 logits 受随机失活影响，
             # 与 Stage 4 更新时重新前向的 dropout mask 不一致，破坏 on-policy 性。
             model.eval()
-            group_samples: dict[str, list] = {}  # prompt -> [(gen_text, log_pi_S, gen_len, gen_ids, prompt_len)]
+            group_samples: dict[
+                str, list
+            ] = {}  # prompt -> [(gen_text, log_pi_S, gen_len, gen_ids, prompt_len)]
             skipped = 0
             for raw_prompt in batch_prompts:
                 # THUNLP §5.2: 模板/内容需贴近教师后训练分布，否则教师的逐 token
@@ -346,8 +357,12 @@ def train(args):
                 group: list = []
                 for _ in range(args.n_samples):
                     gen_ids, logprobs = sample_with_logprobs(
-                        model, prompt_ids[0], args.max_new_tokens,
-                        args.temperature, tokenizer.eos_id, args.seq_len,
+                        model,
+                        prompt_ids[0],
+                        args.max_new_tokens,
+                        args.temperature,
+                        tokenizer.eos_id,
+                        args.seq_len,
                     )
                     if not logprobs or len(logprobs) < 4:
                         # 过短样本: 长度 1-3 的 logprob 噪声大 (优势被单 token 主导)
@@ -370,7 +385,9 @@ def train(args):
 
             # ── Stage 2: 教师打分。以完整组为单位打分，只保留整组打标成功的组 ──
             # (保证 LOO baseline 的组结构：组内恰 n_samples 条、同一 prompt)
-            scored_groups: dict[str, list] = {}  # prompt -> [(gen_text, log_pi_S, gen_len, gen_ids, prompt_len, lp_t)]
+            scored_groups: dict[
+                str, list
+            ] = {}  # prompt -> [(gen_text, log_pi_S, gen_len, gen_ids, prompt_len, lp_t)]
             for prompt, group in group_samples.items():
                 scored: list = []
                 for gen_text, log_pi_S, gen_len, gen_ids, prompt_len in group:
@@ -432,7 +449,7 @@ def train(args):
             with safe_autocast():
                 losses = []
                 aux_loss = None  # MoE 负载均衡损失，循环内捕获，循环外统一加一次
-                for i, (prompt, gen_text, _, _, gen_ids, prompt_len) in enumerate(valid):
+                for i, (_, _, _, _, gen_ids, prompt_len) in enumerate(valid):
                     gen_ids = gen_ids[: args.seq_len].unsqueeze(0)
                     if gen_ids.size(1) <= prompt_len:
                         continue  # 空 response guard: 截断后无生成 token，跳过
@@ -486,32 +503,38 @@ def train(args):
             # 周期保存: 中途崩溃可 resume (含完整训练状态 + 数据位置 + 随机状态)
             if global_step % args.save_interval == 0:
                 ckpt_path = os.path.join(args.output_dir, "opd_checkpoint.pt")
-                torch.save({
-                    "model_state_dict": model.state_dict(),
-                    "optimizer_state_dict": optimizer.state_dict(),
-                    "_config": extract_checkpoint_config(ckpt),
-                    "step": global_step,
-                    "epoch": epoch,
-                    "last_batch_idx": batch_idx,
-                    "python_rng": random.getstate(),
-                    "torch_rng": torch.random.get_rng_state(),
-                    "method": "opd_local",
-                }, ckpt_path)
+                torch.save(
+                    {
+                        "model_state_dict": model.state_dict(),
+                        "optimizer_state_dict": optimizer.state_dict(),
+                        "_config": extract_checkpoint_config(ckpt),
+                        "step": global_step,
+                        "epoch": epoch,
+                        "last_batch_idx": batch_idx,
+                        "python_rng": random.getstate(),
+                        "torch_rng": torch.random.get_rng_state(),
+                        "method": "opd_local",
+                    },
+                    ckpt_path,
+                )
                 print(f"  [ckpt] saved step {global_step} -> {ckpt_path}")
 
     # 最终保存 (也写入周期 checkpoint 路径, 保证 resume 始终可用)
     final_path = os.path.join(args.output_dir, "opd_final.pt")
-    torch.save({
-        "model_state_dict": model.state_dict(),
-        "optimizer_state_dict": optimizer.state_dict(),
-        "_config": extract_checkpoint_config(ckpt),
-        "step": global_step,
-        "epoch": args.epochs,
-        "last_batch_idx": -1,  # 训练完成，resume 从头（若有下一轮）
-        "python_rng": random.getstate(),
-        "torch_rng": torch.random.get_rng_state(),
-        "method": "opd_local",
-    }, final_path)
+    torch.save(
+        {
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "_config": extract_checkpoint_config(ckpt),
+            "step": global_step,
+            "epoch": args.epochs,
+            "last_batch_idx": -1,  # 训练完成，resume 从头（若有下一轮）
+            "python_rng": random.getstate(),
+            "torch_rng": torch.random.get_rng_state(),
+            "method": "opd_local",
+        },
+        final_path,
+    )
     print(f"OPD model saved: {final_path}")
     local_teacher.close()
 
@@ -519,35 +542,68 @@ def train(args):
 def parse_args():
     p = argparse.ArgumentParser(description="GleamLM OPD — 本地 HF 教师蒸馏")
     p.add_argument("--model", type=str, required=True, help="Student checkpoint")
-    p.add_argument("--data", type=str, required=True, help="JSONL prompts (每行 prompt/instruction 或纯文本)")
+    p.add_argument(
+        "--data", type=str, required=True, help="JSONL prompts (每行 prompt/instruction 或纯文本)"
+    )
     p.add_argument("--output_dir", type=str, default="./checkpoints/opd")
-    p.add_argument("--epochs", type=int, default=4, help="训练轮数 (默认 4, nano 演示标准: 40 prompt × 4 = 80 步)")
+    p.add_argument(
+        "--epochs",
+        type=int,
+        default=4,
+        help="训练轮数 (默认 4, nano 演示标准: 40 prompt × 4 = 80 步)",
+    )
     p.add_argument("--batch_size", type=int, default=2, help="每 step 的 prompt 数")
-    p.add_argument("--n_samples", type=int, default=2, help="每个 prompt 采样条数 (THUNLP 用 4; >1 时启用组内 LOO baseline)")
+    p.add_argument(
+        "--n_samples",
+        type=int,
+        default=2,
+        help="每个 prompt 采样条数 (THUNLP 用 4; >1 时启用组内 LOO baseline)",
+    )
     p.add_argument("--seq_len", type=int, default=1024)
     p.add_argument("--max_new_tokens", type=int, default=128)
-    p.add_argument("--temperature", type=float, default=1.0, help="采样温度 (0 = 贪心, 退化为 on-policy SFT)")
-    p.add_argument("--lr", type=float, default=5e-6, help="OPD 用小 lr: 更新方向来自采样轨迹, 大 lr 易崩")
+    p.add_argument(
+        "--temperature", type=float, default=1.0, help="采样温度 (0 = 贪心, 退化为 on-policy SFT)"
+    )
+    p.add_argument(
+        "--lr", type=float, default=5e-6, help="OPD 用小 lr: 更新方向来自采样轨迹, 大 lr 易崩"
+    )
     p.add_argument("--weight_decay", type=float, default=0.01)
     p.add_argument("--clip", type=float, default=1.0)
     p.add_argument("--entropy_coeff", type=float, default=0.01, help="熵正则: 防止策略过早坍缩")
-    p.add_argument("--length_norm", action="store_true",
-                   help="[已废弃] 优势长度归一化现在始终开启（policy loss 用 per-token 平均，"
-                        "数学必需，否则梯度被隐式缩放；此参数仅为向后兼容保留，不再影响行为）")
+    p.add_argument(
+        "--length_norm",
+        action="store_true",
+        help="[已废弃] 优势长度归一化现在始终开启（policy loss 用 per-token 平均，"
+        "数学必需，否则梯度被隐式缩放；此参数仅为向后兼容保留，不再影响行为）",
+    )
     p.add_argument("--log_interval", type=int, default=5)
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--tokenizer_path", type=str, default="")
     # ── 教师 (本地 HF 模型，OPD 唯一方式) ──
-    p.add_argument("--teacher_model_path", type=str, default=None,
-                   help="本地 HF 教师模型目录，如 checkpoints/Qwen3-0.6B")
+    p.add_argument(
+        "--teacher_model_path",
+        type=str,
+        default=None,
+        help="本地 HF 教师模型目录，如 checkpoints/Qwen3-0.6B",
+    )
     # ── 工程可靠性 (v2) ──
     p.add_argument("--aux_coeff", type=float, default=0.01, help="MoE aux loss 系数")
-    p.add_argument("--resume", action="store_true",
-                   help="从 output_dir/opd_checkpoint.pt 断点续训 (周期保存，含 step/epoch/batch/rng)")
-    p.add_argument("--save_interval", type=int, default=10,
-                   help="每 N 步保存一次周期 checkpoint (opd_checkpoint.pt)")
-    p.add_argument("--no_score_cache", action="store_true",
-                   help="关闭教师打分结果缓存 (默认开启；同 prompt+completion 重复打分结果一致)")
+    p.add_argument(
+        "--resume",
+        action="store_true",
+        help="从 output_dir/opd_checkpoint.pt 断点续训 (周期保存，含 step/epoch/batch/rng)",
+    )
+    p.add_argument(
+        "--save_interval",
+        type=int,
+        default=10,
+        help="每 N 步保存一次周期 checkpoint (opd_checkpoint.pt)",
+    )
+    p.add_argument(
+        "--no_score_cache",
+        action="store_true",
+        help="关闭教师打分结果缓存 (默认开启；同 prompt+completion 重复打分结果一致)",
+    )
     args = p.parse_args()
     args.api_cache = not args.no_score_cache  # 兼容保留: 打分缓存开关
     return args
