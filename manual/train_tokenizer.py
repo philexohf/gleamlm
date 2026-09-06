@@ -26,7 +26,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from gleamlm.tokenizer.tokenizer import BBPETokenizer
-from gleamlm.utils.config import load_config_v2
+from gleamlm.utils.config import load_config
 
 
 def extend_tokenizer(base_path: str, target_vocab: int, save_dir: str):
@@ -115,7 +115,7 @@ def train_from_variant(
 
     数据文件定位: data/raw/{name}_dedup.txt（与数据 pipeline 约定一致）。
     """
-    cfg = load_config_v2(os.path.join("configs", f"{variant}.yaml"))
+    cfg = load_config(os.path.join("configs", f"{variant}.yaml"))
     data_sources = cfg.data_sources
     if not data_sources:
         raise SystemExit(f"ERROR: configs/{variant}.yaml 无 data_sources 配比定义")

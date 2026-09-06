@@ -26,6 +26,7 @@ classifiers = [
 dependencies = [
     "torch>=2.0",
     "numpy>=1.20",
+    "pydantic>=2.0",
     "tqdm>=4.64",
     "pyyaml>=6.0",
 ]
@@ -41,7 +42,6 @@ dev = [
     "ruff>=0.15",
     "mypy>=2.0",
     "pre-commit>=4.0",
-    "pydantic>=2.0",
 ]
 data = [
     "pandas",
@@ -83,10 +83,9 @@ eval = [
 ]
 serve = [
     # OpenAI 兼容 API 服务 (serve/api.py): FastAPI + uvicorn；
-    # 经 hf/ 桥接加载 checkpoint 需 transformers，pydantic 做请求/响应模型
+    # 经 hf/ 桥接加载 checkpoint 需 transformers；pydantic 已在核心依赖
     "fastapi>=0.110",
     "uvicorn>=0.29",
-    "pydantic>=2.0",
     "transformers>=4.30",
 ]
 

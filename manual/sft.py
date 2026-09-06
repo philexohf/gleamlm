@@ -14,12 +14,17 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
+from gleamlm.data.sft_data import SFTDataset
 from gleamlm.models.model import GleamLMModel
 from gleamlm.tokenizer.tokenizer import BBPETokenizer
-from gleamlm.trainer.base_trainer import create_scaler, evaluate_generations, optimizer_step, set_seed
-from gleamlm.data.sft_data import SFTDataset
-from gleamlm.utils.config import DEFAULT_TOKENIZER_PATH, cfg_to_namespace, load_config
+from gleamlm.trainer.base_trainer import (
+    create_scaler,
+    evaluate_generations,
+    optimizer_step,
+    set_seed,
+)
 from gleamlm.trainer.schedulers import get_lr_cosine, get_lr_wsd
+from gleamlm.utils.config import DEFAULT_TOKENIZER_PATH, load_config
 from gleamlm.utils.torch_utils import clean_state_dict, safe_autocast
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -62,26 +67,26 @@ def main():
     cli_args = parser.parse_args()
 
     config_path = os.path.join(cli_args.config_dir, f"{cli_args.variant}.yaml")
-    cfg = load_config(config_path)
-    args = cfg_to_namespace(cfg, _ROOT_DIR)
+    # 单轨 Pydantic 配置: 字段校验/默认值唯一来源 (gleamlm/utils/config.py)
+    cfg = load_config(config_path, _ROOT_DIR)
 
-    model_path = cli_args.model_path or os.path.join(args.checkpoint_dir, "best_model.pt")
-    data_path = cli_args.data_path or args.sft_data_path
-    save_dir = cli_args.save_dir or os.path.join(args.checkpoint_dir, "sft")
+    model_path = cli_args.model_path or os.path.join(cfg.data.checkpoint_dir, "best_model.pt")
+    data_path = cli_args.data_path or cfg.sft.data_path
+    save_dir = cli_args.save_dir or os.path.join(cfg.data.checkpoint_dir, "sft")
 
-    lr = cli_args.lr if cli_args.lr is not None else args.sft_lr
-    epochs = cli_args.epochs if cli_args.epochs is not None else args.sft_epochs
-    batch_size = cli_args.batch_size if cli_args.batch_size is not None else args.sft_batch_size
+    lr = cli_args.lr if cli_args.lr is not None else cfg.sft.lr
+    epochs = cli_args.epochs if cli_args.epochs is not None else cfg.sft.epochs
+    batch_size = cli_args.batch_size if cli_args.batch_size is not None else cfg.sft.batch_size
     accumulate_grad = (
         cli_args.accumulate_grad
         if cli_args.accumulate_grad is not None
-        else args.sft_accumulate_grad
+        else cfg.sft.accumulate_grad
     )
-    max_seq_len = cli_args.max_seq_len if cli_args.max_seq_len is not None else args.sft_max_seq_len
-    warmup_ratio = args.sft_warmup_ratio
-    weight_decay = args.sft_weight_decay
-    inject_system_ratio = args.sft_inject_system_ratio
-    clip_grad = args.clip_grad
+    max_seq_len = cli_args.max_seq_len if cli_args.max_seq_len is not None else cfg.sft.max_seq_len
+    warmup_ratio = cfg.sft.warmup_ratio
+    weight_decay = cfg.sft.weight_decay
+    inject_system_ratio = cfg.sft.inject_system_ratio
+    clip_grad = cfg.training.clip_grad
     lr_scheduler = cli_args.lr_scheduler
     stable_ratio = cli_args.stable_ratio
     min_lr_ratio = cli_args.min_lr_ratio
@@ -103,16 +108,16 @@ def main():
 
     model = GleamLMModel(
         vocab_size=tokenizer.get_vocab_size(),
-        d_model=args.d_model,
-        num_layers=args.num_layers,
-        num_heads=args.num_heads,
-        num_kv_heads=args.num_kv_heads,
-        d_ff=args.d_ff,
-        dropout=args.dropout,
+        d_model=cfg.model.d_model,
+        num_layers=cfg.model.num_layers,
+        num_heads=cfg.model.num_heads,
+        num_kv_heads=cfg.model.num_kv_heads,
+        d_ff=cfg.model.d_ff,
+        dropout=cfg.model.dropout,
         max_seq_len=max_seq_len,
         pad_token_id=tokenizer.pad_id,
-        tie_weights=args.tie_weights,
-        use_flash_attn=args.use_flash_attn,
+        tie_weights=cfg.model.tie_weights,
+        use_flash_attn=cfg.model.use_flash_attn,
     ).to(device)
 
     checkpoint = torch.load(model_path, map_location=device, weights_only=False)
@@ -185,16 +190,16 @@ def main():
     # 字段与 GleamLMModel 构建参数一一对应，纯 dict（weights_only 安全）。
     _ckpt_cfg = {
         "vocab_size": tokenizer.get_vocab_size(),
-        "d_model": args.d_model,
-        "num_layers": args.num_layers,
-        "num_heads": args.num_heads,
-        "num_kv_heads": args.num_kv_heads,
-        "d_ff": args.d_ff,
-        "dropout": args.dropout,
+        "d_model": cfg.model.d_model,
+        "num_layers": cfg.model.num_layers,
+        "num_heads": cfg.model.num_heads,
+        "num_kv_heads": cfg.model.num_kv_heads,
+        "d_ff": cfg.model.d_ff,
+        "dropout": cfg.model.dropout,
         "max_seq_len": max_seq_len,
         "pad_token_id": tokenizer.pad_id,
-        "tie_weights": args.tie_weights,
-        "use_flash_attn": args.use_flash_attn,
+        "tie_weights": cfg.model.tie_weights,
+        "use_flash_attn": cfg.model.use_flash_attn,
     }
 
     log_interval = 50

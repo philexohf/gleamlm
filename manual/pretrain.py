@@ -70,8 +70,9 @@ from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm
 
 from gleamlm.data.dataset import tokenize_and_group
-from gleamlm.models.model import GleamLMModel, GQA, MLP, MoE
-from gleamlm.models.attention_variants import NoPEGQA, AliBiGQA, SlidingWindowGQA
+from gleamlm.models.attention_variants import AliBiGQA, NoPEGQA, SlidingWindowGQA
+from gleamlm.models.model import GQA, MLP, GleamLMModel, MoE
+from gleamlm.tokenizer.tokenizer import BBPETokenizer
 from gleamlm.trainer.base_trainer import (
     build_optimizer_param_groups,
     ddp_cleanup,
@@ -80,10 +81,9 @@ from gleamlm.trainer.base_trainer import (
     is_main_process,
     set_seed,
 )
-from gleamlm.utils.config import DEFAULT_TOKENIZER_PATH, ModelConfig, load_config_v2
 from gleamlm.trainer.schedulers import get_lr_cosine, get_lr_wsd
+from gleamlm.utils.config import DEFAULT_TOKENIZER_PATH, ModelConfig, load_config
 from gleamlm.utils.torch_utils import safe_autocast
-from gleamlm.tokenizer.tokenizer import BBPETokenizer
 
     # 变体注册表: CLI string → class
 ATTN_REGISTRY = {"gqa": GQA, "nope": NoPEGQA, "alibi": AliBiGQA, "sliding": SlidingWindowGQA}
@@ -523,7 +523,7 @@ def _load_training_defaults(training_path: str | None) -> dict[str, Any]:
     """从训练 YAML 加载超参默认值，CLI 可覆盖。"""
     if training_path is None:
         return {}
-    cfg = load_config_v2(training_path)
+    cfg = load_config(training_path)
     t = cfg.training
     lr = cfg.lr
     return {

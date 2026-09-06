@@ -13,22 +13,26 @@ import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
+from gleamlm.data.dpo_data import DPODataset, dpad_collate
 from gleamlm.models.model import GleamLMModel
 from gleamlm.tokenizer.tokenizer import BBPETokenizer
-from gleamlm.trainer.base_trainer import create_scaler, evaluate_generations, optimizer_step, set_seed
+from gleamlm.trainer.base_trainer import (
+    create_scaler,
+    evaluate_generations,
+    optimizer_step,
+    set_seed,
+)
 from gleamlm.trainer.dpo_loss import (
     compute_log_probs,
     dpo_loss,
     get_reference_logps,
 )
-from gleamlm.data.dpo_data import DPODataset, dpad_collate
+from gleamlm.trainer.schedulers import get_lr_cosine, get_lr_wsd
 from gleamlm.utils.config import (
     DEFAULT_TOKENIZER_PATH,
-    cfg_to_namespace,
     extract_checkpoint_config,
     load_config,
 )
-from gleamlm.trainer.schedulers import get_lr_cosine, get_lr_wsd
 from gleamlm.utils.torch_utils import clean_state_dict, safe_autocast
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -71,29 +75,29 @@ def main():
     cli_args = parser.parse_args()
 
     config_path = os.path.join(cli_args.config_dir, f"{cli_args.variant}.yaml")
-    cfg = load_config(config_path)
-    args = cfg_to_namespace(cfg, _ROOT_DIR)
+    # 单轨 Pydantic 配置: 字段校验/默认值唯一来源 (gleamlm/utils/config.py)
+    cfg = load_config(config_path, _ROOT_DIR)
 
-    model_path = cli_args.model_path or os.path.join(args.checkpoint_dir, "sft", "sft_best.pt")
-    data_path = cli_args.data_path or args.dpo_data_path
-    output_dir = cli_args.output_dir or os.path.join(args.checkpoint_dir, "dpo")
+    model_path = cli_args.model_path or os.path.join(cfg.data.checkpoint_dir, "sft", "sft_best.pt")
+    data_path = cli_args.data_path or cfg.dpo.data_path
+    output_dir = cli_args.output_dir or os.path.join(cfg.data.checkpoint_dir, "dpo")
 
-    lr = cli_args.lr if cli_args.lr is not None else args.dpo_lr
-    beta = cli_args.beta if cli_args.beta is not None else args.dpo_beta
-    epochs = cli_args.epochs if cli_args.epochs is not None else args.dpo_epochs
-    batch_size = cli_args.batch_size if cli_args.batch_size is not None else args.dpo_batch_size
+    lr = cli_args.lr if cli_args.lr is not None else cfg.dpo.lr
+    beta = cli_args.beta if cli_args.beta is not None else cfg.dpo.beta
+    epochs = cli_args.epochs if cli_args.epochs is not None else cfg.dpo.epochs
+    batch_size = cli_args.batch_size if cli_args.batch_size is not None else cfg.dpo.batch_size
     accumulate_grad = (
         cli_args.accumulate_grad
         if cli_args.accumulate_grad is not None
-        else args.dpo_accumulate_grad
+        else cfg.dpo.accumulate_grad
     )
-    max_seq_len = cli_args.max_seq_len if cli_args.max_seq_len is not None else args.dpo_max_seq_len
-    warmup_ratio = args.dpo_warmup_ratio
-    min_lr_ratio = cli_args.min_lr_ratio if cli_args.min_lr_ratio is not None else args.dpo_min_lr_ratio
+    max_seq_len = cli_args.max_seq_len if cli_args.max_seq_len is not None else cfg.dpo.max_seq_len
+    warmup_ratio = cfg.dpo.warmup_ratio
+    min_lr_ratio = cli_args.min_lr_ratio if cli_args.min_lr_ratio is not None else cfg.dpo.min_lr_ratio
     weight_decay = (
-        cli_args.weight_decay if cli_args.weight_decay is not None else args.weight_decay
+        cli_args.weight_decay if cli_args.weight_decay is not None else cfg.training.weight_decay
     )
-    clip_grad = args.clip_grad
+    clip_grad = cfg.training.clip_grad
     lr_scheduler = cli_args.lr_scheduler
     stable_ratio = cli_args.stable_ratio
 
@@ -123,12 +127,12 @@ def main():
         "num_heads": sft_cfg["num_heads"],
         "num_kv_heads": sft_cfg["num_kv_heads"],
         "d_ff": sft_cfg["d_ff"],
-        "dropout": sft_cfg.get("dropout", args.dropout),
+        "dropout": sft_cfg.get("dropout", cfg.model.dropout),
         "max_seq_len": sft_cfg.get("max_seq_len", max_seq_len),
         "pad_token_id": sft_cfg.get("pad_token_id", 0),
     }
 
-    flash_attn = args.use_flash_attn
+    flash_attn = cfg.model.use_flash_attn
 
     policy_model = GleamLMModel(
         **model_kwargs,
