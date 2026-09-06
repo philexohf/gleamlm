@@ -17,6 +17,7 @@ import pytest
 
 from gleamlm.types import ConfigValidationError
 from gleamlm.utils.config import (
+    _REQUIRED_CONFIG_SECTIONS,
     GleamLMConfig,
     load_config,
     load_yaml,
@@ -30,25 +31,52 @@ _CONFIGS = Path(__file__).resolve().parents[1] / "configs"
 # config.py 的 _REQUIRED_CONFIG_SECTIONS 重复: 任一侧清单被误删, 测试都会先暴露。
 _CONSUMED = {
     "model": (
-        "d_model", "num_layers", "num_heads", "num_kv_heads", "d_ff",
-        "max_seq_len", "vocab_size", "dropout", "tie_weights",
+        "d_model",
+        "num_layers",
+        "num_heads",
+        "num_kv_heads",
+        "d_ff",
+        "max_seq_len",
+        "vocab_size",
+        "dropout",
+        "tie_weights",
         "use_flash_attn",
     ),
     "training": (
-        "epochs", "batch_size", "accumulate_grad", "weight_decay",
-        "clip_grad", "log_interval", "save_interval", "seed",
+        "epochs",
+        "batch_size",
+        "accumulate_grad",
+        "weight_decay",
+        "clip_grad",
+        "log_interval",
+        "save_interval",
+        "seed",
         "label_smoothing",
     ),
     "lr": ("type", "lr", "warmup_ratio", "stable_ratio", "min_lr_ratio"),
     "advanced": ("z_loss_weight", "num_workers"),
     "data": ("tokenizer_path", "data_dir", "checkpoint_dir"),
     "sft": (
-        "epochs", "batch_size", "accumulate_grad", "lr", "warmup_ratio",
-        "weight_decay", "max_seq_len", "inject_system_ratio", "data_path",
+        "epochs",
+        "batch_size",
+        "accumulate_grad",
+        "lr",
+        "warmup_ratio",
+        "weight_decay",
+        "max_seq_len",
+        "inject_system_ratio",
+        "data_path",
     ),
     "dpo": (
-        "epochs", "batch_size", "accumulate_grad", "lr", "beta",
-        "max_seq_len", "warmup_ratio", "min_lr_ratio", "data_path",
+        "epochs",
+        "batch_size",
+        "accumulate_grad",
+        "lr",
+        "beta",
+        "max_seq_len",
+        "warmup_ratio",
+        "min_lr_ratio",
+        "data_path",
     ),
 }
 
@@ -71,12 +99,9 @@ def test_pydantic_defaults_match_base_yaml() -> None:
                 default = list(default)  # pydantic tuple vs yaml list 语义等价
             if yaml_sec[key] != default:
                 diffs.append(
-                    f"base.yaml {section}.{key}={yaml_sec[key]!r} "
-                    f"!= Pydantic 默认 {default!r}"
+                    f"base.yaml {section}.{key}={yaml_sec[key]!r} != Pydantic 默认 {default!r}"
                 )
-    assert not diffs, (
-        "默认值漂移 (先确定哪边为真, 再同步另一边):\n" + "\n".join(diffs)
-    )
+    assert not diffs, "默认值漂移 (先确定哪边为真, 再同步另一边):\n" + "\n".join(diffs)
 
 
 @pytest.mark.parametrize("name", ["base", "nano", "lite", "pro"])
@@ -95,6 +120,16 @@ def test_consumed_fields_present_in_variant(name: str) -> None:
     if "data_sources" not in data:
         missing.append("data_sources")
     assert not missing, f"{name}.yaml 缺少消费方必读字段: {', '.join(missing)}"
+
+
+def test_consumed_matches_required_sections() -> None:
+    """测试侧 _CONSUMED 与运行侧 _REQUIRED_CONFIG_SECTIONS 必须逐字一致。
+
+    任一侧清单被单独改动（加字段/删字段/改键）都会让本用例变红 —— 消除
+    _DictWrapper 轨后仍可能出现的"清单漂移"第二来源：生产代码与测试各自
+    维护一份必读字段清单。锁定后必须显式决定"哪边为真"再同步另一边。
+    """
+    assert _CONSUMED == _REQUIRED_CONFIG_SECTIONS
 
 
 def test_missing_field_raises_config_error() -> None:

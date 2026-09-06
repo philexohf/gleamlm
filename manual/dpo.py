@@ -39,7 +39,7 @@ _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _ROOT_DIR = os.path.dirname(_SCRIPT_DIR)
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="GleamLM DPO 偏好对齐")
     parser.add_argument(
         "--variant", type=str, choices=["nano", "lite", "pro"], required=True, help="模型变体"
@@ -64,13 +64,24 @@ def main():
         "--tokenizer_path", type=str, default=DEFAULT_TOKENIZER_PATH, help="BBPE 分词器目录"
     )
     parser.add_argument("--output_dir", type=str, default=None, help="DPO 模型保存目录")
-    parser.add_argument("--lr_scheduler", type=str, choices=["cosine", "wsd"], default="cosine",
-        help="学习率调度器类型"
+    parser.add_argument(
+        "--lr_scheduler",
+        type=str,
+        choices=["cosine", "wsd"],
+        default="cosine",
+        help="学习率调度器类型",
     )
     parser.add_argument("--stable_ratio", type=float, default=0.80, help="WSD stable 阶段占比")
     parser.add_argument("--min_lr_ratio", type=float, default=None, help="覆写最小学习率比例")
-    parser.add_argument("--weight_decay", type=float, default=0.01, help="覆写权重衰减")
-    parser.add_argument("--seed", type=int, default=42, help="随机种子 (对齐 pretrain.py 的 --seed)")
+    parser.add_argument(
+        "--weight_decay",
+        type=float,
+        default=None,
+        help="覆写权重衰减 (默认取 configs/{variant}.yaml training.weight_decay)",
+    )
+    parser.add_argument(
+        "--seed", type=int, default=42, help="随机种子 (对齐 pretrain.py 的 --seed)"
+    )
 
     cli_args = parser.parse_args()
 
@@ -93,7 +104,9 @@ def main():
     )
     max_seq_len = cli_args.max_seq_len if cli_args.max_seq_len is not None else cfg.dpo.max_seq_len
     warmup_ratio = cfg.dpo.warmup_ratio
-    min_lr_ratio = cli_args.min_lr_ratio if cli_args.min_lr_ratio is not None else cfg.dpo.min_lr_ratio
+    min_lr_ratio = (
+        cli_args.min_lr_ratio if cli_args.min_lr_ratio is not None else cfg.dpo.min_lr_ratio
+    )
     weight_decay = (
         cli_args.weight_decay if cli_args.weight_decay is not None else cfg.training.weight_decay
     )
@@ -132,7 +145,9 @@ def main():
         "pad_token_id": sft_cfg.get("pad_token_id", 0),
     }
 
-    flash_attn = cfg.model.use_flash_attn
+    # 结构字段一律以 SFT checkpoint _config 为准（与上方 model_kwargs 一致），
+    # 缺键才回落到当前 variant YAML，避免 variant 与 checkpoint 不一致时静默用错开关。
+    flash_attn = sft_cfg.get("use_flash_attn", cfg.model.use_flash_attn)
 
     policy_model = GleamLMModel(
         **model_kwargs,
@@ -232,19 +247,29 @@ def main():
                 policy_rej = compute_log_probs(r_logits.float(), rejected_ids, rejected_mask)
                 loss = dpo_loss(policy_cho, policy_rej, ref_cho, ref_rej, beta)
 
-            is_accum_step = (batch_idx + 1) % accumulate_grad == 0 or (batch_idx + 1) == len(dataloader)
+            is_accum_step = (batch_idx + 1) % accumulate_grad == 0 or (batch_idx + 1) == len(
+                dataloader
+            )
             # 残差批 (末尾不足 accumulate) 按实际批数除，避免归一化过头导致梯度偏小
-            denom = ((batch_idx % accumulate_grad) + 1) if (batch_idx + 1) == len(dataloader) else accumulate_grad
+            denom = (
+                ((batch_idx % accumulate_grad) + 1)
+                if (batch_idx + 1) == len(dataloader)
+                else accumulate_grad
+            )
             loss = loss / denom
             scaler.scale(loss).backward()
             if is_accum_step:
                 if lr_scheduler == "wsd":
-                    lr_mult = get_lr_wsd(global_step, total_steps, warmup_ratio, stable_ratio, min_lr_ratio)
+                    lr_mult = get_lr_wsd(
+                        global_step, total_steps, warmup_ratio, stable_ratio, min_lr_ratio
+                    )
                 else:
                     lr_mult = get_lr_cosine(global_step, total_steps, warmup_ratio, min_lr_ratio)
                 for pg in optimizer.param_groups:
                     pg["lr"] = lr * lr_mult
-                optimizer_step(optimizer, scaler, parameters=policy_model.parameters(), clip_grad=clip_grad)
+                optimizer_step(
+                    optimizer, scaler, parameters=policy_model.parameters(), clip_grad=clip_grad
+                )
                 global_step += 1
 
             epoch_loss += loss.item() * denom
@@ -252,7 +277,9 @@ def main():
 
             if batch_idx % log_interval == 0:
                 if lr_scheduler == "wsd":
-                    lr_mult = get_lr_wsd(global_step, total_steps, warmup_ratio, stable_ratio, min_lr_ratio)
+                    lr_mult = get_lr_wsd(
+                        global_step, total_steps, warmup_ratio, stable_ratio, min_lr_ratio
+                    )
                 else:
                     lr_mult = get_lr_cosine(global_step, total_steps, warmup_ratio, min_lr_ratio)
                 cur_lr = lr * lr_mult
