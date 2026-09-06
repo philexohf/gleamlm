@@ -66,6 +66,18 @@ def main():
     parser.add_argument("--stable_ratio", type=float, default=0.80, help="WSD stable 阶段占比")
     parser.add_argument("--min_lr_ratio", type=float, default=0.05, help="最小学习率比例")
     parser.add_argument(
+        "--weight_decay",
+        type=float,
+        default=None,
+        help="覆写权重衰减 (默认取 configs/{variant}.yaml sft.weight_decay)",
+    )
+    parser.add_argument(
+        "--warmup_ratio",
+        type=float,
+        default=None,
+        help="覆写 warmup 比例 (默认取 YAML sft.warmup_ratio)",
+    )
+    parser.add_argument(
         "--seed", type=int, default=42, help="随机种子 (对齐 pretrain.py 的 --seed)"
     )
 
@@ -88,8 +100,12 @@ def main():
         else cfg.sft.accumulate_grad
     )
     max_seq_len = cli_args.max_seq_len if cli_args.max_seq_len is not None else cfg.sft.max_seq_len
-    warmup_ratio = cfg.sft.warmup_ratio
-    weight_decay = cfg.sft.weight_decay
+    warmup_ratio = (
+        cli_args.warmup_ratio if cli_args.warmup_ratio is not None else cfg.sft.warmup_ratio
+    )
+    weight_decay = (
+        cli_args.weight_decay if cli_args.weight_decay is not None else cfg.sft.weight_decay
+    )
     inject_system_ratio = cfg.sft.inject_system_ratio
     clip_grad = cfg.training.clip_grad
     lr_scheduler = cli_args.lr_scheduler
