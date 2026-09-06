@@ -8,7 +8,7 @@ GleamLM 是一套从零实现的 LLM 工程实践项目，基于 PyTorch 原生�
 
 **能力覆盖**
 
-- **数据管道**：多源数据自动下载、粗去重、文本清洗、SimHash/MinHash 精细去重和字符级配比均衡；
+- **数据管道**：多源数据、粗去重、文本清洗、SimHash/MinHash 精细去重和字符级配比均衡；
 
 - **分词系统**：纯 Python 自研 BBPE 分词器，支持按 `manual/configs/*.yaml` 配比从零训练（词频聚合内存优化，200M 字符仅 ~1.2GB）、编码解码与 HF 格式导出；
 
@@ -61,7 +61,7 @@ GleamLM 面向大语言模型预训练与后训练工程师，目标是理解原
 
 ## 技术架构
 
-| 组件 | 实现方式 | 为什么这样选 |
+| 组件 | 实现方式 | 选型理由 |
 |:---|:---|:---|
 | **范式** | Decoder-only（对标 LLaMA 3 / Qwen3） | 当前主流 |
 | **归一化** | Pre-Norm + RMSNorm | 训练稳定，Post-Norm 已淘汰 |
@@ -70,7 +70,7 @@ GleamLM 面向大语言模型预训练与后训练工程师，目标是理解原
 | **注意力变体** | NoPE / ALiBi / Sliding Window | 理解不同设计选择的代价 |
 | **激活函数** | SwiGLU（FFN） | 替代 ReLU 的现代选择 |
 | **MoE** | Router + Top-K + aux_loss | 稀疏激活，Mixtral 同款 |
-| **状态空间** | Mamba-1 教学实现 | SSM vs Attention 基础知识 |
+| **状态空间** | Mamba-1 实现 | SSM vs Attention 基础知识 |
 | **训练精度** | BF16/FP16 AMP（BF16 免 scaler，FP16 才启用） | 混合精度训练 |
 | **分布式** | DDP + FSDP + DeepSpeed | 三种策略对比 |
 | **分词器** | BBPE 12K（纯 Python 自研） | 理解词表构建全流程 |
