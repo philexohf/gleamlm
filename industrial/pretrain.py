@@ -64,7 +64,6 @@ from contextlib import nullcontext
 
 import torch
 import torch.distributed as dist
-import yaml
 
 try:
     import wandb
@@ -73,10 +72,10 @@ except ImportError:
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from torch.utils.data import DataLoader, Dataset
-
+from industrial_config import load_config  # 同目录轻量校验 (消费端必读键护栏)
 from megatron.core import parallel_state
 from megatron.core.transformer import TransformerConfig
+from torch.utils.data import DataLoader, Dataset
 
 # 以下为示例脚本的最小依赖集；生产预训练请使用官方 pretrain_gpt.py
 # from megatron.core.models.gpt.gpt_model import GPTModel  ← 延迟导入（见 build_model）
@@ -164,7 +163,9 @@ def build_train_dataset(config, prefix: str, tokenizer, seq_length: int) -> Data
     return train_ds
 
 
-def build_model(config: TransformerConfig, vocab_size: int, max_sequence_length: int) -> torch.nn.Module:
+def build_model(
+    config: TransformerConfig, vocab_size: int, max_sequence_length: int
+) -> torch.nn.Module:
     """构建 Megatron GPT 模型（延迟导入，未装 megatron 时错误信息更友好）。
 
     megatron-core 0.16: vocab_size / max_sequence_length / position_embedding_type
@@ -191,10 +192,10 @@ def build_model(config: TransformerConfig, vocab_size: int, max_sequence_length:
         vocab_size=vocab_size,
         max_sequence_length=max_sequence_length,
         pre_process=True,
-        post_process=True,          # 含 lm_head
-        parallel_output=False,      # TP>1 时为 True（logits 按 rank 切分）
+        post_process=True,  # 含 lm_head
+        parallel_output=False,  # TP>1 时为 True（logits 按 rank 切分）
         share_embeddings_and_output_weights=True,  # 与手写轨 weight tying 对齐
-        position_embedding_type="rope",   # RoPE（手写轨一致），非 learned_absolute
+        position_embedding_type="rope",  # RoPE（手写轨一致），非 learned_absolute
         rotary_base=config.rotary_base if hasattr(config, "rotary_base") else 10000.0,
     )
 
@@ -223,9 +224,7 @@ def forward_backward(model, batch, z_loss_weight: float = 0.0):
     # megatron-core 0.16 需要显式因果 attention_mask（bool，True=屏蔽）。
     # GPTDataset create_attention_mask=False，必须自己构造: 上三角(含未来)=True。
     s = input_ids.size(1)
-    causal = torch.triu(
-        torch.ones(s, s, dtype=torch.bool, device=input_ids.device), diagonal=1
-    )
+    causal = torch.triu(torch.ones(s, s, dtype=torch.bool, device=input_ids.device), diagonal=1)
     attention_mask = causal.unsqueeze(0).expand(input_ids.size(0), 1, s, s)
 
     # 前向: 不传 labels，模型返回 logits [b, s, h]，
@@ -271,13 +270,15 @@ def reduce_dp_grads(model):
         p.grad.div_(dp_size)
 
 
-def load_config(path: str) -> dict:
-    with open(path, encoding="utf-8") as f:
-        return yaml.safe_load(f)
-
-
-def _run_eval(model, eval_prefix, tokenizer, seq_length, transformer_config,
-              max_batches: int = 200, autocast_ctx=None):
+def _run_eval(
+    model,
+    eval_prefix,
+    tokenizer,
+    seq_length,
+    transformer_config,
+    max_batches: int = 200,
+    autocast_ctx=None,
+):
     """训练结束后在验证集上评估 loss/ppl（rank0，只读 mmap）。
 
     与 forward_backward 相同 CE 口径（labels 已 shift + loss_mask 加权）。
@@ -317,7 +318,7 @@ def _run_eval(model, eval_prefix, tokenizer, seq_length, transformer_config,
             n += 1
     model.train()
     avg = total / max(n, 1)
-    ppl = 2.718281828 ** avg
+    ppl = 2.718281828**avg
     print(f"[eval] {n} batches | val_loss {avg:.4f} | val_ppl {ppl:.2f}")
     if wandb is not None:
         wandb.log({"val_loss": avg, "val_ppl": ppl})
@@ -327,16 +328,28 @@ def _run_eval(model, eval_prefix, tokenizer, seq_length, transformer_config,
 def main():
     parser = argparse.ArgumentParser(description="Megatron-Core 最小预训练循环")
     parser.add_argument("--config", required=True, help="模型配置 YAML")
-    parser.add_argument("--data", required=True, help=".bin/.idx 前缀 (data_tools/pretrain/run_pipeline.py 输出)")
-    parser.add_argument("--tokenizer-path", default="gleamlm/tokenizer/checkpoints/bbpe_12k",
-                        help="BBPE tokenizer 目录 (GPTDataset 需 vocab_size/eod)")
+    parser.add_argument(
+        "--data", required=True, help=".bin/.idx 前缀 (data_tools/pretrain/run_pipeline.py 输出)"
+    )
+    parser.add_argument(
+        "--tokenizer-path",
+        default="gleamlm/tokenizer/checkpoints/bbpe_12k",
+        help="BBPE tokenizer 目录 (GPTDataset 需 vocab_size/eod)",
+    )
     parser.add_argument("--out", default="checkpoints/megatron", help="checkpoint 目录")
-    parser.add_argument("--load", default=None,
-                        help="恢复 checkpoint (out 目录下 iter_<N>.pt 的完整路径)")
-    parser.add_argument("--eval-data", default=None,
-                        help="验证数据 .bin/.idx 前缀（可选，训练结束后评估 val loss/ppl）")
-    parser.add_argument("--wandb_project", default=None,
-                        help="wandb project（默认 gleamlm；装即启用，未装自动禁用）")
+    parser.add_argument(
+        "--load", default=None, help="恢复 checkpoint (out 目录下 iter_<N>.pt 的完整路径)"
+    )
+    parser.add_argument(
+        "--eval-data",
+        default=None,
+        help="验证数据 .bin/.idx 前缀（可选，训练结束后评估 val loss/ppl）",
+    )
+    parser.add_argument(
+        "--wandb_project",
+        default=None,
+        help="wandb project（默认 gleamlm；装即启用，未装自动禁用）",
+    )
     parser.add_argument("--wandb_run_name", default=None, help="wandb run 名")
     args = parser.parse_args()
 
@@ -376,7 +389,7 @@ def main():
         attention_dropout=0.0,
         # 对齐手写轨架构: RMSNorm + SwiGLU + 无 bias（Qwen3 标准），RoPE 由 GPTModel 参数指定
         normalization="RMSNorm",
-        gated_linear_unit=True,      # SwiGLU（手写轨 MLP 三权重），megatron 默认 False
+        gated_linear_unit=True,  # SwiGLU（手写轨 MLP 三权重），megatron 默认 False
         activation_func=torch.nn.functional.silu,
         add_bias_linear=False,
         # bf16 下 softmax 默认走 fp32，attention_probs(float) 与 value(bf16) 在
@@ -392,8 +405,8 @@ def main():
     model = build_model(config, m["vocab_size"], m["max_position_embeddings"]).cuda()
 
     # 4. 数据（官方 GPTDataset + BlendedMegatronDatasetBuilder，对齐 pretrain_gpt.py）
-    from hf.hf_megatron_tokenizer import MegatronBBPETokenizer
     from gleamlm.tokenizer.tokenizer import BBPETokenizer
+    from hf.hf_megatron_tokenizer import MegatronBBPETokenizer
 
     tok = BBPETokenizer.load(args.tokenizer_path)
     megatron_tok = MegatronBBPETokenizer(tok)
@@ -563,7 +576,7 @@ def main():
             print(
                 f"step {step:6d} | loss {total_loss / max(step, 1):.4f} "
                 f"| lr {lr_now:.2e} "
-                f"| {tok_s/1e3:.0f}k tok/s | MFU {mfu:.1f}% | mem {mem_gb:.1f}G"
+                f"| {tok_s / 1e3:.0f}k tok/s | MFU {mfu:.1f}% | mem {mem_gb:.1f}G"
             )
             if wandb is not None:
                 wandb.log(
@@ -590,7 +603,7 @@ def main():
 
         optimizer.zero_grad()
         acc_loss, acc_n = 0.0, 0
-        for micro_i, batch in batch_iter:
+        for _micro_i, batch in batch_iter:
             with autocast_ctx:
                 loss = forward_backward(model, batch, z_loss_weight=z_loss_weight)
             acc_loss += loss.item()
@@ -616,8 +629,15 @@ def main():
 
     # 7. 可选验证: --eval-data (.bin/.idx 前缀) 训练结束后评估 val loss/ppl
     if args.eval_data and dist.get_rank() == 0:
-        _run_eval(model, args.eval_data, megatron_tok, m["seq_length"], config,
-                  max_batches=t.get("eval_max_batches", 200), autocast_ctx=autocast_ctx)
+        _run_eval(
+            model,
+            args.eval_data,
+            megatron_tok,
+            m["seq_length"],
+            config,
+            max_batches=t.get("eval_max_batches", 200),
+            autocast_ctx=autocast_ctx,
+        )
 
     # 8. final checkpoint
     _save(os.path.join(args.out, "megatron_final.pt"))
