@@ -364,9 +364,10 @@ class DPOConfig(BaseModel):
     epochs: int = 1
     batch_size: int = 2
     accumulate_grad: int = 2
-    # 历史坑: 曾误配 1e-7 (比 base.yaml 实证低 10×)
+    # 历史坑①: 曾默认 beta 0.1 (KL 约束偏弱致输出漂移, 定稿 0.3)
+    # 历史坑②: lr 曾误配 1e-7 (比 base.yaml 实证低 10×)
     lr: float = 1e-6
-    beta: float = 0.1
+    beta: float = 0.3
     max_seq_len: int = 1024
     warmup_ratio: float = 0.02
     min_lr_ratio: float = 0.05

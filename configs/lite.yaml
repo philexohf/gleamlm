@@ -1,7 +1,8 @@
 # ============================================================================
 # GleamLM-Lite 87M 配置
 # ============================================================================
-# 继承 base.yaml，仅覆盖差异项
+# 继承 base.yaml 兜底；显式键为 Lite 训练生效值（与 base 同值属刻意锁定，
+# 训练以本文件为准，不随 base 变动漂移）
 extends: base.yaml
 
 training:
@@ -9,6 +10,7 @@ training:
   batch_size: 4
   accumulate_grad: 16
   max_train_chars: 6130000000   # 6.13B chars (与 nano 统一)
+  label_smoothing: 0.1          # 标签平滑
 
 lr:
   type: cosine                   # Cosine Annealing + Warmup
@@ -39,11 +41,27 @@ advanced:
   bf16: true
 
 sft:
+  # 显式锁定（当前同 base 默认）；Lite 重训时按实测调整
+  epochs: 3
+  batch_size: 8
+  accumulate_grad: 4
+  lr: 1.0e-4
+  warmup_ratio: 0.02
+  weight_decay: 0.01
   max_seq_len: 2048
+  inject_system_ratio: 0.2
   data_path: data/lite/sft/sft_api_clean.jsonl
 
 dpo:
+  # 显式锁定（当前同 base 默认）；Lite 重训时按实测调整
+  epochs: 1
+  batch_size: 2
+  accumulate_grad: 2
+  lr: 1.0e-6
+  beta: 0.3
   max_seq_len: 2048
+  warmup_ratio: 0.02
+  min_lr_ratio: 0.05
   data_path: data/lite/dpo/dpo_data.jsonl
 
 data_sources:

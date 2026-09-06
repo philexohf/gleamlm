@@ -98,63 +98,83 @@ GleamLM 面向大语言模型预训练与后训练工程师，目标是理解原
 ## 项目结构
 
 ```
-gleamlm-main/
+GleamLM/
 ├── gleamlm/                       # 核心库：完整学习路径（数据 → 模型 → 训练 → 推理）
-│   ├── tokenizer/                 # ① BBPE 分词器（训练/编码/解码/HF 导出）
-│   ├── data/                      # ② 数据管线（清洗→去重→打包→预分词）
+│   ├── tokenizer/                 # ① BBPE 分词器（训练/编码/解码/HF 导出；checkpoints/bbpe_12k 为成品词表）
+│   ├── data/                      # ② 数据层：管线编排 + 各阶段数据集
+│   │   ├── pipeline.py            #   预训练 6 阶段管线（粗去重→清洗→质量→细去重→切分→打包）
+│   │   ├── pack.py / dataset.py   #   文本 → Megatron .bin/.idx 打包 / mmap 懒加载数据类
+│   │   ├── sft_data.py / dpo_data.py / rl_data.py  # 后训练数据集（SFT JSONL / DPO 偏好对 / RL prompt）
+│   │   └── preprocess.py          #   文件流式预处理引擎（各变体共用）
 │   ├── models/                    # ③ 模型架构
 │   │   ├── model.py               #   GleamLMModel（GQA / RoPE / SwiGLU / MoE / QK-Norm）
 │   │   ├── attention_variants.py  #   NoPE / ALiBi / Sliding Window GQA
 │   │   └── mamba.py               #   Mamba-1 教学实现
 │   ├── trainer/                   # ④ 训练支撑
-│   │   ├── base_trainer.py        #   原子化训练原语（optimizer_step / GradScaler）
-│   │   ├── sft_trainer.py         #   SFT 训练 + 数据集
-│   │   ├── dpo_trainer.py         #   DPO 训练 + 数据集
-│   │   ├── lora.py                #   LoRA 从零实现
-│   │   └── grpo_loss.py / ppo_loss.py  # RL loss 独立可测
-│   ├── inference/                 # ⑤ 推理与生成（KV Cache / 流式 / 推测解码）
-│   ├── rag/                       # ⑥ RAG 检索增强
-│   ├── utils/                     # ⑦ 工具集（config / AMP / LR / ChatML）
-│   └── evaluation/                # ⑧ 评测（PPL 基础指标；标准 benchmark 见 eval/）
+│   │   ├── base_trainer.py        #   预训练原子原语（optimizer_step / GradScaler）
+│   │   ├── rl_trainer.py          #   PPO / GRPO 训练支撑 + 共享奖励函数
+│   │   ├── dpo_loss.py / distill_loss.py  # DPO / 蒸馏 loss（独立可测）
+│   │   ├── schedulers.py          #   WSD / cosine 等 LR 调度
+│   │   └── lora.py                #   LoRA 从零实现
+│   ├── inference/                 # ⑤ 推理与生成
+│   │   ├── generator.py           #   自回归生成核心（KV Cache + 采样循环）
+│   │   ├── generate.py            #   共享生成工具（评估 / 数据生成复用）
+│   │   ├── streamer.py / speculative.py  # 流式输出 / 推测解码
+│   │   ├── conversation.py        #   多轮对话管理（KV cache 复用）
+│   │   └── cli.py                 #   统一推理 CLI
+│   ├── rag/                       # ⑥ RAG 检索增强（BM25 + Dense 双路）
+│   ├── utils/                     # ⑦ 工具集（config / AMP / ChatML）
+│   ├── evaluation/                # ⑧ 评测（PPL 基础指标；标准 benchmark 见 eval/）
+│   └── api.py / types.py          #   推理便捷入口 / 共享类型
 │
 ├── manual/                        # 手写训练脚本（教学轨，完整实现细节）
 │   ├── pretrain.py                #   预训练（AMP / DDP / 断点续训）
-│   ├── sft.py                     #   SFT 全量微调
-│   ├── sft_lora.py                #   LoRA 微调（手写实现）
-│   ├── dpo.py                     #   DPO 偏好对齐
-│   ├── grpo.py / ppo.py           #   GRPO / PPO 强化对齐
+│   ├── sft.py / sft_lora.py       #   SFT 全量微调 / LoRA 微调（手写实现）
+│   ├── dpo.py / grpo.py / ppo.py  #   DPO / GRPO / PPO 后训练对齐
+│   ├── opd.py                     #   OPD 在线策略蒸馏（学生采样 → 教师打分 → reverse KL）
 │   ├── distill.py                 #   知识蒸馏
 │   ├── deepspeed.py / fsdp.py     #   分布式训练
-│   ├── infer.py                   #   交互式推理
+│   ├── infer.py                   #   交互式推理（命令行入口）
 │   └── train_tokenizer.py         #   BBPE 分词器训练（--variant 读配比 / --data_dir / 扩展 / 验证）
 │
-├── industrial/                    # 工业训练脚本（对接 TRL / PEFT / DeepSpeed）
-│   ├── pretrain.py / dpo.py / grpo.py / ppo.py / sft_lora.py
-│   └── configs/                   #   工业轨专用 YAML
+├── industrial/                    # 工业训练脚本（对接 Megatron / TRL / PEFT / DeepSpeed）
+│   ├── pretrain.py                #   Megatron 轨预训练（GPTDataset / BlendedMegatronDatasetBuilder）
+│   ├── sft.py / dpo.py / grpo.py / ppo.py / sft_lora.py  # 工业后训练（TRL / PEFT）
+│   └── configs/                   #   工业轨专用 YAML（nano.yaml / 0.6b.yaml）
 │                                   #   预训练用法见 docs/industrial_pretrain.md
 │
 ├── hf/                            # HuggingFace 生态桥梁
 │   ├── hf_config.py               #   PretrainedConfig
 │   ├── hf_model.py                #   GleamLMForCausalLM（from_pretrained / generate）
-│   ├── hf_adapter.py              #   Tokenizer 适配
+│   ├── hf_adapter.py              #   Tokenizer 适配（HF 格式）
+│   ├── hf_megatron_tokenizer.py   #   BBPE → MegatronTokenizerBase（工业轨复用）
 │   └── api.py                     #   便捷推理 API
 │
 ├── data_tools/                    # 数据管线工具
-│   ├── pretrain/                  #   预训练数据（清洗/去重/切分）
-│   ├── sft/                       #   SFT 数据生成（API 蒸馏）
-│   ├── dpo/                       #   DPO rejected 生成
+│   ├── download_data.py           #   原始语料下载（fineweb / wiki / baike）
+│   ├── pretrain/                  #   预训练数据（清洗 / 去重 / 切分 / 打包）
+│   ├── sft/                       #   SFT 数据生成（API 蒸馏 / QA 规则抽取）
+│   ├── dpo/                       #   DPO chosen / rejected 构建
 │   └── shared/                    #   API 客户端
 │
-├── deploy/                        # 部署工具（导出 / ONNX / 量化）
-├── serve/                         # FastAPI OpenAI 兼容服务
+├── deploy/                        # 部署工具（checkpoint → HF 格式 / 量化 / 导出）
+│   ├── manual_to_qwen3.py         #   手工轨 checkpoint → HF Qwen3 格式
+│   ├── megatron_to_hf.py          #   Megatron 产物 → HF Qwen3 格式（vLLM 原生加载）
+│   ├── quantize.py                #   量化部署（FP16 / INT8 / INT4，torchao）
+│   ├── export.py                  #   HF 格式导出（safetensors + vLLM 适配）
+│   └── export_onnx.py             #   ONNX 导出
+├── serve/                         # FastAPI OpenAI 兼容服务（含网页聊天界面）
 ├── eval/                          # 评测入口（lm-evaluation-harness：CEVAL / CMMLU / MMLU）
 ├── configs/                       # YAML 配置
 │   ├── base.yaml                  #   基础共享
 │   ├── nano.yaml / lite.yaml / pro.yaml  # 各变体
 │   └── deepspeed_config.json / deepspeed_zero2.json
 ├── tests/                         # 单元测试 + 集成测试
-├── tools/                         # 辅助工具脚本
+├── tools/                         # 辅助工具（checkpoint 检查/转换、快速运行、RAG demo）
+├── CODE_STANDARDS.md / CONTEXT.md # 编码规范 / 项目上下文
+├── requirements.txt
 ├── pyproject.toml
+├── LICENSE
 └── README.md
 ```
 
@@ -436,7 +456,7 @@ Nano 与 Lite 同为四源（含 [Chinese FineWeb Edu](https://huggingface.co/da
 | 版本 | 参数量 | 定位 | 状态 |
 |------|--------|------|------|
 | GleamLM-Nano | ~40M | 单卡 12GB 完整训练 | ✅ 已完成 |
-| GleamLM-Lite | ~87M | FFN 3.4× 扩容 | ✅ 已完成 |
+| GleamLM-Lite | ~87M | FFN 3.4× 扩容 | 待重新训练（6 月版已完成，项目重构后需重训）|
 | GleamLM-Pro | ~126M | 18L×768d / BBPE 12K | 开发中 |
 | GleamLM-0.6B | ~0.6B | 工业级验证 / 37L×1024d / BBPE 24K 跨字合并 | 规划中 |
 

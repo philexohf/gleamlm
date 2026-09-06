@@ -1,21 +1,27 @@
 # ============================================================================
 # GleamLM-Nano 40M 配置
 # ============================================================================
-# 继承 base.yaml，仅覆盖差异项
+# 继承 base.yaml 兜底；显式键为 Nano 训练生效值（与 base 同值属刻意锁定，
+# 训练以本文件为准，不随 base 变动漂移）
 extends: base.yaml
 
 training:
+  # nano 实证：单遍数据预算由 max_train_chars 封顶（README 预训练配置）
   epochs: 1
+  # 有效 batch = micro 8 × accumulate 8 = 64（README 预训练配置）
   batch_size: 8
   accumulate_grad: 8
+  # 数据预算 6.13B chars（README 预训练配置）
   max_train_chars: 6130000000
+  # nano 实证值（README：label_smoothing 0.1）
+  label_smoothing: 0.1
 
 lr:
-  type: wsd
-  lr: 0.0004
-  warmup_ratio: 0.02
-  stable_ratio: 0.80
-  min_lr_ratio: 0.1
+  type: wsd                     # WSD 调度（README：WSD 4e-4 → 4e-5）
+  lr: 0.0004                    # nano 实证起始 lr 4e-4
+  warmup_ratio: 0.02            # nano 实证 warmup 2%
+  stable_ratio: 0.80            # nano 实证 stable 80%
+  min_lr_ratio: 0.1             # decay 期线性降至 4e-5（lr × 0.1）
 
 model:
   vocab_size: 12002
@@ -36,16 +42,38 @@ data:
   ids_prefix: ""
 
 advanced:
-  z_loss_weight: 0.0001
+  z_loss_weight: 0.0001        # nano 实证启用 z-loss（防 logits 爆炸）
   bf16: true                   # nano 用 bf16 防 FP16 溢出
 
 sft:
+  # nano SFT 基线：sft_mix.jsonl 13,413 条、seq 512、lr 1e-4 cosine、3 epochs
+  # → loss 2.6283（README §SFT）
+  # 历史：旧 nano_sft_v2.log 的 loss 1.10 为 sft_data.jsonl 7,868 条重复
+  # 3 epoch 的过拟合值，勿作基线
+  epochs: 3
+  batch_size: 8
+  accumulate_grad: 4
+  # 历史坑：曾误配 5.0e-6——那是 1e-4×min_lr_ratio 0.05 的余弦终点值，非起始 lr
+  lr: 1.0e-4
+  warmup_ratio: 0.02
+  weight_decay: 0.01
   max_seq_len: 512
+  inject_system_ratio: 0.2
   # 混合训练集：基础集 3,415 + QA→SFT 10,000（见 data_tools/sft/mix_sft.py）
   data_path: data/nano/sft/sft_mix.jsonl
 
 dpo:
+  # nano DPO 基线：beta 0.3 定稿、lr 1e-6 cosine → loss 0.3953（README §DPO）
+  # 历史坑①：曾默认 beta 0.1（KL 约束偏弱，单次采样评估即见输出漂移），定稿 0.3
+  # 历史坑②：lr 曾误配 1.0e-7（比实证值低 10 倍）
+  epochs: 1
+  batch_size: 2
+  accumulate_grad: 2
+  lr: 1.0e-6
+  beta: 0.3
   max_seq_len: 512
+  warmup_ratio: 0.02
+  min_lr_ratio: 0.05
   data_path: data/nano/dpo/dpo_data.jsonl
 
 data_sources:

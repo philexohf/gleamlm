@@ -4,10 +4,12 @@
 extends: base.yaml
 
 training:
+  # 多遍训练（epochs=3），数据预算 8B chars
   epochs: 3
   batch_size: 2
   accumulate_grad: 32
   max_train_chars: 8000000000
+  label_smoothing: 0.1          # 标签平滑
 
 lr:
   type: wsd
@@ -40,11 +42,27 @@ advanced:
   bf16: true
 
 sft:
+  # 显式锁定（当前同 base 默认）；Pro 训练时按实测调整
+  epochs: 3
+  batch_size: 8
+  accumulate_grad: 4
+  lr: 1.0e-4
+  warmup_ratio: 0.02
+  weight_decay: 0.01
   max_seq_len: 4096
+  inject_system_ratio: 0.2
   data_path: data/pro/sft_data.jsonl
 
 dpo:
+  # 显式锁定（当前同 base 默认）；Pro 训练时按实测调整
+  epochs: 1
+  batch_size: 2
+  accumulate_grad: 2
+  lr: 1.0e-6
+  beta: 0.3
   max_seq_len: 4096
+  warmup_ratio: 0.02
+  min_lr_ratio: 0.05
   data_path: data/pro/dpo_data.jsonl
 
 data_sources:
